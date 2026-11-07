@@ -66,7 +66,7 @@ jobs:
       - name: The engine runs mtest's own tests
         run: |
           set -euo pipefail
-          mtest=$(find target -type f -name mtest -path '*/bin/mtest/*' | head -1)
+          mtest=$(find target -type f -name mtest -path '*/bin/mtest.mtest/*' | head -1)
           programs=$(find target -type f -path '*/bin/mtest/*' \( -name expectations -o -name companions \))
           "$mtest" run $programs --junit target/mtest-junit.xml
           "$mtest" gate --set full

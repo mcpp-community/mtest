@@ -1,5 +1,10 @@
 # Working with an agent
 
+**Writing a test.** `mcpp test --guide` names the test frameworks a package uses, each with its guide
+([lib/docs/writing-tests.md](../lib/docs/writing-tests.md) for mtest's library,
+[adapters/gtest/docs/writing-tests.md](../adapters/gtest/docs/writing-tests.md) for GoogleTest), and the
+commands that list, select and explain cases (spec/protocol.md P2.5).
+
 The engine's answers are data with a `conclusion`; an agent reads the conclusion and acts on the fields,
 through `--json` or the MCP tools ([service.md](service.md)). Four tasks, as command sequences:
 

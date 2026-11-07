@@ -128,7 +128,9 @@ int mcpplibs_mtest_gtest_main(int argc, char** argv) {
                   {"level", 1},
                   {"framework", "googletest"},
                   {"version", "0.1.0"},
-                  {"isolation", {"process", "case"}}});
+                  {"isolation", {"process", "case"}},
+                  {"guide", "https://github.com/mcpp-community/mtest/blob/main/adapters/gtest/docs/"
+                            "writing-tests.md"}});
     const auto tests = all_tests();
     if (env("MTEST_MODE") == "list") {
         for (const auto* t : tests) {

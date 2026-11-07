@@ -40,6 +40,8 @@ P2.3 A program states that it implements the protocol in two ways:
 
 P2.4 A runner that knows neither may still set `MTEST_MODE=list` and `MTEST_REPORT`. The first event (P5.2) tells it the level. When no `program` event arrives, the program is L0, and in `list` mode it has run all of its tests once.
 
+P2.5 A framework may state where its guide to writing tests is: a file of its package that a writer of a test, a person or an agent, reads before writing one or after one failed. A host declaration names it (mcpp: the entry's `test-guide = "<file>"`; `mcpp test --guide` lists each framework with its guide), and the `program` event may carry `guide`, a URL, for a runner that learns of the framework only when it runs the program. A runner that names a failure may name the guide beside it. The guide states how a file of cases is written, how an expectation is stated and what its failure reports, and how one case is run.
+
 ## P3. Listing
 
 P3.1 With `MTEST_MODE=list` the program must write one `program` event, then one `case` event per case it would run, then one `done` event, and must exit with status 0 without running any case.
@@ -64,7 +66,7 @@ P5.2 The first event is `program`. Every event has the field `e`, its kind.
 
 | `e` | Fields | When |
 |---|---|---|
-| `program` | `protocol` (1), `level` (1–3), `framework`, `version`, `isolation` (the values of P2.1 the program supports) | first |
+| `program` | `protocol` (1), `level` (1–3), `framework`, `version`, `isolation` (the values of P2.1 the program supports), optionally `guide` (P2.5) | first |
 | `case` | `id`, `name`, `file`, `line`, `kind`, `tags`, `clauses`, `expect`, `resources`, `artifacts` | in `list` mode, one per case |
 | `begin` | `id`, `t` (milliseconds since the program started) | a case starts |
 | `failure` | `id`, `file`, `line`, `message`, and optionally `expected`, `actual` (strings), `fatal` | an expectation does not hold |

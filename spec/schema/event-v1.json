@@ -41,6 +41,10 @@
        "case"
       ]
      }
+    },
+    "guide": {
+     "type": "string",
+     "description": "P2.5: a URL of the framework's guide to writing tests"
     }
    },
    "required": [

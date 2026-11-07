@@ -43,6 +43,7 @@ kind          = "entry"
 main          = "src/entry/main.cpp"
 test-protocol = 1
 test-main     = true
+test-guide    = "docs/writing-tests.md"
 
 [dependencies]
 mcpplibs.os   = "0.3.1"

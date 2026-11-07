@@ -33,6 +33,7 @@ kind          = "entry"
 main          = "src/main.cpp"
 test-protocol = 1
 test-main     = true
+test-guide    = "docs/writing-tests.md"
 
 # The adapter's own conformance fixture (spec/conformance.md), which the conformance suite runs
 # (MTEST_CTS_PROGRAM, MTEST_CTS_ID_STYLE=gtest).

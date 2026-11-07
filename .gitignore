@@ -1,4 +1,5 @@
 target/
 .mcpp/
 .mtest/
+__pycache__/
 mcpp.lock.tmp

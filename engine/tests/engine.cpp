@@ -1,0 +1,243 @@
+// The engine, as its users run it: the `mtest` program over programs of each level, written here as
+// scripts with the Bash adapter (adapters/script/mtest.sh), in a project of their own.
+import std;
+import mcpplibs.mtest;
+import mcpplibs.mtest.e2e;
+import mcpplibs.os;
+import nlohmann.json;
+
+using namespace mcpplibs::mtest;
+using json = nlohmann::json;
+
+namespace {
+
+// The repository's root, from this file's place in it.
+std::filesystem::path repository() {
+    return std::filesystem::path(std::source_location::current().file_name())
+        .parent_path()
+        .parent_path()
+        .parent_path();
+}
+
+std::string adapter() {
+    return (repository() / "adapters" / "script" / "mtest.sh").generic_string();
+}
+
+// A project directory holding `files`, scripts made executable. The tests name a script `bash
+// t.sh`, as Windows starts no script by its first line.
+std::filesystem::path
+project(std::initializer_list<std::pair<std::string_view, std::string_view>> files) {
+    auto root = e2e::tree(files);
+    for (const auto& [name, _] : files)
+        if (name.ends_with(".sh"))
+            (void)mcpplibs::os::fs::set_executable(root / name, true);
+    return root;
+}
+
+e2e::outcome mtest(const std::filesystem::path& cwd, std::vector<std::string> args,
+                   std::string input = {}) {
+    args.insert(args.begin(), e2e::program("mtest"));
+    return e2e::run({.argv = args,
+                     .cwd = cwd,
+                     .input = std::move(input),
+                     .timeout = std::chrono::seconds{120}});
+}
+
+json json_of(const e2e::outcome& r) {
+    auto j = json::parse(r.out, nullptr, false);
+    if (j.is_discarded())
+        fail("not JSON: " + r.out.substr(0, 400) + r.err.substr(0, 400));
+    return j;
+}
+
+// A protocol script: the cases given as `id:status`, each with a function that does what its status
+// says.
+std::string script(std::initializer_list<std::string_view> cases, std::string_view extra = {}) {
+    std::string s = "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
+    s += "ok() { :; }\nbad() { mtest_eq 1 2; }\n";
+    s += std::string(extra);
+    for (auto c : cases) {
+        const auto colon = c.find(':');
+        const auto id = c.substr(0, colon);
+        const auto what = c.substr(colon + 1);
+        s += std::format("mtest_case '{}' {}\n", id,
+                         what == "fail"   ? "bad"
+                         : what == "pass" ? "ok"
+                                          : what);
+    }
+    return s + "mtest_report\n";
+}
+
+}  // namespace
+
+int main() {
+    "an L0 program is one case, judged by its exit status"_test[kind::e2e] = [] {
+        auto root = project({{"good.sh", "exit 0\n"}, {"bad.sh", "exit 4\n"}});
+        auto r = mtest(root, {"run", "--json", "bash good.sh", "bash bad.sh"});
+        expect(eq(r.status, 1));
+        auto j = json_of(r);
+        expect(eq(j["counts"].value("pass", 0), 1));
+        expect(eq(j["counts"].value("fail", 0), 1));
+        expect(eq(j["failing"][0]["why"].get<std::string>(), std::string("exit 4")));
+    };
+    "a protocol program's cases, their failures and a selection"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"fs/a:pass", "fs/b:fail", "net/c:pass"})}});
+        auto r = mtest(root, {"run", "--json", "bash t.sh"});
+        auto j = json_of(r);
+        expect(eq(j["cases"].get<int>(), 3));
+        expect(eq(j["failing"].size(), std::size_t(1)));
+        expect(eq(j["failing"][0]["case"].get<std::string>(), std::string("fs/b")));
+        expect(contains(j["failing"][0]["where"].get<std::string>(), "t.sh:"));
+        expect(contains(j["failing"][0]["again"].get<std::string>(), "--case fs/b"));
+        auto only = json_of(mtest(root, {"run", "--json", "--case", "net/*", "bash t.sh"}));
+        expect(eq(only["cases"].get<int>(), 1));
+        expect(eq(only["status"].get<std::string>(), std::string("pass")));
+    };
+    "a case a crash ended fails with the program's status (P5.4)"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"dies:crash"}, "crash() { exit 9; }\n")}});
+        auto j = json_of(mtest(root, {"run", "--json", "bash t.sh"}));
+        expect(eq(j["status"].get<std::string>(), std::string("fail")));
+        expect(contains(j["failing"][0]["why"].get<std::string>(), "exit 9"));
+    };
+    "a program past its timeout is ended and reported so"_test[kind::e2e][tag{"slow"}] = [] {
+        auto root = project({{"hang.sh", "sleep 30\n"}});
+        auto j = json_of(mtest(root, {"run", "--json", "--timeout", "1s", "bash hang.sh"}));
+        expect(eq(j["counts"].value("timeout", 0), 1));
+    };
+    "a program that does not start is the machine's failure, not the test's"_test[kind::e2e] = [] {
+        auto root = project({{"x.txt", ""}});
+        auto r = mtest(root, {"run", "--json", "./no-such-program"});
+        expect(eq(r.status, 3));
+        expect(eq(json_of(r)["status"].get<std::string>(), std::string("infra")));
+    };
+    "explain says where, why and how to repeat it"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"x:fail"})}});
+        (void)mtest(root, {"run", "bash t.sh"});
+        auto j = json_of(mtest(root, {"explain", "--json"}));
+        const auto& c = j["cases"][0];
+        expect(eq(c["case"].get<std::string>(), std::string("x")));
+        expect(eq(c["why"][0]["expected"].get<std::string>(), std::string("2")));
+        expect(eq(c["kind_of_failure"].get<std::string>(), std::string("first seen")));
+        expect(contains(j["conclusion"].get<std::string>(), "again:"));
+    };
+    "rerun runs the cases that failed last"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"a:pass", "b:fail"})},
+                             {"mtest.toml", "[programs.t]\ncommand = [\"bash\", \"t.sh\"]\n"}});
+        (void)mtest(root, {"run"});
+        auto j = json_of(mtest(root, {"rerun", "--json"}));
+        expect(eq(j["cases"].get<int>(), 1));
+    };
+    "a declared program, a set and a plan that says why"_test[kind::e2e] = [] {
+        auto root = project(
+            {{"t.sh", script({"a:pass", "b:pass"})},
+             {"mtest.toml", "[programs.t]\ncommand = [\"bash\", \"t.sh\"]\ntags = [\"smoke\"]\n"
+                            "sources = [\"src/*\"]\n"}});
+        auto plan = json_of(mtest(root, {"plan", "--json", "--set", "smoke"}));
+        expect(eq(plan["selected"].get<int>(), 2));
+        auto changed = json_of(mtest(root, {"plan", "--json", "--changed", "docs/x.md"}));
+        expect(eq(changed["selected"].get<int>(), 0))
+            << "a change of nothing the program reads affects none of it";
+        auto src = json_of(mtest(root, {"plan", "--json", "--changed", "src/a.cpp"}));
+        expect(eq(src["selected"].get<int>(), 2));
+        expect(contains(src["units"][0]["cases"][0]["why"].get<std::string>(), "src/a.cpp"));
+    };
+    "a quarantined case fails without failing the run"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"flaky:fail", "ok:pass"})}});
+        (void)mtest(root, {"quarantine", "add", "--case", "bash t.sh::flaky", "--reason", "known"});
+        auto r = mtest(root, {"run", "--json", "bash t.sh"});
+        expect(eq(r.status, 0));
+        expect(eq(json_of(r)["status"].get<std::string>(), std::string("pass")));
+    };
+    "a bench is judged against its baseline by the policy"_test[kind::e2e][kind::bench] = [] {
+        auto root = project(
+            {{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[policy.bench]\nlimit = "
+                            "1.10\nspread = 0.05\n"},
+             {"b.sh", script({"m:measure"}, "measure() { mtest_metric t \"$T\" s $T $T $T; }\n")}});
+        (void)mtest(root, {"run", "--env", "T=1.0"});
+        auto same = json_of(mtest(root, {"run", "--json", "--env", "T=1.05"}));
+        auto pass = json_of(mtest(root, {"analyze", "bench", "--json"}));
+        expect(eq(pass["items"][0]["verdict"].get<std::string>(), std::string("pass")))
+            << pass.dump();
+        (void)mtest(root, {"run", "--env", "T=2.0"});
+        auto over = json_of(mtest(root, {"gate", "--set", "release", "--json"}));
+        expect(!over["pass"].get<bool>());
+        expect(contains(over["reasons"][0].get<std::string>(), "fail"));
+    };
+    "the graph names programs, cases, resources and artifacts"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() +
+                                          "'\nok() { :; }\nmtest_case db ok --resource serial:db "
+                                          "--artifact file:data.txt\nmtest_report\n"}});
+        auto j = json_of(mtest(root, {"graph", "--json", "bash t.sh"}));
+        std::set<std::string> kinds;
+        for (const auto& n : j["nodes"])
+            kinds.insert(n["kind"].get<std::string>());
+        expect(kinds == std::set<std::string>{"program", "case", "resource", "artifact"})
+            << j.dump();
+        auto dot = mtest(root, {"graph", "--format", "dot", "bash t.sh"});
+        expect(contains(dot.out, "digraph mtest"));
+    };
+    "a run as JUnit XML"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"a:pass", "b:fail"})}});
+        (void)mtest(root, {"run", "--junit", "report.xml", "bash t.sh"});
+        auto xml = std::filesystem::exists(root / "report.xml");
+        expect(xml);
+    };
+    "the store keeps every run and verifies itself"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"a:pass"})}});
+        for (int i = 0; i < 3; ++i)
+            (void)mtest(root, {"run", "bash t.sh"});
+        auto v = mtest(root, {"store", "verify", "--json"});
+        expect(eq(v.status, 0)) << v.out;
+        auto g =
+            json_of(mtest(root, {"store", "gc", "--keep-days", "0", "--keep-runs", "1", "--json"}));
+        expect(eq(g["removed"].get<int>(), 2));
+        expect(std::filesystem::exists(root / ".mtest" / ".gitignore"));
+    };
+    "the service answers JSON-RPC and MCP on its standard streams"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"a:pass"})}});
+        const std::string input =
+            R"({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}})"
+            "\n"
+            R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})"
+            "\n"
+            R"({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"run","arguments":{"programs":["bash t.sh"]}}})"
+            "\n"
+            R"({"jsonrpc":"2.0","id":4,"method":"status"})"
+            "\n";
+        auto r = mtest(root, {"serve"}, input);
+        std::map<int, json> replies;
+        std::string_view rest = r.out;
+        while (!rest.empty()) {
+            auto nl = rest.find('\n');
+            auto j = json::parse(rest.substr(0, nl), nullptr, false);
+            rest = nl == std::string_view::npos ? std::string_view{} : rest.substr(nl + 1);
+            if (!j.is_discarded() && j.contains("id") && j["id"].is_number())
+                replies[j["id"].get<int>()] = j;
+        }
+        expect(fatal(replies.size() == 4)) << r.out;
+        expect(eq(replies[1]["result"]["serverInfo"]["name"].get<std::string>(),
+                  std::string("mtest")));
+        expect(gt(replies[2]["result"]["tools"].size(), std::size_t(10)));
+        expect(eq(replies[3]["result"]["structuredContent"]["status"].get<std::string>(),
+                  std::string("pass")));
+        expect(!replies[3]["result"]["isError"].get<bool>());
+        expect(replies[4]["result"]["data"].contains("conclusion"));
+    };
+    "every answer carries a conclusion"_test[kind::e2e] = [] {
+        auto root = project({{"t.sh", script({"a:pass"})}});
+        (void)mtest(root, {"run", "bash t.sh"});
+        for (std::vector<std::string> args :
+             {std::vector<std::string>{"status", "--json"},
+              {"report", "--format", "json"},
+              {"analyze", "durations", "--json"},
+              {"analyze", "failures", "--json"},
+              {"analyze", "flaky", "--json"},
+              {"diff", "--before", "last", "--after", "last", "--json"},
+              {"history", "--case", "a", "--json"},
+              {"query", "--status", "pass", "--json"}}) {
+            auto j = json_of(mtest(root, args));
+            expect(j.contains("conclusion")) << args.front();
+        }
+    };
+    return report();
+}

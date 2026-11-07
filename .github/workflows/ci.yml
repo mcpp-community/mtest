@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XLINGS_NON_INTERACTIVE: '1'
+
+jobs:
+  # What a change may not carry: an unformatted source, a local path.
+  checks:
+    name: format and repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Every C++ source as .clang-format writes it
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.cpp' '*.cppm' '*.c' '*.h')
+          # The version the sources were formatted with: another version formats some lines otherwise.
+          python3 -m pip install --quiet --user clang-format==22.1.8
+          export PATH="$HOME/.local/bin:$PATH"
+          clang-format --version
+          clang-format --dry-run --Werror $files
+      - name: No local path in what is tracked
+        run: |
+          set -euo pipefail
+          if git grep -nE '/home/[a-z]|/Users/[A-Za-z]|C:\\\\Users' -- ':!LICENSE'; then
+            echo "::error::a tracked file names a local path"; exit 1
+          fi
+
+  # The library, the engine and the protocol's conformance of every implementation, on Linux; then the
+  # engine runs mtest's own test programs and gates them (mtest tests itself).
+  native:
+    name: native (linux x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-mcpp
+      # Each member alone: mcpp 2026.11.7.2 gives a member's tests its programs (MCPP_BIN_*) under -p only.
+      - name: The library, the engine, the protocol
+        run: |
+          set -euo pipefail
+          mcpp build
+          mcpp test -p mcpplibs.mtest
+          mcpp test -p mtest.mtest
+          mcpp test -p conformance
+      - name: Every implementation passes the conformance suite
+        run: |
+          set -euo pipefail
+          bin() { find target -type f -name "$1" -path '*/bin/*' | head -1; }
+          MTEST_CTS_PROGRAM="$PWD/adapters/script/tests/fixture.sh" mcpp test -p conformance
+          MTEST_CTS_PROGRAM="$PWD/adapters/script/tests/fixture.py" mcpp test -p conformance
+          MTEST_CTS_PROGRAM="$PWD/$(bin capi-fixture)" mcpp test -p conformance
+          MTEST_CTS_PROGRAM="$PWD/$(bin gtest-fixture)" MTEST_CTS_ID_STYLE=gtest mcpp test -p conformance
+      - name: The engine runs mtest's own tests
+        run: |
+          set -euo pipefail
+          mtest=$(find target -type f -name mtest -path '*/bin/mtest.mtest/*' | head -1)
+          programs=$(find target -type f -path '*/bin/*' \( -name expectations -o -name companions \))
+          "$mtest" run $programs --junit target/mtest-junit.xml
+          "$mtest" gate --set full
+          "$mtest" ci annotate
+      - name: The tests leave nothing in the working tree
+        run: |
+          left=$(git status --porcelain)
+          if [ -n "$left" ]; then printf '%s\n' "$left"; exit 1; fi
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: mtest-store-linux
+          path: |
+            .mtest
+            target/mtest-junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # As it is released: ok images, run by okrun on each system of each architecture.
+  images:
+    name: images (${{ matrix.os }}, ${{ matrix.arch }}-openkal)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04,     arch: x86_64 }
+          - { os: ubuntu-24.04-arm, arch: aarch64 }
+          - { os: macos-15,         arch: aarch64 }
+          - { os: windows-2022,     arch: x86_64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-mcpp
+      - name: The tests as images
+        run: |
+          set -euo pipefail
+          for member in mcpplibs.mtest mtest.mtest conformance; do
+            mcpp test -p "$member" --target "${{ matrix.arch }}-openkal"
+          done
+      - name: The script adapters on this system
+        run: |
+          set -euo pipefail
+          # Through bash: Windows does not start a script by itself. The image reads the script by
+          # the system's spelling of its path, which under Git Bash is `pwd -W` and not $PWD.
+          root=$PWD; [ "$RUNNER_OS" = Windows ] && root=$(pwd -W)
+          MTEST_CTS_PROGRAM="bash $root/adapters/script/tests/fixture.sh" mcpp test -p conformance --target "${{ matrix.arch }}-openkal"
+      - name: The tests leave nothing in the working tree
+        shell: bash
+        run: |
+          left=$(git status --porcelain)
+          if [ -n "$left" ]; then printf '%s\n' "$left"; exit 1; fi
+
+  # The engine as it is released: one package for every system, the ok images of both
+  # architectures with a launcher and each system's okrun, and the images' okb.
+  package:
+    name: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-mcpp
+      - name: The engine for every system
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' engine/mcpp.toml | head -1)
+          mcpp pack mtest -p mtest.mtest --target openkal --mode self-contained --systems all --pkg-format tar,okb -o target/dist/
+          package="mtest-$version-openkal-bundle-all"
+          mkdir -p dist unpacked
+          cp "target/dist/$package.tar.gz" "target/dist/mtest-$version.okb" dist/
+          tar -xzf "dist/$package.tar.gz" -C unpacked
+          "unpacked/$package/bin/mtest" version
+          python3 - "unpacked/$package/mcpp-package.json" <<'PY'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          want = {"linux-x86_64", "linux-aarch64", "macos-aarch64", "windows-x86_64"}
+          assert want <= set(d["runs_on"]["self"]), d["runs_on"]
+          PY
+      - uses: actions/upload-artifact@v5
+        with:
+          name: package
+          path: dist
+
+  ci:
+    name: ci
+    if: always()
+    needs: [checks, native, images, package]
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq '"(failure|cancelled)"'; then exit 1; fi

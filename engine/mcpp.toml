@@ -1,0 +1,38 @@
+# The mtest engine: the `mtest` program. It runs test programs of any language
+# by the protocol (../spec/protocol.md) or by their exit status, schedules them
+# by their resources and their history, stores every run, and answers questions
+# about runs -- explain, history, analyze, graph, gate -- on the command line,
+# as a JSON-RPC service, and as MCP tools. It is released as an ok image.
+#
+# A tool and not a library: its package is `mtest`, the name of its program and of
+# what it is released as (mtest-<version>-openkal-bundle-all, xim's `mtest`), in a
+# namespace of its own beside the library's (`mcpplibs.mtest`).
+[package]
+namespace   = "mtest"
+name        = "mtest"
+version     = "0.1.0"
+description = "The mtest engine: run, schedule, store, explain and analyse tests of any language"
+license     = "Apache-2.0"
+authors     = ["mcpp-community"]
+repo        = "https://github.com/mcpp-community/mtest"
+
+[language]
+standard   = "c++23"
+modules    = true
+import_std = true
+
+[build]
+sources = ["src/*.cppm", "src/*.cpp"]
+
+[targets.mtest]
+kind = "bin"
+main = "src/main.cpp"
+
+[dependencies]
+mcpplibs.os         = "0.4.0"
+mcpplibs.cmdline    = "0.0.2"
+nlohmann.json       = "3.12.0"
+marzer.tomlplusplus = "3.4.0"
+
+[dev-dependencies]
+mcpplibs.mtest = { path = "../lib" }

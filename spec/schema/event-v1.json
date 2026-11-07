@@ -1,0 +1,356 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/mcpp-community/mtest/spec/schema/event-v1.json",
+ "title": "mtest protocol event, version 1 (spec/protocol.md P5)",
+ "type": "object",
+ "required": [
+  "e"
+ ],
+ "properties": {
+  "e": {
+   "type": "string"
+  }
+ },
+ "oneOf": [
+  {
+   "properties": {
+    "e": {
+     "const": "program"
+    },
+    "protocol": {
+     "const": 1
+    },
+    "level": {
+     "enum": [
+      1,
+      2,
+      3
+     ]
+    },
+    "framework": {
+     "type": "string"
+    },
+    "version": {
+     "type": "string"
+    },
+    "isolation": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "process",
+       "case"
+      ]
+     }
+    },
+    "guide": {
+     "type": "string",
+     "description": "P2.5: a URL of the framework's guide to writing tests"
+    }
+   },
+   "required": [
+    "e",
+    "protocol",
+    "level"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "case"
+    },
+    "id": {
+     "type": "string",
+     "minLength": 1
+    },
+    "name": {
+     "type": "string"
+    },
+    "file": {
+     "type": "string"
+    },
+    "line": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "kind": {
+     "enum": [
+      "unit",
+      "e2e",
+      "cts",
+      "bench"
+     ]
+    },
+    "tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "clauses": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "expect": {
+     "enum": [
+      "pass",
+      "fail",
+      "skip"
+     ]
+    },
+    "resources": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "artifacts": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "e",
+    "id"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "begin"
+    },
+    "id": {
+     "type": "string",
+     "minLength": 1
+    },
+    "t": {
+     "type": "number",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "e",
+    "id"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "failure"
+    },
+    "id": {
+     "type": "string",
+     "minLength": 1
+    },
+    "file": {
+     "type": "string"
+    },
+    "line": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "message": {
+     "type": "string"
+    },
+    "expected": {
+     "type": "string"
+    },
+    "actual": {
+     "type": "string"
+    },
+    "fatal": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "e",
+    "id",
+    "message"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "output"
+    },
+    "id": {
+     "type": "string",
+     "minLength": 1
+    },
+    "stream": {
+     "enum": [
+      "out",
+      "err"
+     ]
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "e",
+    "id",
+    "stream",
+    "text"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "metric"
+    },
+    "id": {
+     "type": "string",
+     "minLength": 1
+    },
+    "name": {
+     "type": "string",
+     "minLength": 1
+    },
+    "value": {
+     "type": "number"
+    },
+    "unit": {
+     "type": "string"
+    },
+    "samples": {
+     "type": "array",
+     "items": {
+      "type": "number"
+     }
+    },
+    "better": {
+     "enum": [
+      "lower",
+      "higher"
+     ]
+    }
+   },
+   "required": [
+    "e",
+    "id",
+    "name",
+    "value",
+    "unit"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "artifact"
+    },
+    "id": {
+     "type": "string",
+     "minLength": 1
+    },
+    "path": {
+     "type": "string"
+    },
+    "kind": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "e",
+    "id",
+    "path"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "end"
+    },
+    "id": {
+     "type": "string",
+     "minLength": 1
+    },
+    "status": {
+     "enum": [
+      "pass",
+      "fail",
+      "skip",
+      "xfail",
+      "xpass",
+      "invalid"
+     ]
+    },
+    "ms": {
+     "type": "number",
+     "minimum": 0
+    },
+    "reason": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "e",
+    "id",
+    "status"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "missing"
+    },
+    "id": {
+     "type": "string",
+     "minLength": 1
+    }
+   },
+   "required": [
+    "e",
+    "id"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "done"
+    },
+    "status": {
+     "enum": [
+      "pass",
+      "fail"
+     ]
+    },
+    "counts": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "integer",
+      "minimum": 0
+     }
+    }
+   },
+   "required": [
+    "e",
+    "status"
+   ]
+  },
+  {
+   "properties": {
+    "e": {
+     "not": {
+      "enum": [
+       "program",
+       "case",
+       "begin",
+       "failure",
+       "output",
+       "metric",
+       "artifact",
+       "end",
+       "missing",
+       "done"
+      ]
+     }
+    }
+   },
+   "description": "P5.4: an unknown kind is ignored"
+  }
+ ]
+}

@@ -1,0 +1,50 @@
+# mcpplibs.mtest: the C++ test library of mtest. Cases, expectations, fixtures,
+# parameters and attributes, with no macro and no header; a program built with it
+# speaks the mtest protocol (../spec/protocol.md) at level 3 when a runner asks,
+# and prints a short report to its terminal when none does.
+#
+#   import mcpplibs.mtest;
+#   using namespace mcpplibs::mtest;
+#   int main() {
+#       "adds"_test = [] { expect(eq(1 + 1, 2)); };
+#       return report();
+#   }
+#
+# The modules `mcpplibs.mtest.bench`, `mcpplibs.mtest.cts` and `mcpplibs.mtest.e2e`
+# add measurements, conformance clauses and programs under test. The operating
+# system is reached through mcpplibs.os only, so the library builds for every
+# target its user builds for, an ok image included.
+[package]
+namespace   = "mcpplibs"
+name        = "mtest"
+version     = "0.1.0"
+description = "The C++ test library of mtest: cases, expectations, fixtures, bench, conformance and end-to-end helpers, with no macro and no header, speaking the mtest protocol"
+license     = "Apache-2.0"
+authors     = ["mcpp-community"]
+repo        = "https://github.com/mcpp-community/mtest"
+mcpp        = ">=2026.11.7.2"
+
+[language]
+standard   = "c++23"
+modules    = true
+import_std = true
+
+[build]
+sources = ["src/*.cppm", "src/*.cpp"]
+
+[targets.mtest]
+kind = "lib"
+
+# The `main` of a test program whose files only declare suites. mcpp 2026.11.8.1 and later begin
+# such a file here by itself (`test-main`) and know it speaks the protocol (`test-protocol`); an
+# earlier mcpp is told `[test] main = { from = "mtest/main" }`.
+[targets.main]
+kind          = "entry"
+main          = "src/entry/main.cpp"
+test-protocol = 1
+test-main     = true
+test-guide    = "docs/writing-tests.md"
+
+[dependencies]
+mcpplibs.os   = "0.4.0"
+nlohmann.json = "3.12.0"

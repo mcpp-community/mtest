@@ -1,7 +1,8 @@
 # The conformance suite of the mtest protocol (../spec/protocol.md): each case
 # names the clause it checks. It runs an implementation of the protocol's
 # program side under the protocol's variables and reads what it reports. The
-# implementation under test is the program named by MTEST_CTS_PROGRAM, by
+# implementation under test is the command MTEST_CTS_PROGRAM names (a program and its
+# arguments, separated by spaces), by
 # default this package's fixture (mcpplibs.mtest); the adapters and the C ABI
 # provide fixtures of the same cases, so one suite checks every implementation.
 [package]

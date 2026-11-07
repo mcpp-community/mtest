@@ -12,9 +12,16 @@ using json = nlohmann::json;
 
 namespace {
 
+// MTEST_CTS_PROGRAM is a command, the program and its arguments separated by spaces
+// (`bash fixture.sh` on a system that does not start a script itself).
 std::vector<std::string> program() {
-    if (auto p = os::env::get("MTEST_CTS_PROGRAM"); p && !p->empty())
-        return {*p};
+    if (auto p = os::env::get("MTEST_CTS_PROGRAM"); p && !p->empty()) {
+        std::vector<std::string> words;
+        for (auto word : std::views::split(*p, ' '))
+            if (!word.empty())
+                words.emplace_back(word.begin(), word.end());
+        return words;
+    }
     if (auto p = os::env::get("MCPP_BIN_FIXTURE"); p && !p->empty())
         return {*p};
     return {};
@@ -123,7 +130,8 @@ int main() {
     "P2.3 the program's file carries the marker"_test[kind::cts][clause{"P2.3"}] = [] {
         const auto cmd = program();
         expect(fatal(!cmd.empty()));
-        auto bytes = os::fs::read(cmd.front());
+        // The program's file is the command's last word: a script after its interpreter.
+        auto bytes = os::fs::read(cmd.back());
         expect(fatal(bytes.has_value()));
         const std::string_view text = *bytes;
         bool found = false;

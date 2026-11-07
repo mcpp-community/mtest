@@ -2,7 +2,7 @@
 
 A program that does not speak the protocol is a test of level 0: its exit status is its result, and
 nothing needs to change. An adapter makes a framework's program speak it; each is checked by the
-conformance suite (`MTEST_CTS_PROGRAM`).
+conformance suite (`MTEST_CTS_PROGRAM`, a command: a program and its arguments, separated by spaces).
 
 | Adapter | Level | Use |
 |---|---|---|

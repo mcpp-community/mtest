@@ -1,0 +1,26 @@
+# mtest's C ABI (include/mtest.h): the protocol for a program of any language with a C foreign-function
+# interface (Python ctypes, Rust, Go cgo, Kotlin/JNI, Lua FFI, Node N-API). A shared library: `libmtest`
+# on a system, `libmtest.okso` in an ok image.
+[package]
+namespace   = "mcpplibs.mtest"
+name        = "capi"
+version     = "0.1.0"
+description = "mtest's C ABI: the protocol's events for any language with a C FFI"
+license     = "Apache-2.0"
+
+[language]
+standard   = "c++23"
+modules    = true
+import_std = false
+
+[build]
+sources      = ["src/*.cpp"]
+include_dirs = ["include"]
+
+[targets.mtest]
+kind = "shared"
+
+# The C ABI's conformance fixture (spec/conformance.md).
+[targets.capi-fixture]
+kind = "bin"
+main = "fixture/main.c"

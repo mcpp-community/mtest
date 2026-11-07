@@ -1,0 +1,4 @@
+{"e":"program","protocol":1,"level":1,"framework":"googletest","version":"0.1.0","isolation":["process","case"]}
+{"e":"begin","id":"conformance/passes","t":0}
+{"e":"end","id":"conformance/passes","status":"pass","ms":0}
+{"e":"begin","id":"conformance/fails","t":0}

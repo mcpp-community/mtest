@@ -1,0 +1,42 @@
+# mcpplibs.mtest.gtest: GoogleTest as an implementation of the mtest protocol, level 1 (spec/protocol.md):
+# the cases listed, selected by identifier and reported with their failures' places, by GoogleTest's
+# own listener. A program's tests stay GoogleTest's (`TEST`, `EXPECT_EQ`); the package supplies `main`:
+#
+#   [dev-dependencies]
+#   mcpplibs.mtest.gtest = "0.1.0"
+#
+#   [test]
+#   main = { from = "gtest/main" }
+#
+# A case's identifier is `<suite>/<name>` (P3.2). GoogleTest's macros exist only in its header, so this
+# package's one source includes it: the one place mtest includes a header.
+[package]
+namespace   = "mcpplibs.mtest"
+name        = "gtest"
+version     = "0.1.0"
+description = "GoogleTest speaking the mtest protocol: a test main that lists, selects and reports GoogleTest's cases"
+license     = "Apache-2.0"
+
+[language]
+standard   = "c++23"
+modules    = true
+import_std = false
+
+[build]
+sources = ["src/protocol.cpp"]
+
+[targets.gtest]
+kind = "lib"
+
+[targets.main]
+kind = "entry"
+main = "src/main.cpp"
+
+# The adapter's own conformance fixture (spec/conformance.md), which the conformance suite runs
+# (MTEST_CTS_PROGRAM, MTEST_CTS_ID_STYLE=gtest).
+[targets.gtest-fixture]
+kind = "bin"
+main = "fixture/main.cpp"
+
+[dependencies]
+compat.gtest = "1.18.0"

@@ -1,0 +1,30 @@
+# The conformance suite of the mtest protocol (../spec/protocol.md): each case
+# names the clause it checks. It runs an implementation of the protocol's
+# program side under the protocol's variables and reads what it reports. The
+# implementation under test is the program named by MTEST_CTS_PROGRAM, by
+# default this package's fixture (mcpplibs.mtest); the adapters and the C ABI
+# provide fixtures of the same cases, so one suite checks every implementation.
+[package]
+namespace   = "mcpplibs.mtest"
+name        = "conformance"
+version     = "0.1.0"
+description = "The conformance suite of the mtest protocol, for every implementation of its program side"
+license     = "Apache-2.0"
+
+[language]
+standard   = "c++23"
+modules    = true
+import_std = true
+
+[build]
+sources = ["src/*.cppm", "src/*.cpp"]
+
+# The fixture: the same cases every implementation provides (spec/conformance.md).
+[targets.fixture]
+kind = "bin"
+main = "src/fixture.cpp"
+
+[dependencies]
+mcpplibs.mtest = { path = "../lib" }
+mcpplibs.os    = "0.3.1"
+nlohmann.json  = "3.12.0"

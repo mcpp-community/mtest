@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XLINGS_NON_INTERACTIVE: '1'
+
+jobs:
+  # What a change may not carry: an unformatted source, a local path.
+  checks:
+    name: format and repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Every C++ source as .clang-format writes it
+        run: |
+          set -euo pipefail
+          files=$(git ls-files '*.cpp' '*.cppm' '*.c' '*.h')
+          # The version the sources were formatted with: another version formats some lines otherwise.
+          python3 -m pip install --quiet --user clang-format==22.1.8
+          export PATH="$HOME/.local/bin:$PATH"
+          clang-format --version
+          clang-format --dry-run --Werror $files
+      - name: No local path in what is tracked
+        run: |
+          set -euo pipefail
+          if git grep -nE '/home/[a-z]|/Users/[A-Za-z]|C:\\\\Users' -- ':!LICENSE'; then
+            echo "::error::a tracked file names a local path"; exit 1
+          fi
+
+  # The library, the engine and the protocol's conformance of every implementation, on Linux; then the
+  # engine runs mtest's own test programs and gates them (mtest tests itself).
+  native:
+    name: native (linux x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-mcpp
+      # Each member alone: mcpp 2026.11.7.2 gives a member's tests its programs (MCPP_BIN_*) under -p only.
+      - name: The library, the engine, the protocol
+        run: |
+          set -euo pipefail
+          mcpp build
+          mcpp test -p mtest
+          mcpp test -p engine
+          mcpp test -p conformance
+      - name: Every implementation passes the conformance suite
+        run: |
+          set -euo pipefail
+          bin() { find target -type f -name "$1" -path '*/bin/*' | head -1; }
+          MTEST_CTS_PROGRAM="$PWD/adapters/script/tests/fixture.sh" mcpp test -p conformance
+          MTEST_CTS_PROGRAM="$PWD/adapters/script/tests/fixture.py" mcpp test -p conformance
+          MTEST_CTS_PROGRAM="$PWD/$(bin capi-fixture)" mcpp test -p conformance
+          MTEST_CTS_PROGRAM="$PWD/$(bin gtest-fixture)" MTEST_CTS_ID_STYLE=gtest mcpp test -p conformance
+      - name: The engine runs mtest's own tests
+        run: |
+          set -euo pipefail
+          mtest=$(find target -type f -name mtest -path '*/bin/engine/*' | head -1)
+          programs=$(find target -type f -path '*/bin/mtest/*' \( -name expectations -o -name companions \))
+          "$mtest" run $programs --junit target/mtest-junit.xml
+          "$mtest" gate --set full
+          "$mtest" ci annotate
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: mtest-store-linux
+          path: |
+            .mtest
+            target/mtest-junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # As it is released: ok images, run by okrun on each system of each architecture.
+  images:
+    name: images (${{ matrix.os }}, ${{ matrix.arch }}-openkal)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04,     arch: x86_64 }
+          - { os: ubuntu-24.04-arm, arch: aarch64 }
+          - { os: macos-15,         arch: aarch64 }
+          - { os: windows-2022,     arch: x86_64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-mcpp
+      - name: The tests as images
+        run: |
+          set -euo pipefail
+          for member in mtest engine conformance; do
+            mcpp test -p "$member" --target "${{ matrix.arch }}-openkal"
+          done
+      - name: The script adapters on this system
+        run: |
+          set -euo pipefail
+          MTEST_CTS_PROGRAM="$PWD/adapters/script/tests/fixture.sh" mcpp test -p conformance --target "${{ matrix.arch }}-openkal"
+
+  ci:
+    name: ci
+    if: always()
+    needs: [checks, native, images]
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq '"(failure|cancelled)"'; then exit 1; fi

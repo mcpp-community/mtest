@@ -1,0 +1,3 @@
+target/
+.mcpp/
+mcpp.lock.tmp

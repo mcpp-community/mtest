@@ -44,6 +44,18 @@ mcpplibs.mtest = "0.1.0"
 A failure names its place and both sides (`expected 2, actual 3`). Under a runner the same program
 speaks the protocol; alone it prints one line per case.
 
+A file may declare suites and no `main`; mtest's entry begins it (mcpp 2026.11.8.1 and later; an
+earlier mcpp is told `[test] main = { from = "mtest/main" }`):
+
+```cpp
+import mcpplibs.mtest;
+using namespace mcpplibs::mtest;
+
+suite parsing{"parsing", [] {
+    "an empty line"_test = [] { expect(eq(parse(""), 0)); };
+}};
+```
+
 ## Tests, with the engine
 
 ```bash

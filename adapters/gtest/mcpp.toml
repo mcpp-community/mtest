@@ -5,8 +5,8 @@
 #   [dev-dependencies]
 #   mcpplibs.mtest.gtest = "0.1.0"
 #
-#   [test]
-#   main = { from = "gtest/main" }
+# mcpp 2026.11.8.1 and later begin a test file that defines no `main` here by itself (`test-main`);
+# an earlier mcpp is told `[test] main = { from = "gtest/main" }`.
 #
 # A case's identifier is `<suite>/<name>` (P3.2). GoogleTest's macros exist only in its header, so this
 # package's one source includes it, and nlohmann/json's beside it: the one place mtest includes headers.
@@ -29,8 +29,10 @@ sources = ["src/protocol.cpp"]
 kind = "lib"
 
 [targets.main]
-kind = "entry"
-main = "src/main.cpp"
+kind          = "entry"
+main          = "src/main.cpp"
+test-protocol = 1
+test-main     = true
 
 # The adapter's own conformance fixture (spec/conformance.md), which the conformance suite runs
 # (MTEST_CTS_PROGRAM, MTEST_CTS_ID_STYLE=gtest).

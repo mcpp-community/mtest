@@ -42,6 +42,18 @@ mcpplibs.mtest = "0.1.0"
 
 失败时给出位置与两侧的值（`expected 2, actual 3`）。在运行器之下，同一程序按协议报告；单独运行时每个用例输出一行。
 
+文件可以只声明 suite 而不写 `main`，由 mtest 的入口作为起点（mcpp 2026.11.8.1 及以后；更早的 mcpp 需写
+`[test] main = { from = "mtest/main" }`）：
+
+```cpp
+import mcpplibs.mtest;
+using namespace mcpplibs::mtest;
+
+suite parsing{"parsing", [] {
+    "an empty line"_test = [] { expect(eq(parse(""), 0)); };
+}};
+```
+
 ## 用引擎运行测试
 
 ```bash

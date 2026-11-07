@@ -35,11 +35,14 @@ sources = ["src/*.cppm", "src/*.cpp"]
 [targets.mtest]
 kind = "lib"
 
-# The `main` of a test program whose files only declare suites:
-#   [test] main = { from = "mtest/main" }
+# The `main` of a test program whose files only declare suites. mcpp 2026.11.8.1 and later begin
+# such a file here by itself (`test-main`) and know it speaks the protocol (`test-protocol`); an
+# earlier mcpp is told `[test] main = { from = "mtest/main" }`.
 [targets.main]
-kind = "entry"
-main = "src/entry/main.cpp"
+kind          = "entry"
+main          = "src/entry/main.cpp"
+test-protocol = 1
+test-main     = true
 
 [dependencies]
 mcpplibs.os   = "0.3.1"

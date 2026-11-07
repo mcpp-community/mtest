@@ -1,0 +1,42 @@
+name: Release
+
+# A tag vX.Y.Z: CI on the commit, then a GitHub release of the engine's package for every
+# system and its okb, with their checksums and the version's notes from CHANGELOG.md. The
+# source archive of the tag is what mcpp-index's packages (mcpplibs.mtest, .gtest, .capi)
+# name; xim's `mtest` takes the package.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: package
+          path: dist
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          engine=$(sed -n 's/^version *= *"\(.*\)"/\1/p' engine/mcpp.toml | head -1)
+          [ "$engine" = "$version" ] || { echo "::error::the tag is $version and the engine $engine"; exit 1; }
+          notes="$RUNNER_TEMP/notes.md"
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {p=1; next} /^## \[/ {p=0} p' CHANGELOG.md > "$notes"
+          [ -s "$notes" ] || { echo "::error::CHANGELOG.md has no entry for $version"; exit 1; }
+          (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+          gh release create "$GITHUB_REF_NAME" dist/* --target "$GITHUB_SHA" --title "mtest $version" --notes-file "$notes"

@@ -73,7 +73,7 @@ mtest 以 [mcpp](https://github.com/mcpp-community/mcpp) 构建：
 
 ```bash
 mcpp build                      # 全部成员
-mcpp test -p mtest -p engine    # 库与引擎的测试
+mcpp test -p mcpplibs.mtest -p mtest.mtest    # 库与引擎的测试
 mcpp test -p conformance        # 以库检验协议（MTEST_CTS_PROGRAM：检验其他实现）
 ```
 

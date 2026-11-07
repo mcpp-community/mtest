@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -51,8 +52,8 @@ jobs:
         run: |
           set -euo pipefail
           mcpp build
-          mcpp test -p mtest
-          mcpp test -p engine
+          mcpp test -p mcpplibs.mtest
+          mcpp test -p mtest.mtest
           mcpp test -p conformance
       - name: Every implementation passes the conformance suite
         run: |
@@ -106,7 +107,7 @@ jobs:
       - name: The tests as images
         run: |
           set -euo pipefail
-          for member in mtest engine conformance; do
+          for member in mcpplibs.mtest mtest.mtest conformance; do
             mcpp test -p "$member" --target "${{ matrix.arch }}-openkal"
           done
       - name: The script adapters on this system
@@ -120,10 +121,40 @@ jobs:
           left=$(git status --porcelain)
           if [ -n "$left" ]; then printf '%s\n' "$left"; exit 1; fi
 
+  # The engine as it is released: one package for every system, the ok images of both
+  # architectures with a launcher and each system's okrun, and the images' okb.
+  package:
+    name: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-mcpp
+      - name: The engine for every system
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' engine/mcpp.toml | head -1)
+          mcpp pack mtest -p mtest.mtest --target openkal --mode self-contained --systems all --pkg-format tar,okb -o target/dist/
+          package="mtest-$version-openkal-bundle-all"
+          mkdir -p dist unpacked
+          cp "target/dist/$package.tar.gz" "target/dist/mtest-$version.okb" dist/
+          tar -xzf "dist/$package.tar.gz" -C unpacked
+          "unpacked/$package/bin/mtest" version
+          python3 - "unpacked/$package/mcpp-package.json" <<'PY'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          want = {"linux-x86_64", "linux-aarch64", "macos-aarch64", "windows-x86_64"}
+          assert want <= set(d["runs_on"]["self"]), d["runs_on"]
+          PY
+      - uses: actions/upload-artifact@v5
+        with:
+          name: package
+          path: dist
+
   ci:
     name: ci
     if: always()
-    needs: [checks, native, images]
+    needs: [checks, native, images, package]
     runs-on: ubuntu-24.04
     steps:
       - env:

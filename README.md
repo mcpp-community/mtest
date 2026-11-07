@@ -75,7 +75,7 @@ mtest is built with [mcpp](https://github.com/mcpp-community/mcpp):
 
 ```bash
 mcpp build                      # every member
-mcpp test -p mtest -p engine    # the library's and the engine's tests
+mcpp test -p mcpplibs.mtest -p mtest.mtest    # the library's and the engine's tests
 mcpp test -p conformance        # the protocol, against the library (MTEST_CTS_PROGRAM: another one)
 ```
 

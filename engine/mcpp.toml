@@ -3,9 +3,13 @@
 # by their resources and their history, stores every run, and answers questions
 # about runs -- explain, history, analyze, graph, gate -- on the command line,
 # as a JSON-RPC service, and as MCP tools. It is released as an ok image.
+#
+# A tool and not a library: its package is `mtest`, the name of its program and of
+# what it is released as (mtest-<version>-openkal-bundle-all, xim's `mtest`), in a
+# namespace of its own beside the library's (`mcpplibs.mtest`).
 [package]
-namespace   = "mcpplibs.mtest"
-name        = "engine"
+namespace   = "mtest"
+name        = "mtest"
 version     = "0.1.0"
 description = "The mtest engine: run, schedule, store, explain and analyse tests of any language"
 license     = "Apache-2.0"

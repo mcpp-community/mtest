@@ -10,6 +10,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <map>
+#include <nlohmann/json.hpp>
 #include <set>
 #include <string>
 #include <vector>
@@ -19,37 +20,8 @@ extern "C" const char mcpplibs_mtest_gtest_marker[] = "mtest-protocol=1";
 
 namespace {
 
-std::string json_string(const std::string& text) {
-    std::string out = "\"";
-    for (unsigned char c : text) {
-        switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                if (c < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof buf, "\\u%04x", c);
-                    out += buf;
-                } else {
-                    out += static_cast<char>(c);
-                }
-        }
-    }
-    return out + "\"";
-}
+// An event of the report (P5): an object whose fields keep the order they are written in.
+using event = nlohmann::ordered_json;
 
 std::string env(const char* name) {
     const char* v = std::getenv(name);
@@ -59,10 +31,11 @@ std::string env(const char* name) {
 class Report {
 public:
     explicit Report(const std::string& path) : out_(path, std::ios::app | std::ios::binary) {}
-    void event(const std::string& body) {
+    void write(const event& e) {
         if (!out_)
             return;
-        out_ << "{" << body << "}\n";
+        // Text that is not UTF-8 is written with the replacement character.
+        out_ << e.dump(-1, ' ', false, event::error_handler_t::replace) << "\n";
         out_.flush();
     }
 private:
@@ -79,19 +52,21 @@ public:
     void OnTestStart(const testing::TestInfo& t) override {
         started_ = std::chrono::steady_clock::now();
         current_ = id_of(t);
-        report_.event("\"e\":\"begin\",\"id\":" + json_string(id_of(t)) +
-                      ",\"t\":" + std::to_string(ms(began_)));
+        report_.write({{"e", "begin"}, {"id", current_}, {"t", ms(began_)}});
     }
     void OnTestPartResult(const testing::TestPartResult& r) override {
         if (!r.failed())
             return;
         // The test is the one OnTestStart named: asking UnitTest for it here takes the lock
         // GoogleTest holds while it reports a part's result.
-        report_.event("\"e\":\"failure\",\"id\":" + json_string(current_) +
-                      ",\"file\":" + json_string(r.file_name() ? r.file_name() : "") +
-                      ",\"line\":" + std::to_string(r.line_number() < 0 ? 0 : r.line_number()) +
-                      ",\"message\":" + json_string(r.summary()) +
-                      (r.fatally_failed() ? ",\"fatal\":true" : ""));
+        event e = {{"e", "failure"},
+                   {"id", current_},
+                   {"file", r.file_name() ? r.file_name() : ""},
+                   {"line", r.line_number() < 0 ? 0 : r.line_number()},
+                   {"message", r.summary()}};
+        if (r.fatally_failed())
+            e["fatal"] = true;
+        report_.write(e);
     }
     void OnTestEnd(const testing::TestInfo& t) override {
         const auto* r = t.result();
@@ -105,9 +80,10 @@ public:
                (reason.back() == '\n' || reason.back() == '\r' || reason.back() == ' '))
             reason.pop_back();
         counts_[status]++;
-        report_.event("\"e\":\"end\",\"id\":" + json_string(id_of(t)) + ",\"status\":\"" + status +
-                      "\",\"ms\":" + std::to_string(ms(started_)) +
-                      (reason.empty() ? "" : ",\"reason\":" + json_string(reason)));
+        event e = {{"e", "end"}, {"id", id_of(t)}, {"status", status}, {"ms", ms(started_)}};
+        if (!reason.empty())
+            e["reason"] = reason;
+        report_.write(e);
     }
     const std::map<std::string, int>& counts() const {
         return counts_;
@@ -147,20 +123,23 @@ int mcpplibs_mtest_gtest_main(int argc, char** argv) {
         return RUN_ALL_TESTS();
     [[maybe_unused]] volatile char keep = mcpplibs_mtest_gtest_marker[0];
     Report report(report_path);
-    report.event("\"e\":\"program\",\"protocol\":1,\"level\":1,\"framework\":\"googletest\","
-                 "\"version\":\"0.1.0\","
-                 "\"isolation\":[\"process\",\"case\"]");
+    report.write({{"e", "program"},
+                  {"protocol", 1},
+                  {"level", 1},
+                  {"framework", "googletest"},
+                  {"version", "0.1.0"},
+                  {"isolation", {"process", "case"}}});
     const auto tests = all_tests();
     if (env("MTEST_MODE") == "list") {
         for (const auto* t : tests) {
-            std::string id = id_of(*t);
-            report.event("\"e\":\"case\",\"id\":" + json_string(id) +
-                         ",\"name\":" + json_string(t->name()) +
-                         ",\"file\":" + json_string(t->file() ? t->file() : "") +
-                         ",\"line\":" + std::to_string(t->line()) + ",\"kind\":\"unit\"" +
-                         (t->should_run() ? "" : ",\"expect\":\"skip\""));
+            event e = {{"e", "case"},       {"id", id_of(*t)},
+                       {"name", t->name()}, {"file", t->file() ? t->file() : ""},
+                       {"line", t->line()}, {"kind", "unit"}};
+            if (!t->should_run())
+                e["expect"] = "skip";
+            report.write(e);
         }
-        report.event("\"e\":\"done\",\"status\":\"pass\",\"counts\":{}");
+        report.write({{"e", "done"}, {"status", "pass"}, {"counts", event::object()}});
         return 0;
     }
     bool missing = false;
@@ -176,7 +155,7 @@ int mcpplibs_mtest_gtest_main(int argc, char** argv) {
             if (line.empty())
                 continue;
             if (!known.contains(line)) {
-                report.event("\"e\":\"missing\",\"id\":" + json_string(line));
+                report.write({{"e", "missing"}, {"id", line}});
                 missing = true;
                 continue;
             }
@@ -191,12 +170,8 @@ int mcpplibs_mtest_gtest_main(int argc, char** argv) {
     auto* listener = new Listener(report);
     testing::UnitTest::GetInstance()->listeners().Append(listener);
     const int status = RUN_ALL_TESTS();
-    std::string counts = "{";
-    for (const auto& [k, v] : listener->counts())
-        counts += (counts.size() > 1 ? "," : "") + json_string(k) + ":" + std::to_string(v);
-    counts += "}";
     const bool failed = status != 0 || missing;
-    report.event(std::string("\"e\":\"done\",\"status\":\"") + (failed ? "fail" : "pass") +
-                 "\",\"counts\":" + counts);
+    report.write(
+        {{"e", "done"}, {"status", failed ? "fail" : "pass"}, {"counts", listener->counts()}});
     return failed ? 1 : 0;
 }

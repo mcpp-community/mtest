@@ -9,7 +9,7 @@
 #   main = { from = "gtest/main" }
 #
 # A case's identifier is `<suite>/<name>` (P3.2). GoogleTest's macros exist only in its header, so this
-# package's one source includes it: the one place mtest includes a header.
+# package's one source includes it, and nlohmann/json's beside it: the one place mtest includes headers.
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "gtest"
@@ -39,4 +39,5 @@ kind = "bin"
 main = "fixture/main.cpp"
 
 [dependencies]
-compat.gtest = "1.18.0"
+compat.gtest  = "1.18.0"
+nlohmann.json = "3.12.0"

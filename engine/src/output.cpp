@@ -94,13 +94,14 @@ std::string summary_text(const run_record& r, bool verbose) {
             out += std::format("    again: {}\n", again(c));
     }
     out +=
-        std::format("run {} {}: {} passed, {} failed, {} skipped{}{}{} in {:.1f} s ({} programs, "
-                    "{} jobs)\n",
+        std::format("run {} {}: {} passed, {} failed, {} skipped{}{}{} in {:.1f} s ({} program{}, "
+                    "{} job{})\n",
                     r.id, r.status, n("pass") + n("xfail"), n("fail") + n("xpass") + n("timeout"),
                     n("skip"), n("flaky") ? std::format(", {} flaky", n("flaky")) : "",
                     n("infra") ? std::format(", {} not run (the machine's)", n("infra")) : "",
                     n("invalid") ? std::format(", {} invalid", n("invalid")) : "", r.ms / 1000,
-                    r.programs.size(), r.jobs);
+                    r.programs.size(), r.programs.size() == 1 ? "" : "s", r.jobs,
+                    r.jobs == 1 ? "" : "s");
     return out;
 }
 

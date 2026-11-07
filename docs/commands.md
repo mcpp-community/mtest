@@ -4,7 +4,8 @@ Every command is one function of the engine, reached three ways with the same pa
 answer: the command line, the JSON-RPC service, and the MCP tools ([service.md](service.md)). `--json`
 prints the answer's data; every answer carries a `conclusion`, one sentence a person reads and an agent
 acts on. Exit status: `0` done, `1` a test or a gate failed, `2` a usage error, `3` the machine's failure
-(a program that did not start), never a test's.
+(a program that did not start), never a test's. The options are the parameters of the MCP tools, with
+`-` for `_`; `mtest help` and `mtest COMMAND --help` list them.
 
 ## Selection
 

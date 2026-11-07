@@ -4,6 +4,7 @@ module mcpplibs.mtest;
 
 import std;
 import mcpplibs.os;
+import nlohmann.json;
 
 namespace mcpplibs::mtest {
 
@@ -93,55 +94,19 @@ state& the() {
     return s;
 }
 
-// JSON string escaping for the events (RFC 8259 §7).
-std::string json_string(std::string_view text) {
-    std::string out;
-    out.reserve(text.size() + 2);
-    out += '"';
-    for (unsigned char c : text) {
-        switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                if (c < 0x20)
-                    out += std::format("\\u{:04x}", unsigned(c));
-                else
-                    out += char(c);
-        }
-    }
-    out += '"';
-    return out;
-}
-
-std::string list_of(const std::vector<std::string>& items) {
-    std::string out = "[";
-    for (std::size_t i = 0; i < items.size(); ++i)
-        out += (i ? "," : "") + json_string(items[i]);
-    return out + "]";
-}
+// An event of the report (P5): an object whose fields keep the order they are written in.
+using event = nlohmann::ordered_json;
 
 double since_start() {
     return std::chrono::duration<double, std::milli>(clock::now() - the().began).count();
 }
 
-void write_event(const std::string& body) {
+void write_event(const event& e) {
     auto& s = the();
     if (!s.protocol || !s.events)
         return;
-    s.events << "{" << body << "}\n";
+    // Text that is not UTF-8 (a program's output) is written with the replacement character.
+    s.events << e.dump(-1, ' ', false, event::error_handler_t::replace) << "\n";
     s.events.flush();
 }
 
@@ -152,8 +117,12 @@ void write_program() {
     s.program_written = true;
     // Keeps the marker in a link that discards what nothing reaches.
     [[maybe_unused]] volatile char keep = protocol_marker[0];
-    write_event(std::format(
-        R"("e":"program","protocol":1,"level":3,"framework":"mcpplibs.mtest","version":"0.1.0","isolation":["process","case"])"));
+    write_event({{"e", "program"},
+                 {"protocol", 1},
+                 {"level", 3},
+                 {"framework", "mcpplibs.mtest"},
+                 {"version", "0.1.0"},
+                 {"isolation", {"process", "case"}}});
 }
 
 std::string_view kind_name(kind k) {
@@ -222,14 +191,17 @@ void record_failure(std::string_view message, const std::source_location& where,
     if (text.empty())
         text = "the expectation did not hold";
     say(std::format("    {}:{}: {}", file, where.line(), text));
-    std::string ev =
-        std::format(R"("e":"failure","id":{},"file":{},"line":{},"message":{})", json_string(id),
-                    json_string(file), where.line(), json_string(text));
-    if (value && !value->expected.empty())
-        ev += ",\"expected\":" + json_string(value->expected) +
-              ",\"actual\":" + json_string(value->actual);
+    event ev = {{"e", "failure"},
+                {"id", id},
+                {"file", file},
+                {"line", where.line()},
+                {"message", text}};
+    if (value && !value->expected.empty()) {
+        ev["expected"] = value->expected;
+        ev["actual"] = value->actual;
+    }
     if (is_fatal)
-        ev += ",\"fatal\":true";
+        ev["fatal"] = true;
     write_event(ev);
 }
 
@@ -314,15 +286,20 @@ void test::operator=(body b) {
     s.clauses.insert(attrs_.clauses.begin(), attrs_.clauses.end());
     const std::string file = b.where.file_name();
     if (s.listing) {
-        std::string ev = std::format(
-            R"("e":"case","id":{},"name":{},"file":{},"line":{},"kind":{},"tags":{},"clauses":{},"resources":{},"artifacts":{})",
-            json_string(id), json_string(name_), json_string(file), b.where.line(),
-            json_string(kind_name(attrs_.kind.value_or(kind::unit))), list_of(attrs_.tags),
-            list_of(attrs_.clauses), list_of(attrs_.resources), list_of(attrs_.artifacts));
+        event ev = {{"e", "case"},
+                    {"id", id},
+                    {"name", name_},
+                    {"file", file},
+                    {"line", b.where.line()},
+                    {"kind", kind_name(attrs_.kind.value_or(kind::unit))},
+                    {"tags", attrs_.tags},
+                    {"clauses", attrs_.clauses},
+                    {"resources", attrs_.resources},
+                    {"artifacts", attrs_.artifacts}};
         if (attrs_.skip)
-            ev += R"(,"expect":"skip")";
+            ev["expect"] = "skip";
         else if (attrs_.expected_failure)
-            ev += R"(,"expect":"fail")";
+            ev["expect"] = "fail";
         write_event(ev);
         return;
     }
@@ -332,10 +309,9 @@ void test::operator=(body b) {
         s.counts[std::string(status)]++;
         if (status == "fail" || status == "xpass")
             s.any_failed = true;
-        std::string ev = std::format(R"("e":"end","id":{},"status":"{}","ms":{:.3f})",
-                                     json_string(id), status, ms);
+        event ev = {{"e", "end"}, {"id", id}, {"status", status}, {"ms", ms}};
         if (!reason.empty())
-            ev += ",\"reason\":" + json_string(reason);
+            ev["reason"] = reason;
         write_event(ev);
         const char* mark = status == "pass"    ? "  ok  "
                            : status == "skip"  ? "  skip"
@@ -344,12 +320,11 @@ void test::operator=(body b) {
         say(std::format("{} {}{}{}", mark, id, reason.empty() ? "" : " -- ", reason));
     };
     if (attrs_.skip) {
-        write_event(
-            std::format(R"("e":"begin","id":{},"t":{:.3f})", json_string(id), since_start()));
+        write_event({{"e", "begin"}, {"id", id}, {"t", since_start()}});
         finish("skip", 0, *attrs_.skip);
         return;
     }
-    write_event(std::format(R"("e":"begin","id":{},"t":{:.3f})", json_string(id), since_start()));
+    write_event({{"e", "begin"}, {"id", id}, {"t", since_start()}});
     s.stack.push_back({id});
     const auto started = clock::now();
     std::string status = "pass";
@@ -410,20 +385,12 @@ int report() {
             if (s.seen.contains(want))
                 continue;
             missing = true;
-            write_event(std::format(R"("e":"missing","id":{})", json_string(want)));
+            write_event({{"e", "missing"}, {"id", want}});
             say(std::format("  FAIL {} -- no such case", want));
         }
     }
     const bool failed = s.any_failed || missing;
-    std::string counts = "{";
-    bool first = true;
-    for (const auto& [k, v] : s.counts) {
-        counts += std::format("{}{}:{}", first ? "" : ",", json_string(k), v);
-        first = false;
-    }
-    counts += "}";
-    write_event(
-        std::format(R"("e":"done","status":"{}","counts":{})", failed ? "fail" : "pass", counts));
+    write_event({{"e", "done"}, {"status", failed ? "fail" : "pass"}, {"counts", s.counts}});
     if (!s.listing) {
         auto n = [&](const char* k) {
             auto it = s.counts.find(k);
@@ -496,23 +463,18 @@ std::string current_case() {
 }
 
 void produced(const std::filesystem::path& file, std::string_view kind) {
-    write_event(std::format(R"("e":"artifact","id":{},"path":{},"kind":{})",
-                            json_string(current_case()), json_string(os::fs::generic_utf8(file)),
-                            json_string(kind)));
+    write_event({{"e", "artifact"},
+                 {"id", current_case()},
+                 {"path", os::fs::generic_utf8(file)},
+                 {"kind", kind}});
 }
 
 void metric(std::string_view name, double value, std::string_view unit,
             std::span<const double> samples, std::string_view better) {
-    std::string ev =
-        std::format(R"("e":"metric","id":{},"name":{},"value":{},"unit":{},"better":{})",
-                    json_string(current_case()), json_string(name), value, json_string(unit),
-                    json_string(better));
-    if (!samples.empty()) {
-        ev += ",\"samples\":[";
-        for (std::size_t i = 0; i < samples.size(); ++i)
-            ev += std::format("{}{}", i ? "," : "", samples[i]);
-        ev += "]";
-    }
+    event ev = {{"e", "metric"},  {"id", current_case()}, {"name", name},
+                {"value", value}, {"unit", unit},         {"better", better}};
+    if (!samples.empty())
+        ev["samples"] = std::vector<double>(samples.begin(), samples.end());
     write_event(ev);
 }
 

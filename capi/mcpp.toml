@@ -11,7 +11,7 @@ license     = "Apache-2.0"
 [language]
 standard   = "c++23"
 modules    = true
-import_std = false
+import_std = true
 
 [build]
 sources      = ["src/*.cpp"]
@@ -24,3 +24,6 @@ kind = "shared"
 [targets.capi-fixture]
 kind = "bin"
 main = "fixture/main.c"
+
+[dependencies]
+nlohmann.json = "3.12.0"

@@ -1122,8 +1122,13 @@ json catalog() {
          {{"type", "array"},
           {"items", {{"type", "string"}}},
           {"description", "case identifier globs, `program::id` or `id`"}}},
-        {"tag", {{"type", "array"}, {"items", {{"type", "string"}}}}},
-        {"kind", {{"type", "array"}, {"items", {{"enum", {"unit", "e2e", "cts", "bench"}}}}}},
+        {"tag", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "case tags"}}},
+        {"exclude_tag",
+         {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "tags left out"}}},
+        {"kind",
+         {{"type", "array"},
+          {"items", {{"enum", {"unit", "e2e", "cts", "bench"}}}},
+          {"description", "unit, e2e, cts or bench"}}},
         {"program",
          {{"type", "array"},
           {"items", {{"type", "string"}}},
@@ -1136,13 +1141,17 @@ json catalog() {
           {"description", "changed paths: only the cases they affect"}}},
         {"budget",
          {{"type", "string"}, {"description", "a duration: the most useful cases that fit"}}},
+        {"failed",
+         {{"type", "boolean"}, {"description", "only the cases that failed in the last run"}}},
+        {"argv",
+         {{"type", "array"},
+          {"items", {{"type", "string"}}},
+          {"description", "one program and its arguments (on the command line, after `--`)"}}},
     };
     auto with = [&](json extra) {
         json props = selection;
-        for (auto& item_ : extra.items())
-            if (auto& k = item_.key(); true)
-                if (auto& v = item_.value(); true)
-                    props[k] = v;
+        for (auto it = extra.begin(); it != extra.end(); ++it)
+            props[it.key()] = it.value();
         return json{{"type", "object"}, {"properties", props}};
     };
     const json run_id = {
@@ -1158,20 +1167,24 @@ json catalog() {
     add("run",
         "Run tests: select by set, case, tag, kind, program, change or budget; returns the run's "
         "record, its failures and a conclusion.",
-        with({{"jobs", {{"type", "integer"}}},
-              {"seed", {{"type", "integer"}}},
-              {"fail_fast", {{"type", "boolean"}}},
-              {"retries", {{"type", "integer"}}},
-              {"isolate", {{"type", "boolean"}}},
-              {"timeout", {{"type", "string"}}},
-              {"env", {{"type", "object"}}},
-              {"run_under", {{"type", "array"}, {"items", {{"type", "string"}}}}},
+        with({{"jobs", {{"type", "integer"}, {"description", "programs at once"}}},
+              {"seed", {{"type", "integer"}, {"description", "the seed of anything random"}}},
+              {"fail_fast", {{"type", "boolean"}, {"description", "stop at the first failure"}}},
+              {"retries", {{"type", "integer"}, {"description", "runs again of a failed case"}}},
+              {"isolate", {{"type", "boolean"}, {"description", "each case in its own process"}}},
+              {"timeout", {{"type", "string"}, {"description", "a duration for each program"}}},
+              {"env", {{"type", "object"}, {"description", "NAME=VALUE for the programs"}}},
+              {"run_under",
+               {{"type", "array"},
+                {"items", {{"type", "string"}}},
+                {"description", "a command the programs run under"}}},
+              {"verbose", {{"type", "boolean"}, {"description", "every case, not only failures"}}},
               {"report",
                {{"type", "object"},
                 {"properties",
-                 {{"junit", {{"type", "string"}}},
-                  {"html", {{"type", "string"}}},
-                  {"json", {{"type", "string"}}}}}}}}),
+                 {{"junit", {{"type", "string"}, {"description", "a JUnit XML file of the run"}}},
+                  {"html", {{"type", "string"}, {"description", "an HTML page of the run"}}},
+                  {"json", {{"type", "string"}, {"description", "the run's record as JSON"}}}}}}}}),
         true);
     add("rerun", "Run again the cases that failed in the last run.", with({}), true);
     add("smoke", "Run the smoke set (within its budget).", with({}), true);
@@ -1227,7 +1240,10 @@ json catalog() {
                {"until", {{"type", "string"}}}}),
         true);
     add("store", "The store: gc, verify, or import another store.",
-        plain({{"action", {{"enum", {"gc", "verify", "import"}}}}, {"from", {{"type", "string"}}}}),
+        plain({{"action", {{"enum", {"gc", "verify", "import"}}}},
+               {"from", {{"type", "string"}, {"description", "a store to import"}}},
+               {"keep_days", {{"type", "integer"}, {"description", "gc: days a run is kept"}}},
+               {"keep_runs", {{"type", "integer"}, {"description", "gc: runs kept"}}}}),
         true);
     add("trace",
         "Run a selection under a tool (valgrind, strace, ltrace, perf, rr, time, okrun-prof, or "

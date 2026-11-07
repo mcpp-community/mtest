@@ -34,6 +34,12 @@ hash    = "fnv1a:9438fb3cbe77fdc7"
 origin  = "platform"
 targets = ["x86_64-openkal"]
 
+[package."mcpplibs.cmdline"]
+namespace = "mcpplibs"
+version = "0.0.2"
+source  = "index+mcpplibs@0.0.2"
+hash    = "fnv1a:aad61299abc2c4b7"
+
 [package."openkal"]
 namespace = "mcpplibs"
 version = "0.24.0"

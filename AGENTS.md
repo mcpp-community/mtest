@@ -26,18 +26,22 @@ protocol. This file states the core ideas and rules; the design and its record a
 
 | Member | Role | Depends on |
 |---|---|---|
-| `lib` | the C++ library: cases, expectations, `bench`, `cts`, `e2e` | `std`, `mcpplibs.os` |
-| `engine` | the `mtest` command and its service | `mcpplibs.os`, JSON, TOML |
+| `lib` | the C++ library: cases, expectations, `bench`, `cts`, `e2e` | `mcpplibs.os`, JSON |
+| `engine` | the `mtest` command and its service | `mcpplibs.os`, `mcpplibs.cmdline`, JSON, TOML |
 | `conformance` | the protocol's conformance suite | `lib` |
-| `adapters/*` | GoogleTest, Bash, Python | the framework adapted |
-| `capi` | `include/mtest.h` for any language with a C FFI | `std` |
+| `adapters/*` | GoogleTest, Bash, Python | the framework adapted, JSON |
+| `capi` | `include/mtest.h` for any language with a C FFI | JSON |
 
 ## Code
 
+- What a library already does is depended on, not written again: first a released `mcpplibs.*`
+  package that others use, then a well-known library of mcpp-index (nlohmann/json, toml++,
+  GoogleTest), and only then an implementation of one's own, of what neither provides.
 - C++23 modules; an interface unit (`.cppm`) and its implementation (`.cpp`) apart.
 - Format by [.clang-format](.clang-format) (the same as mcpp's); CI checks it with the pinned
   clang-format.
-- No macros: modules, `inline constexpr`, `if constexpr`, `std::source_location`. The one header is
+- No macros: modules, `inline constexpr`, `if constexpr`, `std::source_location`. Headers appear
+  where a library is only a header: GoogleTest's in its adapter (with nlohmann/json's beside it), and
   the C ABI's `include/mtest.h`.
 - Names are readable words; loops nest at most two deep (a helper otherwise).
 - Comments and documents are declarative and concise; they carry no local path, user name or

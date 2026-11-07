@@ -2,15 +2,8 @@
 // report by the protocol. The case list a program declares is kept to answer `missing` (P4.1).
 #include "../include/mtest.h"
 
-#include <chrono>
-#include <cstdio>
-#include <cstdlib>
-#include <fstream>
-#include <map>
-#include <mutex>
-#include <set>
-#include <string>
-#include <vector>
+import std;
+import nlohmann.json;
 
 extern "C" const char mtest_protocol_marker[] = "mtest-protocol=1";
 
@@ -21,41 +14,15 @@ std::string env(const char* name) {
     return v ? v : "";
 }
 
-std::string json_string(const char* text) {
-    std::string out = "\"";
-    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(text ? text : ""); *p;
-         ++p) {
-        switch (*p) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                if (*p < 0x20) {
-                    char buf[8];
-                    std::snprintf(buf, sizeof buf, "\\u%04x", *p);
-                    out += buf;
-                } else {
-                    out += static_cast<char>(*p);
-                }
-        }
-    }
-    return out + "\"";
+// An event of the report (P5): an object whose fields keep the order they are written in.
+using event = nlohmann::ordered_json;
+
+std::string text(const char* value) {
+    return value ? value : "";
 }
 
 struct pending_case {
-    std::string body;
+    event body;
     std::vector<std::string> tags, clauses, resources, artifacts;
     bool expect_fail = false;
 };
@@ -91,23 +58,22 @@ struct state {
             }
         }
     }
-    void event(const std::string& body) {
+    void write(const event& e) {
         if (!on || !out)
             return;
-        out << "{" << body << "}\n";
+        // Text that is not UTF-8 is written with the replacement character.
+        out << e.dump(-1, ' ', false, event::error_handler_t::replace) << "\n";
         out.flush();
     }
     void flush_pending() {
         for (auto& p : pending) {
-            auto list = [](const std::vector<std::string>& v) {
-                std::string s = "[";
-                for (std::size_t i = 0; i < v.size(); ++i)
-                    s += (i ? "," : "") + json_string(v[i].c_str());
-                return s + "]";
-            };
-            event(p.body + ",\"tags\":" + list(p.tags) + ",\"clauses\":" + list(p.clauses) +
-                  ",\"resources\":" + list(p.resources) + ",\"artifacts\":" + list(p.artifacts) +
-                  (p.expect_fail ? ",\"expect\":\"fail\"" : ""));
+            p.body["tags"] = p.tags;
+            p.body["clauses"] = p.clauses;
+            p.body["resources"] = p.resources;
+            p.body["artifacts"] = p.artifacts;
+            if (p.expect_fail)
+                p.body["expect"] = "fail";
+            write(p.body);
         }
         pending.clear();
     }
@@ -130,12 +96,12 @@ void mtest_init(const char* framework, int level) {
     auto& s = the();
     std::lock_guard g(s.lock);
     [[maybe_unused]] volatile char keep = mtest_protocol_marker[0];
-    s.event("\"e\":\"program\",\"protocol\":1,\"level\":" +
-            std::to_string(level < 1   ? 1
-                           : level > 3 ? 3
-                                       : level) +
-            ",\"framework\":" + json_string(framework) +
-            ",\"version\":\"0.1.0\",\"isolation\":[\"process\",\"case\"]");
+    s.write({{"e", "program"},
+             {"protocol", 1},
+             {"level", std::clamp(level, 1, 3)},
+             {"framework", text(framework)},
+             {"version", "0.1.0"},
+             {"isolation", {"process", "case"}}});
 }
 
 int mtest_listing(void) {
@@ -147,10 +113,12 @@ void mtest_case(const char* id, const char* file, int line, const char* kind) {
     std::lock_guard g(s.lock);
     s.flush_pending();
     s.seen.insert(id ? id : "");
-    s.pending.push_back({"\"e\":\"case\",\"id\":" + json_string(id) +
-                         ",\"name\":" + json_string(id) + ",\"file\":" + json_string(file) +
-                         ",\"line\":" + std::to_string(line) +
-                         ",\"kind\":" + json_string(kind ? kind : "unit")});
+    s.pending.push_back({{{"e", "case"},
+                          {"id", text(id)},
+                          {"name", text(id)},
+                          {"file", text(file)},
+                          {"line", line},
+                          {"kind", kind ? kind : "unit"}}});
 }
 
 namespace {
@@ -193,36 +161,37 @@ void mtest_begin(const char* id) {
     auto& s = the();
     std::lock_guard g(s.lock);
     s.started[id ? id : ""] = std::chrono::steady_clock::now();
-    s.event("\"e\":\"begin\",\"id\":" + json_string(id) +
-            ",\"t\":" + std::to_string(ms_since(s.began)));
+    s.write({{"e", "begin"}, {"id", text(id)}, {"t", ms_since(s.began)}});
 }
 
 void mtest_failure(const char* id, const char* file, int line, const char* message,
                    const char* expected, const char* actual) {
     auto& s = the();
     std::lock_guard g(s.lock);
-    std::string body = "\"e\":\"failure\",\"id\":" + json_string(id) +
-                       ",\"file\":" + json_string(file) + ",\"line\":" + std::to_string(line) +
-                       ",\"message\":" + json_string(message);
-    if (expected || actual)
-        body += ",\"expected\":" + json_string(expected) + ",\"actual\":" + json_string(actual);
-    s.event(body);
+    event e = {{"e", "failure"},
+               {"id", text(id)},
+               {"file", text(file)},
+               {"line", line},
+               {"message", text(message)}};
+    if (expected || actual) {
+        e["expected"] = text(expected);
+        e["actual"] = text(actual);
+    }
+    s.write(e);
 }
 
 void mtest_metric(const char* id, const char* name, double value, const char* unit,
                   const double* samples, int count) {
     auto& s = the();
     std::lock_guard g(s.lock);
-    std::string body = "\"e\":\"metric\",\"id\":" + json_string(id) +
-                       ",\"name\":" + json_string(name) + ",\"value\":" + std::to_string(value) +
-                       ",\"unit\":" + json_string(unit);
-    if (samples && count > 0) {
-        body += ",\"samples\":[";
-        for (int i = 0; i < count; ++i)
-            body += (i ? "," : "") + std::to_string(samples[i]);
-        body += "]";
-    }
-    s.event(body);
+    event e = {{"e", "metric"},
+               {"id", text(id)},
+               {"name", text(name)},
+               {"value", value},
+               {"unit", text(unit)}};
+    if (samples && count > 0)
+        e["samples"] = std::vector<double>(samples, samples + count);
+    s.write(e);
 }
 
 void mtest_end(const char* id, const char* status, const char* reason) {
@@ -235,11 +204,10 @@ void mtest_end(const char* id, const char* status, const char* reason) {
     double ms = 0;
     if (auto it = s.started.find(id ? id : ""); it != s.started.end())
         ms = ms_since(it->second);
-    std::string body = "\"e\":\"end\",\"id\":" + json_string(id) +
-                       ",\"status\":" + json_string(st.c_str()) + ",\"ms\":" + std::to_string(ms);
+    event e = {{"e", "end"}, {"id", text(id)}, {"status", st}, {"ms", ms}};
     if (reason)
-        body += ",\"reason\":" + json_string(reason);
-    s.event(body);
+        e["reason"] = reason;
+    s.write(e);
 }
 
 int mtest_done(void) {
@@ -250,15 +218,11 @@ int mtest_done(void) {
     if (!s.listing && s.selecting)
         for (const auto& want : s.selection)
             if (!s.seen.contains(want)) {
-                s.event("\"e\":\"missing\",\"id\":" + json_string(want.c_str()));
+                s.write({{"e", "missing"}, {"id", want}});
                 missing = true;
             }
-    std::string counts = "{";
-    for (const auto& [k, v] : s.counts)
-        counts += (counts.size() > 1 ? "," : "") + json_string(k.c_str()) + ":" + std::to_string(v);
     const bool failed = s.failed || missing;
-    s.event(std::string("\"e\":\"done\",\"status\":\"") + (failed ? "fail" : "pass") +
-            "\",\"counts\":" + counts + "}");
+    s.write({{"e", "done"}, {"status", failed ? "fail" : "pass"}, {"counts", s.counts}});
     return s.listing ? 0 : (failed ? 1 : 0);
 }
 

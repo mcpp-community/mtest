@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           mtest=$(find target -type f -name mtest -path '*/bin/mtest.mtest/*' | head -1)
-          programs=$(find target -type f -path '*/bin/mtest/*' \( -name expectations -o -name companions \))
+          programs=$(find target -type f -path '*/bin/*' \( -name expectations -o -name companions \))
           "$mtest" run $programs --junit target/mtest-junit.xml
           "$mtest" gate --set full
           "$mtest" ci annotate

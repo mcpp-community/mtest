@@ -113,8 +113,10 @@ jobs:
       - name: The script adapters on this system
         run: |
           set -euo pipefail
-          # Through bash: Windows does not start a script by itself.
-          MTEST_CTS_PROGRAM="bash $PWD/adapters/script/tests/fixture.sh" mcpp test -p conformance --target "${{ matrix.arch }}-openkal"
+          # Through bash: Windows does not start a script by itself. The image reads the script by
+          # the system's spelling of its path, which under Git Bash is `pwd -W` and not $PWD.
+          root=$PWD; [ "$RUNNER_OS" = Windows ] && root=$(pwd -W)
+          MTEST_CTS_PROGRAM="bash $root/adapters/script/tests/fixture.sh" mcpp test -p conformance --target "${{ matrix.arch }}-openkal"
       - name: The tests leave nothing in the working tree
         shell: bash
         run: |

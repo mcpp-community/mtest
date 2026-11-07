@@ -46,5 +46,5 @@ test-main     = true
 test-guide    = "docs/writing-tests.md"
 
 [dependencies]
-mcpplibs.os   = "0.3.1"
+mcpplibs.os   = "0.4.0"
 nlohmann.json = "3.12.0"

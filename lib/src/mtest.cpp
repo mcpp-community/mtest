@@ -473,9 +473,12 @@ std::filesystem::path temp_dir() {
         throw std::logic_error("mtest::temp_dir() outside a case");
     auto& c = s.stack.back();
     if (!c.dir) {
-        auto root =
-            s.tmp_root.empty() ? std::filesystem::temp_directory_path() / "mtest" : s.tmp_root;
-        auto dir = root / std::format("{}-{:x}", sanitized(c.id), std::random_device{}());
+        // Without a runner's directory, the case's own is named for mtest in the system's.
+        auto dir =
+            s.tmp_root.empty()
+                ? std::filesystem::temp_directory_path() /
+                      std::format("mtest-{}-{:x}", sanitized(c.id), std::random_device{}())
+                : s.tmp_root / std::format("{}-{:x}", sanitized(c.id), std::random_device{}());
         std::filesystem::create_directories(dir);
         c.dir = dir;
     }

@@ -1,3 +1,4 @@
 target/
 .mcpp/
+.mtest/
 mcpp.lock.tmp

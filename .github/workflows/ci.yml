@@ -70,6 +70,10 @@ jobs:
           "$mtest" run $programs --junit target/mtest-junit.xml
           "$mtest" gate --set full
           "$mtest" ci annotate
+      - name: The tests leave nothing in the working tree
+        run: |
+          left=$(git status --porcelain)
+          if [ -n "$left" ]; then printf '%s\n' "$left"; exit 1; fi
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -109,6 +113,11 @@ jobs:
         run: |
           set -euo pipefail
           MTEST_CTS_PROGRAM="$PWD/adapters/script/tests/fixture.sh" mcpp test -p conformance --target "${{ matrix.arch }}-openkal"
+      - name: The tests leave nothing in the working tree
+        shell: bash
+        run: |
+          left=$(git status --porcelain)
+          if [ -n "$left" ]; then printf '%s\n' "$left"; exit 1; fi
 
   ci:
     name: ci

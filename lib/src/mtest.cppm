@@ -23,6 +23,12 @@ struct diagnose {
     std::chrono::milliseconds limit{0};
 };
 
+// A bound on a metric the case reports (P6.5): its name, and the most and the least it may be.
+struct metric_bound {
+    std::string metric;
+    std::optional<double> max, min;
+};
+
 struct attributes {
     std::optional<mtest::kind> kind;
     std::vector<std::string> tags;
@@ -37,6 +43,7 @@ struct attributes {
     bool isolated = false;                           // runs in a process of its own (isolate)
     std::optional<int> retries;                      // runs again after failing (retries)
     std::optional<mtest::diagnose> diagnosis;        // what a runner does after it fails (diagnose)
+    std::vector<metric_bound> bounds;                // what its metrics may be (at_most, at_least)
 };
 
 // Each is written in brackets after the case's name, "x"_test[tag{"slow"}][resource{"machine"}],
@@ -79,10 +86,21 @@ struct isolate {};
 struct retries {
     int count;
 };
+// The metric `metric` of the case is at most `value`, or at least it, in the metric's unit: an
+// expectation the case's end checks (P6.5), and that a runner and `mtest analyze trend` read:
+//   Bench startup{"startup", at_most{"ready", 15}, [] { metric("ready", seconds, "s"); }};
+struct at_most {
+    std::string metric;
+    double value;
+};
+struct at_least {
+    std::string metric;
+    double value;
+};
 
-// Each attribute applied to a set of them. Tags, clauses, resources and artifacts add up, and a
-// case within an isolated suite is isolated; a kind, a skip, an expected failure, a known gap, a
-// time limit, retries and a diagnosis are the innermost one stated.
+// Each attribute applied to a set of them. Tags, clauses, resources, artifacts and bounds add up,
+// and a case within an isolated suite is isolated; a kind, a skip, an expected failure, a known
+// gap, a time limit, retries and a diagnosis are the innermost one stated.
 inline void apply(attributes& a, mtest::kind k) {
     a.kind = k;
 }
@@ -116,6 +134,12 @@ inline void apply(attributes& a, retries r) {
 }
 inline void apply(attributes& a, diagnose d) {
     a.diagnosis = std::move(d);
+}
+inline void apply(attributes& a, at_most b) {
+    a.bounds.push_back({std::move(b.metric), b.value, std::nullopt});
+}
+inline void apply(attributes& a, at_least b) {
+    a.bounds.push_back({std::move(b.metric), std::nullopt, b.value});
 }
 void apply(attributes& a, known_gap g);
 

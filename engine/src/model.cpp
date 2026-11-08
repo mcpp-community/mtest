@@ -20,12 +20,50 @@ std::string str(const json& j, const char* key) {
 }
 }  // namespace
 
+json to_json(const std::vector<bound_info>& bounds) {
+    json out = json::array();
+    for (const auto& b : bounds) {
+        json one = {{"metric", b.metric}};
+        if (b.max)
+            one["max"] = *b.max;
+        if (b.min)
+            one["min"] = *b.min;
+        out.push_back(std::move(one));
+    }
+    return out;
+}
+
+std::vector<bound_info> bounds_from(const json& j) {
+    std::vector<bound_info> out;
+    if (auto it = j.find("bounds"); it != j.end() && it->is_array())
+        for (const auto& b : *it) {
+            if (!b.is_object())
+                continue;
+            bound_info one{b.value("metric", std::string{}), std::nullopt, std::nullopt};
+            if (auto m = b.find("max"); m != b.end() && m->is_number())
+                one.max = m->get<double>();
+            if (auto m = b.find("min"); m != b.end() && m->is_number())
+                one.min = m->get<double>();
+            out.push_back(std::move(one));
+        }
+    return out;
+}
+
 json to_json(const case_info& c) {
-    return {{"id", c.id},           {"name", c.name},           {"file", c.file},
-            {"line", c.line},       {"kind", c.kind},           {"tags", c.tags},
-            {"clauses", c.clauses}, {"resources", c.resources}, {"artifacts", c.artifacts},
-            {"expect", c.expect},   {"timeout", c.timeout},     {"isolated", c.isolated},
-            {"retries", c.retries}};
+    return {{"id", c.id},
+            {"name", c.name},
+            {"file", c.file},
+            {"line", c.line},
+            {"kind", c.kind},
+            {"tags", c.tags},
+            {"clauses", c.clauses},
+            {"resources", c.resources},
+            {"artifacts", c.artifacts},
+            {"expect", c.expect},
+            {"timeout", c.timeout},
+            {"isolated", c.isolated},
+            {"retries", c.retries},
+            {"bounds", to_json(c.bounds)}};
 }
 json to_json(const failure_info& f) {
     json j = {{"file", f.file}, {"line", f.line}, {"message", f.message}};
@@ -77,6 +115,8 @@ json to_json(const case_result& c) {
     }
     if (!c.diagnosis.empty())
         j["diagnosis"] = c.diagnosis;
+    if (!c.bounds.empty())
+        j["bounds"] = to_json(c.bounds);
     if (c.attempts > 1)
         j["attempts"] = c.attempts;
     return j;
@@ -127,6 +167,7 @@ case_info case_info_from(const json& j) {
     c.timeout = j.value("timeout", 0.0);
     c.isolated = j.value("isolation", std::string{}) == "case" || j.value("isolated", false);
     c.retries = j.value("retries", 0);
+    c.bounds = bounds_from(j);
     if (auto d = j.find("diagnose"); d != j.end() && d->is_object()) {
         std::vector<std::pair<std::string, std::string>> env;
         if (auto e = d->find("env"); e != d->end() && e->is_object())
@@ -177,6 +218,7 @@ case_result case_result_from(const json& j) {
         for (const auto& f : *it)
             c.fixtures.push_back({str(f, "name"), f.value("ms", 0.0)});
     c.diagnosis = str(j, "diagnosis");
+    c.bounds = bounds_from(j);
     return c;
 }
 program_result program_result_from(const json& j) {

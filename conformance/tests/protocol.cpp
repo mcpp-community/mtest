@@ -115,6 +115,8 @@ std::vector<std::string> fixture_ids(int level) {
                                "measures", "covers", "holds"})
         if (level >= 3 || s != "expected to fail")
             out.push_back(id(s));
+    if (level >= 3)
+        out.push_back(id("bounded"));
     return out;
 }
 
@@ -258,8 +260,10 @@ int main() {
                                                    {id("measures"), "pass"},
                                                    {id("covers"), "pass"},
                                                    {id("holds"), "pass"}};
-        if (level(r) >= 3)
+        if (level(r) >= 3) {
             want[id("expected to fail")] = "xfail";
+            want[id("bounded")] = "fail";
+        }
         for (const auto& [case_id, status] : want) {
             auto e = find(r, "end", case_id);
             expect(e.has_value()) << "no end for " << case_id;
@@ -289,5 +293,24 @@ int main() {
             expect(near(m->value("value", 0.0), 0.5, 1e-9));
             expect(m->value("samples", json::array()) == json::array({0.4, 0.5, 0.6}));
         };
+    "P6.5 a metric over its bound fails its case"_test[kind::cts][clause{"P6.5"}] = [] {
+        const auto listed = run("list");
+        if (level(listed) < 3)
+            skip("the implementation is below level 3");
+        auto c = find(listed, "case", id("bounded"));
+        expect(fatal(c.has_value()));
+        const auto bounds = c->value("bounds", json::array());
+        expect(fatal(eq(bounds.size(), std::size_t(1)))) << c->dump();
+        expect(eq(bounds[0].value("metric", ""), std::string("elapsed")));
+        expect(near(bounds[0].value("max", 0.0), 0.1, 1e-9));
+        const auto r = run("run", std::vector<std::string>{id("bounded")});
+        auto f = find(r, "failure", id("bounded"));
+        expect(fatal(f.has_value())) << "no failure for the bound";
+        expect(contains(f->value("message", ""), "bound"));
+        auto e = find(r, "end", id("bounded"));
+        expect(fatal(e.has_value()));
+        expect(eq(e->value("status", ""), std::string("fail")));
+        expect(ne(r.status, 0));
+    };
     return report();
 }

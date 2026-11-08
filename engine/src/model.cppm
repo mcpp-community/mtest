@@ -27,6 +27,12 @@ struct program_spec {
     std::string kind;
 };
 
+// A limit on a metric a case states (P6.5).
+struct bound_info {
+    std::string metric;
+    std::optional<double> max, min;
+};
+
 struct case_info {
     std::string id, name, file, kind, expect;  // kind: empty when the case states none
     int line = 0;
@@ -39,6 +45,7 @@ struct case_info {
     double diagnose_timeout = 0;
     // mtest.toml's skip and expected failure, for a case whose program states neither (reasons).
     std::string skip, expect_fail;
+    std::vector<bound_info> bounds;
 };
 
 // A shared object a case caused to be made (P5.2 `fixture`), and how long making it took.
@@ -69,6 +76,7 @@ struct case_result {
     std::vector<metric_info> metrics;
     std::vector<std::string> artifacts, tags, clauses;
     std::vector<fixture_info> fixtures;
+    std::vector<bound_info> bounds;  // as listed, for `analyze trend`
     bool quarantined = false;
     int attempts = 1;
     std::string diagnosis;  // the store's file of its diagnostic run's output, when it had one
@@ -104,6 +112,8 @@ struct run_record {
 };
 
 json to_json(const case_info& c);
+json to_json(const std::vector<bound_info>& bounds);
+std::vector<bound_info> bounds_from(const json& j);
 json to_json(const failure_info& f);
 json to_json(const metric_info& m);
 json to_json(const case_result& c);

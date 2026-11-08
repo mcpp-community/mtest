@@ -81,7 +81,7 @@ std::expected<void, std::string> read_attributes(const toml::table& cases, std::
             return std::unexpected(std::format("{}.\"{}\" must be a table", where, glob.str()));
         known(*t, std::format("{}.\"{}\"", where, glob.str()),
               {"tags", "clauses", "resources", "artifacts", "kind", "timeout", "isolation",
-               "retries", "diagnose", "skip", "expect_fail"},
+               "retries", "diagnose", "skip", "expect_fail", "at_most", "at_least"},
               c);
         case_attributes a;
         a.glob = std::string(glob.str());
@@ -104,6 +104,14 @@ std::expected<void, std::string> read_attributes(const toml::table& cases, std::
             if (auto dt = duration_of((*d)["timeout"]))
                 a.diagnose_timeout = std::chrono::duration<double>(*dt).count();
         }
+        // at_most = { ready = 15 }, at_least = { recall = 0.9 }: bounds on the metrics (P6.5).
+        for (const auto& [side, key] : {std::pair{"max", "at_most"}, std::pair{"min", "at_least"}})
+            if (auto b = (*t)[key].as_table())
+                for (const auto& [metric, v] : *b) {
+                    bound_info one{std::string(metric.str()), std::nullopt, std::nullopt};
+                    (std::string_view(side) == "max" ? one.max : one.min) = v.value<double>();
+                    a.bounds.push_back(std::move(one));
+                }
         a.skip = (*t)["skip"].value_or(std::string{});
         a.expect_fail = (*t)["expect_fail"].value_or(std::string{});
         a.origin = std::format("{}.\"{}\"", where, a.glob);

@@ -38,7 +38,7 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.3.0"
+mcpplibs.mtest = "0.4.0"
 ```
 
 A failure names its place and both sides (`expected 2, actual 3`). Under a runner the same program

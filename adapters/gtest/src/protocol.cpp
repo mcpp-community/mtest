@@ -127,7 +127,7 @@ int mcpplibs_mtest_gtest_main(int argc, char** argv) {
                   {"protocol", 1},
                   {"level", 1},
                   {"framework", "googletest"},
-                  {"version", "0.3.0"},
+                  {"version", "0.4.0"},
                   {"isolation", {"process", "case"}},
                   {"guide", "https://github.com/mcpp-community/mtest/blob/main/adapters/gtest/docs/"
                             "writing-tests.md"}});

@@ -140,6 +140,27 @@
        "exclusiveMinimum": 0
       }
      }
+    },
+    "bounds": {
+     "type": "array",
+     "description": "P6.5: limits on the case's metrics",
+     "items": {
+      "type": "object",
+      "required": [
+       "metric"
+      ],
+      "properties": {
+       "metric": {
+        "type": "string"
+       },
+       "max": {
+        "type": "number"
+       },
+       "min": {
+        "type": "number"
+       }
+      }
+     }
     }
    },
    "required": [
@@ -178,6 +199,27 @@
      "type": "array",
      "items": {
       "type": "string"
+     }
+    },
+    "bounds": {
+     "type": "array",
+     "description": "P6.5: limits on the case's metrics",
+     "items": {
+      "type": "object",
+      "required": [
+       "metric"
+      ],
+      "properties": {
+       "metric": {
+        "type": "string"
+       },
+       "max": {
+        "type": "number"
+       },
+       "min": {
+        "type": "number"
+       }
+      }
      }
     }
    },

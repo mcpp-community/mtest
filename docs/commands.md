@@ -57,7 +57,7 @@ status is its one result. Cases tagged `flaky`, and quarantined ones, are retrie
 | `diff [--before ID] [--after ID]` | newly failing, fixed, slower, faster |
 | `history --case REF` | one case across the stored runs |
 | `query` | stored case results by `--status`, `--kind`, `--program`, `--case`, `--tag`, `--days`, `--runs` |
-| `analyze METRIC` | `hot`, `durations`, `path` (the critical path), `failures` (grouped by message), `flaky`, `bench`, `cost` |
+| `analyze METRIC` | `hot`, `durations`, `path` (the critical path), `failures` (grouped by message), `flaky`, `bench`, `trend` (each case's metrics over the last `--runs N` runs beside their bounds, `--case GLOB`), `cost` |
 | `graph [--format json\|dot\|mermaid]` | sources → programs → cases → resources and artifacts |
 | `gate [--set S]` | a set's gate on a run: no failure, the budget kept, bench verdicts that pass |
 

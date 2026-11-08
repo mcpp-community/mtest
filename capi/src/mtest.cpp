@@ -43,6 +43,9 @@ struct state {
     std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
     std::map<std::string, std::chrono::steady_clock::time_point> started;
     std::vector<pending_case> pending;
+    // P6.5: the bounds a case states, and the metrics it reported, by case.
+    std::map<std::string, event> bounds;
+    std::map<std::string, std::map<std::string, double>> metrics;
 
     state() {
         const auto report = env("MTEST_REPORT");
@@ -112,7 +115,7 @@ void mtest_init(const char* framework, int level) {
              {"protocol", 1},
              {"level", std::clamp(level, 1, 3)},
              {"framework", text(framework)},
-             {"version", "0.3.0"},
+             {"version", "0.4.0"},
              {"isolation", {"process", "case"}}});
 }
 
@@ -241,13 +244,57 @@ void mtest_metric(const char* id, const char* name, double value, const char* un
                {"unit", text(unit)}};
     if (samples && count > 0)
         e["samples"] = std::vector<double>(samples, samples + count);
+    s.metrics[text(id)][text(name)] = value;
     s.write(e);
+}
+
+void mtest_bound(const char* id, const char* metric, double min, double max) {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    event b = {{"metric", text(metric)}};
+    if (!std::isnan(max))
+        b["max"] = max;
+    if (!std::isnan(min))
+        b["min"] = min;
+    auto& list = s.bounds[text(id)];
+    if (!list.is_array())
+        list = event::array();
+    list.push_back(b);
+    for (auto& p : s.pending)
+        if (p.body.value("id", std::string{}) == text(id))
+            p.body["bounds"] = list;
 }
 
 void mtest_end(const char* id, const char* status, const char* reason) {
     auto& s = the();
     std::lock_guard g(s.lock);
-    const std::string st = status ? status : "fail";
+    std::string st = status ? status : "fail";
+    // P6.5: a bound the case's metrics do not keep is a failure of it.
+    if (auto b = s.bounds.find(text(id)); b != s.bounds.end() && (st == "pass" || st == "xfail")) {
+        const auto& reported = s.metrics[text(id)];
+        for (const auto& one : b->second) {
+            const auto name = one.value("metric", std::string{});
+            const auto it = reported.find(name);
+            std::string message;
+            if (it == reported.end())
+                message = std::format("the case reported no metric `{}`, which it bounds", name);
+            else if (one.contains("max") && it->second > one["max"].get<double>())
+                message = std::format("metric {} = {:g}, over its bound {:g} (at_most)", name,
+                                      it->second, one["max"].get<double>());
+            else if (one.contains("min") && it->second < one["min"].get<double>())
+                message = std::format("metric {} = {:g}, under its bound {:g} (at_least)", name,
+                                      it->second, one["min"].get<double>());
+            if (message.empty())
+                continue;
+            s.write({{"e", "failure"},
+                     {"id", text(id)},
+                     {"file", ""},
+                     {"line", 0},
+                     {"message", message}});
+            if (st == "pass")
+                st = "fail";
+        }
+    }
     if (st == "fail" || st == "xpass")
         s.failed = true;
     s.counts[st]++;

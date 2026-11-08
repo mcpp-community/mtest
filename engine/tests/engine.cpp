@@ -535,5 +535,35 @@ printf ')" + header +
         expect(ge(std::abs(starts[0] - starts[1]), 250.0))
             << "two holders of one serial group overlapped";
     };
+    "a case's metrics across runs beside their bounds (analyze trend)"_test[kind::e2e] = [] {
+        const std::string head = "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
+        auto root = project(
+            {{"t.sh", head + "fast() { mtest_metric ready \"${READY:-3}\" s; }\n"
+                             "mtest_case startup fast --at-most ready=15\nmtest_report\n"}});
+        auto first = json_of(mtest(root, {"run", "--json", "bash t.sh"}));
+        expect(eq(first["status"].get<std::string>(), std::string("pass"))) << first.dump();
+        auto over = e2e::run(
+            {.argv = {e2e::program("mtest"), "run", "--json", "--env", "READY=20", "bash t.sh"},
+             .cwd = root});
+        auto second = json_of(over);
+        expect(eq(second["status"].get<std::string>(), std::string("fail"))) << second.dump();
+        expect(contains(second["failing"][0]["why"].get<std::string>(), "over its bound 15"));
+        auto t = json_of(mtest(root, {"analyze", "trend", "--json"}));
+        expect(fatal(eq(t["items"].size(), std::size_t(1)))) << t.dump();
+        const auto& item = t["items"][0];
+        expect(eq(item["values"], json{3, 20}));
+        expect(eq(item["bound"]["max"].get<double>(), 15.0));
+        expect(lt(item["margin"].get<double>(), 0.0)) << "the last value is past its bound";
+        expect(contains(t["conclusion"].get<std::string>(), "1 past its bound"));
+    };
+    "mtest.toml bounds a metric of a program that states none"_test[kind::e2e] = [] {
+        const std::string head = "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
+        auto root = project(
+            {{"t.sh", head + "m() { mtest_metric size 5 MB; }\nmtest_case sized m\nmtest_report\n"},
+             {"mtest.toml", "[cases.\"sized\"]\nat_most = { size = 3 }\n"}});
+        auto j = json_of(mtest(root, {"run", "--json", "bash t.sh"}));
+        expect(eq(j["status"].get<std::string>(), std::string("fail"))) << j.dump();
+        expect(contains(j["failing"][0]["why"].get<std::string>(), "over its bound 3"));
+    };
     return report();
 }

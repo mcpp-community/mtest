@@ -13,12 +13,24 @@ import std;
 
 export namespace mcpplibs::mtest::manifest {
 
+// A bound on a metric (`at_most{"ready", 15}`, `at_least{"recall", 0.9}`; protocol P6.5).
+struct static_bound {
+    std::string metric;
+    std::optional<double> max, min;
+    // Written out: GCC 16.1 fails (an internal compiler error) on a defaulted comparison of a type
+    // an importer of this module compares.
+    bool operator==(const static_bound& o) const {
+        return metric == o.metric && max == o.max && min == o.min;
+    }
+};
+
 struct static_case {
     std::string id;    // as the program lists it
     std::string name;  // the literal
     int line = 0, column = 0;
     std::string kind;  // empty: no attribute and no suite states one (the program's is given)
     std::vector<std::string> tags, resources, clauses, artifacts;
+    std::vector<static_bound> bounds;
 };
 
 std::vector<static_case> scan(std::string_view source);
@@ -135,6 +147,7 @@ struct reader {
 struct attrs {
     std::string kind;
     std::vector<std::string> tags, resources, clauses, artifacts;
+    std::vector<static_bound> bounds;
 };
 
 void add(std::vector<std::string>& to, const std::string& value) {
@@ -154,6 +167,7 @@ attrs within(const attrs& outer, const attrs& inner) {
         add(a.clauses, x);
     for (const auto& x : inner.artifacts)
         add(a.artifacts, x);
+    a.bounds.insert(a.bounds.end(), inner.bounds.begin(), inner.bounds.end());
     return a;
 }
 
@@ -183,9 +197,14 @@ std::optional<std::string> suite_kind(std::string_view word) {
 struct attribute_reader {
     attrs& into;
     std::string last_word;
+    std::optional<std::size_t> bound;  // the bound whose value the next number is
 
     void literal(const std::string& value) {
-        if (last_word == "tag")
+        if (last_word == "at_most" || last_word == "at_least") {
+            into.bounds.push_back({value, std::nullopt, std::nullopt});
+            bound = into.bounds.size() - 1;
+            bound_side = last_word;
+        } else if (last_word == "tag")
             add(into.tags, value);
         else if (last_word == "resource")
             add(into.resources, value);
@@ -199,9 +218,29 @@ struct attribute_reader {
             into.kind = w;
         last_word = std::move(w);
     }
+    std::string bound_side;
+    void number(std::string text) {
+        if (!bound)
+            return;
+        double v = 0;
+        if (std::from_chars(text.data(), text.data() + text.size(), v).ec == std::errc{})
+            (bound_side == "at_most" ? into.bounds[*bound].max : into.bounds[*bound].min) = v;
+        bound.reset();
+    }
     // Reads one token at `r`; false at a character that is not part of an attribute.
     bool token(reader& r) {
         const char ch = r.peek();
+        if (std::isdigit(static_cast<unsigned char>(ch)) ||
+            (ch == '.' && std::isdigit(static_cast<unsigned char>(r.peek(1))))) {
+            std::string text;
+            while (!r.done() &&
+                   (std::isalnum(static_cast<unsigned char>(r.peek())) || r.peek() == '.' ||
+                    ((r.peek() == '+' || r.peek() == '-') && !text.empty() &&
+                     (text.back() == 'e' || text.back() == 'E'))))
+                text += r.peek(), r.step();
+            number(std::move(text));
+            return true;
+        }
         if (ch == '"' || (ch == 'R' && r.peek(1) == '"')) {
             literal(r.string_literal());
             return true;
@@ -300,7 +339,7 @@ std::vector<static_case> scan(std::string_view source) {
                 read_suite_attributes(r, own);
                 const attrs has = within(outer(), own);
                 out.push_back({prefix() + value, value, line, column, has.kind, has.tags,
-                               has.resources, has.clauses, has.artifacts});
+                               has.resources, has.clauses, has.artifacts, has.bounds});
                 scopes.push_back({prefix() + value, depth, has});
                 suite_state = 0;
                 continue;
@@ -311,8 +350,9 @@ std::vector<static_case> scan(std::string_view source) {
                 attrs own;
                 read_case_attributes(r, own);
                 const attrs has = within(outer(), own);
-                static_case c{prefix() + value, value,         line,        column,       has.kind,
-                              has.tags,         has.resources, has.clauses, has.artifacts};
+                static_case c{prefix() + value, value,     line,          column,
+                              has.kind,         has.tags,  has.resources, has.clauses,
+                              has.artifacts,    has.bounds};
                 pending = c.id;
                 pending_attrs = has;
                 pending_parens = 0;

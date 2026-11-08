@@ -4,7 +4,7 @@
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "capi"
-version     = "0.3.0"
+version     = "0.4.0"
 description = "mtest's C ABI: the protocol's events for any language with a C FFI"
 license     = "Apache-2.0"
 

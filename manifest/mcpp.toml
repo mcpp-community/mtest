@@ -1,0 +1,30 @@
+# mcpplibs.mtest.manifest: the static case manifest -- the cases a source file declares with
+# mcpplibs.mtest, with their kinds and attributes, read from its text without building it. A tool
+# that shows or plans cases before a build (`mtest list --static`, an editor) depends on this
+# package alone, not on the library a test program links.
+#
+#   import mcpplibs.mtest.manifest;
+#   for (const auto& c : mcpplibs::mtest::manifest::scan(text)) ... c.id, c.kind, c.resources ...
+[package]
+namespace   = "mcpplibs.mtest"
+name        = "manifest"
+version     = "0.3.0"
+description = "The static case manifest of mtest: the cases a source file declares, read without building it"
+license     = "Apache-2.0"
+authors     = ["mcpp-community"]
+repo        = "https://github.com/mcpp-community/mtest"
+mcpp        = ">=2026.11.7.2"
+
+[language]
+standard   = "c++23"
+modules    = true
+import_std = true
+
+[build]
+sources = ["src/*.cppm"]
+
+[targets.manifest]
+kind = "lib"
+
+[dev-dependencies]
+mcpplibs.mtest = { path = "../lib" }

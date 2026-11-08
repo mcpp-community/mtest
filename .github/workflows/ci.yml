@@ -53,6 +53,7 @@ jobs:
           set -euo pipefail
           mcpp build
           mcpp test -p mcpplibs.mtest
+          mcpp test -p mcpplibs.mtest.manifest
           mcpp test -p mtest.mtest
           mcpp test -p conformance
       - name: Every implementation passes the conformance suite
@@ -67,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           mtest=$(find target -type f -name mtest -path '*/bin/mtest.mtest/*' | head -1)
-          programs=$(find target -type f -path '*/bin/*' \( -name expectations -o -name companions \))
+          programs=$(find target -type f -path '*/bin/*' \( -name expectations -o -name companions -o -name suites \))
           "$mtest" run $programs --junit target/mtest-junit.xml
           "$mtest" gate --set full
           "$mtest" ci annotate
@@ -107,7 +108,7 @@ jobs:
       - name: The tests as images
         run: |
           set -euo pipefail
-          for member in mcpplibs.mtest mtest.mtest conformance; do
+          for member in mcpplibs.mtest mcpplibs.mtest.manifest mtest.mtest conformance; do
             mcpp test -p "$member" --target "${{ matrix.arch }}-openkal"
           done
       - name: The script adapters on this system

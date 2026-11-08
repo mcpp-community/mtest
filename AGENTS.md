@@ -27,7 +27,8 @@ protocol. This file states the core ideas and rules; the design and its record a
 | Member | Role | Depends on |
 |---|---|---|
 | `lib` | the C++ library: cases, expectations, `bench`, `cts`, `e2e` | `mcpplibs.os`, JSON |
-| `engine` | the `mtest` command and its service | `mcpplibs.os`, `mcpplibs.cmdline`, JSON, TOML |
+| `manifest` | the static case manifest: the cases a source file declares, read from its text | nothing |
+| `engine` | the `mtest` command and its service | `manifest`, `mcpplibs.os`, `mcpplibs.cmdline`, JSON, TOML |
 | `conformance` | the protocol's conformance suite | `lib` |
 | `adapters/*` | GoogleTest, Bash, Python | the framework adapted, JSON |
 | `capi` | `include/mtest.h` for any language with a C FFI | JSON |

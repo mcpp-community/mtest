@@ -6,7 +6,7 @@
 // (`suite/case/inner`). Tools that show or plan cases before a
 // build read it (`mtest list --static`, an editor); the program's own listing (P3) is the
 // authority once it is built. What only the program decides -- a `skip_if` condition, a time
-// limit -- is left to that listing.
+// limit, what a suite type of the file's own adds in its constructor -- is left to that listing.
 export module mcpplibs.mtest.manifest;
 
 import std;

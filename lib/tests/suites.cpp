@@ -1,14 +1,12 @@
 // The suite types, attributes stated by scope, shared objects and time limits: the cases this file
-// declares at namespace scope, as a runner lists and runs them, and as its text states them.
+// declares at namespace scope, as a runner lists and runs them.
 import std;
 import nlohmann.json;
 import mcpplibs.mtest;
 import mcpplibs.mtest.e2e;
-import mcpplibs.mtest.manifest;
 import mcpplibs.os;
 
 using namespace mcpplibs::mtest;
-namespace mf = mcpplibs::mtest::manifest;
 using json = nlohmann::json;
 
 namespace {
@@ -222,24 +220,6 @@ int main(int argc, char** argv) {
         expect(fatal(made != run.end()));
         expect(eq(made->value("id", ""), std::string("kept/uses the object")));
         expect(eq(made->value("name", ""), std::string("expensive")));
-    };
-    "the text states what the program lists"_test = [] {
-        auto cases = listed();
-        auto text = mcpplibs::os::fs::read(std::source_location::current().file_name());
-        expect(fatal(text.has_value()));
-        std::size_t compared = 0;
-        for (const auto& sc : mf::scan(*text)) {
-            auto it = cases.find(sc.id);
-            if (it == cases.end())
-                continue;  // a case of main, or one a body declares
-            ++compared;
-            expect(eq(sc.kind, it->second.value("kind", std::string{}))) << sc.id;
-            expect(eq(sc.tags, strings(it->second, "tags"))) << sc.id;
-            expect(eq(sc.resources, strings(it->second, "resources"))) << sc.id;
-            expect(eq(sc.clauses, strings(it->second, "clauses"))) << sc.id;
-            expect(eq(sc.line, it->second.value("line", 0))) << sc.id;
-        }
-        expect(eq(compared, cases.size()));
     };
     return report();
 }

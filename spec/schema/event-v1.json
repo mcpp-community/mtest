@@ -161,6 +161,13 @@
        }
       }
      }
+    },
+    "uses": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "P11.2: the run fixtures the case uses"
     }
    },
    "required": [
@@ -319,6 +326,15 @@
       "lower",
       "higher"
      ]
+    },
+    "precision": {
+     "enum": [
+      "exact",
+      "process",
+      "approx",
+      "sampled"
+     ],
+     "description": "P6.6"
     }
    },
    "required": [
@@ -467,6 +483,78 @@
     }
    },
    "description": "P5.4: an unknown kind is ignored"
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "usage"
+    },
+    "user_ms": {
+     "type": "number",
+     "minimum": 0
+    },
+    "sys_ms": {
+     "type": "number",
+     "minimum": 0
+    },
+    "peak_bytes": {
+     "type": "number",
+     "minimum": 0
+    },
+    "read_bytes": {
+     "type": "number",
+     "minimum": 0
+    },
+    "written_bytes": {
+     "type": "number",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "e",
+    "user_ms",
+    "sys_ms"
+   ],
+   "description": "P10.2: the program's own use at its end"
+  },
+  {
+   "properties": {
+    "e": {
+     "const": "component"
+    },
+    "name": {
+     "type": "string"
+    },
+    "pools": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "capacity": {
+        "type": "integer",
+        "minimum": 1
+       }
+      },
+      "required": [
+       "name",
+       "capacity"
+      ]
+     }
+    },
+    "fixture": {
+     "type": "string"
+    },
+    "scope": {
+     "const": "run"
+    }
+   },
+   "required": [
+    "e"
+   ],
+   "description": "P11.1: a component, or a run fixture the program serves"
   }
  ]
 }

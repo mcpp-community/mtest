@@ -6,6 +6,7 @@
 //   <store>/runs/<id>/run.json           the run's record (model.cppm)
 //   <store>/runs/<id>/cases.ndjson       one line per case result
 //   <store>/runs/<id>/programs.ndjson    one line per program result
+//   <store>/runs/<id>/fixtures.ndjson    one line per run fixture served (P11), when any
 //   <store>/runs/<id>/failures/<n>/      a failing program's whole outputs (out.txt, err.txt) and
 //   its launch <store>/runs/<id>/progress.json      while the run runs: done and total, for `mtest
 //   status` <store>/runs/<id>/cancel             asks the running run to stop (`mtest cancel`)

@@ -16,6 +16,8 @@ struct execute_options {
     bool fail_fast = false;                                // nothing more starts after a failure
     int retries = -1;                                      // -1: the configuration's
     std::string set, selection;  // what the run was asked for, for its record
+    std::string monitor;         // empty: the configuration's level (P10)
+    std::string group;           // empty: MTEST_GROUP; runs of one group are reported together
     std::string id;              // empty: a new identifier
     // Called for each event of the run, from the threads that run it: run/started, case/finished,
     // program/finished, run/finished (the service streams them; docs/service.md).

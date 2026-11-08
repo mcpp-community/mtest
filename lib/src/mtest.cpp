@@ -59,6 +59,15 @@ struct state {
     bool any_failed = false;
     bool program_written = false;
     bool done = false;
+    // P10: how closely a runner asked for use to be measured; a case may ask for more.
+    mtest::monitor_level monitor = mtest::monitor_level::off;
+    // P11: the run fixtures and components this program declares.
+    std::map<std::string, std::function<void(serving&)>> run_fixtures;
+    struct component_decl {
+        std::string name;
+        std::vector<resource_pool> pools;
+    };
+    std::vector<component_decl> components;
 
     state() {
         const auto protocol_version = os::env::get("MTEST_PROTOCOL");
@@ -85,6 +94,11 @@ struct state {
                 selection = std::move(ids);
             }
         }
+        if (auto m = os::env::get("MTEST_MONITOR"); m && !m->empty())
+            monitor = *m == "trace"      ? mtest::monitor_level::trace
+                      : *m == "detailed" ? mtest::monitor_level::detailed
+                      : *m == "basic"    ? mtest::monitor_level::basic
+                                         : mtest::monitor_level::off;
         if (auto t = os::env::get("MTEST_TMPDIR"); t && !t->empty())
             tmp_root = os::fs::from_utf8(*t);
         if (auto s = os::env::get("MTEST_SEED"); s && !s->empty()) {
@@ -112,6 +126,164 @@ double since_start() {
     return std::chrono::duration<double, std::milli>(clock::now() - the().began).count();
 }
 
+// ---- use of the machine (P10) -------------------------------------------------
+
+// The largest resident set of this process since its last reset, where the kernel keeps one that
+// can be reset (Linux: /proc/self/status VmHWM, reset by writing 5 to /proc/self/clear_refs).
+std::optional<std::uint64_t> resident_peak() {
+    auto text = os::fs::read(std::filesystem::path("/proc/self/status"));
+    if (!text)
+        return std::nullopt;
+    const auto at = text->find("VmHWM:");
+    if (at == std::string::npos)
+        return std::nullopt;
+    std::uint64_t kb = 0;
+    std::string_view rest = std::string_view(*text).substr(at + 6);
+    while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t'))
+        rest.remove_prefix(1);
+    std::from_chars(rest.data(), rest.data() + rest.size(), kb);
+    return kb * 1024;
+}
+bool reset_resident_peak() {
+    return bool(os::fs::write(std::filesystem::path("/proc/self/clear_refs"), "5"));
+}
+
+// The resident set now, where the kernel tells it (Linux: /proc/self/status VmRSS).
+std::optional<std::uint64_t> resident_now() {
+    auto text = os::fs::read(std::filesystem::path("/proc/self/status"));
+    if (!text)
+        return std::nullopt;
+    const auto at = text->find("VmRSS:");
+    if (at == std::string::npos)
+        return std::nullopt;
+    std::uint64_t kb = 0;
+    std::string_view rest = std::string_view(*text).substr(at + 6);
+    while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t'))
+        rest.remove_prefix(1);
+    std::from_chars(rest.data(), rest.data() + rest.size(), kb);
+    return kb * 1024;
+}
+
+// `trace`: the processor's load and the resident set over the case, sampled every `every`.
+class sampler {
+public:
+    explicit sampler(std::chrono::milliseconds every)
+        : thread_([this, every](std::stop_token stop) {
+              auto last = os::process::resources(os::process::of::self);
+              auto then = clock::now();
+              while (!stop.stop_requested()) {
+                  std::this_thread::sleep_for(every);
+                  auto now = os::process::resources(os::process::of::self);
+                  const auto t = clock::now();
+                  const double wall = std::chrono::duration<double, std::milli>(t - then).count();
+                  std::lock_guard g(m_);
+                  if (now && last && wall > 0)
+                      load_.push_back(std::chrono::duration<double, std::milli>(
+                                          (now->user + now->system) - (last->user + last->system))
+                                          .count() /
+                                      wall);
+                  if (auto rss = resident_now())
+                      rss_.push_back(double(*rss));
+                  last = now;
+                  then = t;
+              }
+          }) {}
+    std::pair<std::vector<double>, std::vector<double>> stop() {
+        thread_.request_stop();
+        thread_.join();
+        std::lock_guard g(m_);
+        return {load_, rss_};
+    }
+private:
+    std::mutex m_;
+    std::vector<double> load_, rss_;
+    std::jthread thread_;
+};
+
+std::chrono::milliseconds sample_every() {
+    if (auto v = os::env::get("MTEST_MONITOR_SAMPLE"); v && !v->empty()) {
+        int ms = 0;
+        if (std::from_chars(v->data(), v->data() + v->size(), ms).ec == std::errc{} && ms > 0)
+            return std::chrono::milliseconds(ms);
+    }
+    return std::chrono::milliseconds(50);
+}
+
+struct use_mark {
+    std::optional<os::process::usage> at;
+    bool peak_reset = false;
+    clock::time_point when = clock::now();
+    std::shared_ptr<sampler> samples;
+};
+
+use_mark mark_use(mtest::monitor_level level) {
+    use_mark m;
+    if (level == mtest::monitor_level::off)
+        return m;
+    if (auto u = os::process::resources(os::process::of::self))
+        m.at = *u;
+    if (level >= mtest::monitor_level::detailed)
+        m.peak_reset = reset_resident_peak();
+    if (level == mtest::monitor_level::trace)
+        m.samples = std::make_shared<sampler>(sample_every());
+    return m;
+}
+
+void write_event(const event& e);
+
+// The case's use since `m`, as metrics of the case with their precision (P6.6).
+void report_use(std::string_view id, const use_mark& m, mtest::monitor_level level) {
+    if (level == mtest::monitor_level::off || !m.at)
+        return;
+    auto now = os::process::resources(os::process::of::self);
+    if (!now)
+        return;
+    auto put = [&](std::string_view name, double value, std::string_view unit,
+                   std::string_view precision) {
+        write_event({{"e", "metric"},
+                     {"id", id},
+                     {"name", name},
+                     {"value", value},
+                     {"unit", unit},
+                     {"better", "lower"},
+                     {"precision", precision}});
+    };
+    auto ms = [](std::chrono::nanoseconds d) {
+        return std::chrono::duration<double, std::milli>(d).count();
+    };
+    if (m.samples) {
+        auto [load, rss] = m.samples->stop();
+        auto series = [&](std::string_view name, const std::vector<double>& v,
+                          std::string_view unit) {
+            if (v.empty())
+                return;
+            event ev = {{"e", "metric"},     {"id", id},
+                        {"name", name},      {"value", *std::ranges::max_element(v)},
+                        {"unit", unit},      {"samples", v},
+                        {"better", "lower"}, {"precision", "sampled"}};
+            write_event(ev);
+        };
+        series("cpu.load", load, "1");
+        series("mem.rss", rss, "B");
+    }
+    put("cpu.user", ms(now->user - m.at->user), "ms", "exact");
+    put("cpu.sys", ms(now->system - m.at->system), "ms", "exact");
+    if (level < mtest::monitor_level::detailed)
+        return;
+    if (m.peak_reset) {
+        if (auto peak = resident_peak())
+            put("mem.peak", double(*peak), "B", "exact");
+    } else if (now->peak_memory) {
+        put("mem.peak", double(*now->peak_memory), "B", "process");
+    }
+    if (now->peak_memory && m.at->peak_memory)
+        put("mem.delta", double(*now->peak_memory) - double(*m.at->peak_memory), "B", "process");
+    if (now->read_bytes && m.at->read_bytes)
+        put("io.read", double(*now->read_bytes - *m.at->read_bytes), "B", "exact");
+    if (now->written_bytes && m.at->written_bytes)
+        put("io.write", double(*now->written_bytes - *m.at->written_bytes), "B", "exact");
+}
+
 void write_event(const event& e) {
     auto& s = the();
     if (!s.protocol || !s.events)
@@ -133,7 +305,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.4.1"},
+         {"version", "0.5.0"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
@@ -385,6 +557,8 @@ void test::operator=(body b) {
             ev["bounds"] = bounds_json(attrs.bounds);
         if (attrs.isolated)
             ev["isolation"] = "case";
+        if (!attrs.uses.empty())
+            ev["uses"] = attrs.uses;
         if (attrs.retries)
             ev["retries"] = *attrs.retries;
         if (attrs.diagnosis) {
@@ -461,6 +635,8 @@ void test::operator=(body b) {
     const auto started = clock::now();
     std::string status = "pass";
     std::string reason;
+    const auto level = std::max(s.monitor, attrs.monitoring.value_or(mtest::monitor_level::off));
+    const auto use = own ? mark_use(level) : use_mark{};
     g.unlock();
     try {
         b.run();
@@ -480,6 +656,8 @@ void test::operator=(body b) {
     if (status != "skip" && s.stack.back().declared == 0)
         check_bounds(attrs.bounds, b.where);
     const double ms = std::chrono::duration<double, std::milli>(clock::now() - started).count();
+    if (own)
+        report_use(id, use, level);
     running_case done = std::move(s.stack.back());
     s.stack.pop_back();
     if (done.dir) {
@@ -513,14 +691,109 @@ void Suite::add(std::string name, std::source_location where, attributes attrs,
     the().suites.push_back({std::move(name), where, std::move(attrs), std::move(f)});
 }
 
+namespace {
+// MTEST_SERVE: this program serves one of its run fixtures for a runner (P11.3) and runs no case.
+std::optional<int> serve_if_asked() {
+    auto name = os::env::get("MTEST_SERVE");
+    if (!name || name->empty())
+        return std::nullopt;
+    auto& s = the();
+    auto it = s.run_fixtures.find(*name);
+    if (it == s.run_fixtures.end()) {
+        std::println(std::cerr, "mtest: this program serves no run fixture named {}", *name);
+        return 2;
+    }
+    serving sv;
+    try {
+        it->second(sv);
+    } catch (const std::exception& e) {
+        std::println(std::cerr, "mtest: serving {} failed: {}", *name, e.what());
+        return 1;
+    }
+    return 0;
+}
+
+void list_components() {
+    auto& s = the();
+    for (const auto& c : s.components) {
+        event ev = {{"e", "component"}, {"name", c.name}};
+        auto pools = event::array();
+        for (const auto& p : c.pools)
+            pools.push_back({{"name", p.name}, {"capacity", p.capacity}});
+        ev["pools"] = pools;
+        write_event(ev);
+    }
+    for (const auto& [name, f] : s.run_fixtures)
+        write_event({{"e", "component"}, {"fixture", name}, {"scope", "run"}});
+}
+
+void report_program_use() {
+    auto& s = the();
+    if (s.listing || s.monitor == mtest::monitor_level::off)
+        return;
+    auto u = os::process::resources(os::process::of::self);
+    if (!u)
+        return;
+    event ev = {{"e", "usage"},
+                {"user_ms", std::chrono::duration<double, std::milli>(u->user).count()},
+                {"sys_ms", std::chrono::duration<double, std::milli>(u->system).count()}};
+    if (u->peak_memory)
+        ev["peak_bytes"] = *u->peak_memory;
+    if (u->read_bytes)
+        ev["read_bytes"] = *u->read_bytes;
+    if (u->written_bytes)
+        ev["written_bytes"] = *u->written_bytes;
+    write_event(ev);
+}
+}  // namespace
+
+void serving::ready(std::string_view endpoint) {
+    std::cout.flush();
+    (void)os::stdio::write_output(std::format("mtest-ready {}\n", endpoint));
+    (void)os::stdio::flush_output();
+}
+
+void serving::stopped() {
+    // The runner ends a fixture by closing its input.
+    for (;;) {
+        auto chunk = os::stdio::read_input();
+        if (!chunk || chunk->empty())
+            return;
+    }
+}
+
+run_fixture::run_fixture(std::string_view name, std::function<void(serving&)> serve,
+                         std::source_location) {
+    the().run_fixtures[std::string(name)] = std::move(serve);
+}
+
+Component::Component(std::string_view name, std::vector<resource_pool> pools,
+                     std::source_location) {
+    the().components.push_back({std::string(name), std::move(pools)});
+}
+
+std::string fixture_endpoint(std::string_view name) {
+    std::string key = "MTEST_FIXTURE_";
+    for (char c : name)
+        key += std::isalnum(static_cast<unsigned char>(c))
+                   ? char(std::toupper(static_cast<unsigned char>(c)))
+                   : '_';
+    return os::env::get(key).value_or("");
+}
+
 int report() {
     auto& s = the();
+    if (auto served = serve_if_asked())
+        return *served;
     run_suites();
     std::lock_guard g(s.lock);
     if (s.done)
         return s.any_failed ? 1 : 0;
     s.done = true;
     write_program();
+    if (s.listing)
+        list_components();
+    report_program_use();
     bool missing = false;
     if (!s.listing && s.selection) {
         for (const auto& want : *s.selection) {
@@ -657,6 +930,10 @@ attributes within(const attributes& outer, const attributes& inner) {
     add(a.clauses, inner.clauses);
     add(a.resources, inner.resources);
     add(a.artifacts, inner.artifacts);
+    add(a.uses, inner.uses);
+    if (inner.monitoring)
+        a.monitoring =
+            std::max(a.monitoring.value_or(mtest::monitor_level::off), *inner.monitoring);
     if (inner.kind)
         a.kind = inner.kind;
     if (inner.expected_failure)

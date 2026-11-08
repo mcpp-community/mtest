@@ -10,7 +10,7 @@
 [package]
 namespace   = "mtest"
 name        = "mtest"
-version     = "0.4.1"
+version     = "0.5.0"
 description = "The mtest engine: run, schedule, store, explain and analyse tests of any language"
 license     = "Apache-2.0"
 authors     = ["mcpp-community"]
@@ -30,7 +30,7 @@ main = "src/main.cpp"
 
 [dependencies]
 mcpplibs.mtest.manifest = { path = "../manifest" }   # the static case manifest
-mcpplibs.os         = "0.4.0"
+mcpplibs.os         = "0.4.1"
 mcpplibs.cmdline    = "0.0.2"
 nlohmann.json       = "3.12.0"
 marzer.tomlplusplus = "3.4.0"

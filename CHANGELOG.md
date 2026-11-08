@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.5.0] - 2026-11-09
+
+A run is a graph of work, and mtest reports it: what ran, what each part waited for, what it used.
+
+- **The run's graph and its critical path** (P12.3). The engine records each process's worker and
+  selection, each case's start, each run fixture's serving and, from a host, each program's build;
+  they form a directed acyclic graph whose edges are a build before its program, a worker's previous
+  process, the previous holder of a resource and a fixture's serving. `mtest analyze path` is the
+  graph's longest weighted path, with what each step waited for (it was the longest program);
+  `mtest graph --run last --format mermaid|gantt|dot|json` draws it, the critical path marked.
+- **Markdown reports.** `mtest report --format md` writes the sections asked for (`--sections` or
+  `[report]`): the summary, kinds, failures, slowest cases, metrics beside their bounds, the use of
+  the machine, flaky cases, trends, the critical path, the graph and the schedule, the last three in
+  mermaid; over a scope (`program:<glob>`, `kind:<kind>`); of one run, `--runs`, or every run of a
+  `--group` together. `mtest run --md FILE` writes one at the end of a run, and `mtest ci annotate`
+  writes it to the job's summary.
+- **CI as a whole.** `mtest ci report` reports every collected run of a group (the jobs of a CI run,
+  `GITHUB_RUN_ID` by default) as one document; `mtest ci timeline --repo R --run-id N` draws a
+  workflow run's jobs as a schedule with its critical path.
+- **Use of the machine** (P10, P6.6). `[monitor] level` (`basic` by default), `--monitor` and
+  `monitor{...}` on a case: each case's processor time; at `detailed` its largest resident set, its
+  growth and its I/O; at `trace` the load and the resident set sampled over it; the program's own use
+  in a `usage` event. Each is a metric with its precision. A program that reports none is measured
+  from a process of the engine's (`mtest measure`, Linux and macOS). Uses mcpplibs.os 0.4.1.
+- **Scheduling by measurement.** `[run] split = "auto"`: while workers would idle, a program's cases
+  are divided among several processes of it by their measured times. `[run] memory = "auto"`:
+  programs run together while their measured largest resident sets fit the machine. `[programs.*]
+  split = false` keeps a program in one process.
+- **Components and run fixtures** (P11, P7.3). `run_fixture` serves one object for the whole run,
+  started before the first case that `uses` it and ended after the last, its endpoint given as
+  `MTEST_FIXTURE_<NAME>` (`fixture_endpoint`); `Component` names the pools of resources it brings, a
+  resource with a capacity. `[fixtures.<name>] command` serves one by a command, and `[cases."<glob>"]
+  uses` states the users of a program that states none.
+- **The store is specified** (P12): its files and fields, which a host's runner writes as mtest does.
+
 ## [0.4.1] - 2026-11-08
 
 - A body that returns a value does not compile. A case ends at its end, at `return;`, at `skip()`

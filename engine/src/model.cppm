@@ -25,6 +25,26 @@ struct program_spec {
     // The kind of an L0 program's one case and of a case that states none: stated in mtest.toml,
     // else by the program's directory (docs/layout.md), else unit. Empty until `discover` gives it.
     std::string kind;
+    // Whether the engine may divide its cases among several processes of it (`[run] split`).
+    bool split = true;
+    // When a host built it, in milliseconds after the run began, and for how long (a build edge of
+    // the run's graph); negative: not built by this run.
+    double build_started_ms = -1, build_ms = 0;
+};
+
+// What a program used of the machine (P10): its own report (`usage` event), or what the
+// engine measured of its process.
+struct usage_info {
+    double user_ms = 0, sys_ms = 0;
+    std::optional<double> peak_bytes, read_bytes, written_bytes;
+    std::string source;  // "program" (its own report) or "engine" (measured from outside)
+};
+
+// A run fixture a program serves (P11), and a pool of a resource with a capacity (P7.3).
+struct component_info {
+    std::string name;     // a component's name, or empty for a fixture's own entry
+    std::string fixture;  // a run fixture it serves
+    std::vector<std::pair<std::string, int>> pools;
 };
 
 // A limit on a metric a case states (P6.5).
@@ -48,6 +68,7 @@ struct case_info {
     std::vector<bound_info> bounds;
     std::vector<bound_info>
         stated_bounds;  // mtest.toml's, which the engine judges (the program judges its own)
+    std::vector<std::string> uses;  // run fixtures (P11)
 };
 
 // A shared object a case caused to be made (P5.2 `fixture`), and how long making it took.
@@ -64,6 +85,7 @@ struct failure_info {
 
 struct metric_info {
     std::string name, unit, better = "lower";
+    std::string precision;  // exact, process, approx (P6.6); empty: as the case stated it
     double value = 0;
     std::vector<double> samples;
 };
@@ -82,6 +104,9 @@ struct case_result {
     bool quarantined = false;
     int attempts = 1;
     std::string diagnosis;  // the store's file of its diagnostic run's output, when it had one
+    // When it began, in milliseconds after the run began (its program's start and its `begin`'s
+    // `t`); negative when not known.
+    double started_ms = -1;
 };
 
 struct program_result {
@@ -99,6 +124,18 @@ struct program_result {
     // When it started, in milliseconds after the run began, and what it held: the run's timeline.
     double started_ms = 0;
     std::vector<std::string> resources;
+    int worker = -1;                             // the engine's worker that ran it
+    std::vector<std::string> select;             // the cases this process ran; empty: all
+    std::vector<std::string> fixtures;           // the run fixtures its cases used
+    double build_started_ms = -1, build_ms = 0;  // the build edge, as program_spec's
+    std::optional<usage_info> usage;
+};
+
+// A run fixture as it was served in a run: a node of the run's graph.
+struct fixture_run {
+    std::string name, program;
+    double started_ms = 0, ready_ms = 0, ended_ms = 0;
+    std::string status;  // ready, failed
 };
 
 struct run_record {
@@ -110,7 +147,12 @@ struct run_record {
     int jobs = 1;
     std::vector<program_result> programs;
     std::vector<case_result> cases;
+    std::vector<fixture_run> fixtures;
     std::map<std::string, int> counts;
+    // Runs of one group are parts of one whole (the jobs of a CI run, MTEST_GROUP), reported
+    // together.
+    std::string group;
+    std::string monitor = "basic";  // the level the run measured at (P10)
 };
 
 // JSON as text, a byte that is not UTF-8 (a program's output in a Windows code page) written as
@@ -124,6 +166,8 @@ json to_json(const metric_info& m);
 json to_json(const case_result& c);
 json to_json(const program_result& p);
 json to_json(const run_record& r);  // without programs and cases (run.json)
+json to_json(const fixture_run& f);
+fixture_run fixture_run_from(const json& j);
 
 case_info case_info_from(const json& j);
 case_result case_result_from(const json& j);

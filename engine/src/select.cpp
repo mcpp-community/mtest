@@ -308,6 +308,7 @@ void apply_attributes(const config& c, const program_spec& program, case_info& c
         ci.bounds.insert(ci.bounds.end(), a.bounds.begin(), a.bounds.end());
         ci.stated_bounds.insert(ci.stated_bounds.end(), a.bounds.begin(), a.bounds.end());
         add_unique(ci.artifacts, a.artifacts);
+        add_unique(ci.uses, a.uses);
         ci.isolated = ci.isolated || a.isolated;
         if (a.retries > 0 && ci.retries == 0)
             ci.retries = a.retries;
@@ -424,6 +425,7 @@ namespace {
 
 struct history {
     std::map<std::string, double> ms;       // program::id -> last duration
+    std::map<std::string, double> peak;     // program -> its last measured largest resident set
     std::set<std::string> failed_last;      // program::id that failed in the last run
     std::set<std::string> failed_recently;  // within regression_days
 };
@@ -442,6 +444,9 @@ history read_history(const config& c, const store& s) {
         if (!r)
             continue;
         const bool last = i + 1 == all.size();
+        for (const auto& pr : r->programs)
+            if (pr.usage && pr.usage->peak_bytes && !h.peak.contains(pr.name))
+                h.peak[pr.name] = *pr.usage->peak_bytes;
         for (const auto& cr : r->cases) {
             const auto key = cr.program + "::" + cr.id;
             if (!h.ms.contains(key))
@@ -545,16 +550,31 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
         if ((r.programs.empty() || any_glob(r.programs, p.name)) &&
             !any_glob(r.exclude_programs, p.name))
             pool.push_back(p);
+    for (const auto& f : c.fixtures) {
+        program_spec served;
+        served.name = "fixture:" + f.name;
+        served.argv = f.command;
+        out.fixture_providers[f.name] = served;
+    }
     for (const auto& p : pool) {
+        std::vector<component_info> components;
         auto listed =
             list_program(p,
                          s.dir / "work" / "list" / std::to_string(std::hash<std::string>{}(p.name)),
-                         c.root);
+                         c.root, &components);
         if (!listed)
             return std::unexpected(listed.error());
+        for (const auto& ci : components) {
+            if (!ci.fixture.empty() && !out.fixture_providers.contains(ci.fixture))
+                out.fixture_providers[ci.fixture] = p;
+            for (const auto& [pool_name, capacity] : ci.pools)
+                out.pools[pool_name] = std::max(out.pools[pool_name], capacity);
+        }
         unit u;
         u.program = p;
         u.program.level = detect_level(p);
+        if (auto pk = h.peak.find(p.name); pk != h.peak.end())
+            u.expected_peak = pk->second;
         for (auto ci : *listed) {
             apply_attributes(c, u.program, ci);
             ++out.considered;
@@ -620,9 +640,10 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
             }();
             if (!pick)
                 continue;
-            u.cases.push_back({ci, *pick});
             auto ms = h.ms.find(key);
-            u.expected_ms += ms == h.ms.end() ? unknown_ms : ms->second;
+            const double expected = ms == h.ms.end() ? unknown_ms : ms->second;
+            u.cases.push_back({ci, *pick, expected});
+            u.expected_ms += expected;
         }
         if (u.cases.empty())
             continue;

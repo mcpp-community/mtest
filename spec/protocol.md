@@ -1,6 +1,6 @@
 # The mtest test protocol, version 1
 
-**Status:** version 1, 2026-11-08; P3.3, P3.4, P6.5 and the `fixture` event added 2026-11-08 (P9.2).
+**Status:** version 1, 2026-11-08; P3.3, P3.4, P6.5 and the `fixture` event added 2026-11-08; P6.6, P7.3, P10, P11, P12 and the `usage` and `component` events added 2026-11-09 (P9.2).
 **Scope:** how a test program and a runner talk. A runner is anything that starts test programs and reads their results: the mtest engine, mcpp (`mcpp test`), an IDE, a CI step. A test program is any program, in any language.
 
 This document is normative. The words *must*, *must not* and *may* have their usual meaning. Each clause has a number; tests and conformance reports name clauses by number (`P3.2`).
@@ -31,6 +31,10 @@ P2.1 A runner states the protocol in the program's environment. All variables ar
 | `MTEST_ISOLATION` | `process` (several cases in this process, the default) or `case` (the runner starts the program once per case) |
 | `MTEST_TMPDIR` | a directory the program may use for its cases, removed by the runner |
 | `MTEST_SEED` | the seed of anything random in the cases, as a decimal number |
+| `MTEST_MONITOR` | how closely the program measures its use of the machine: `off`, `basic`, `detailed`, `trace` (P10) |
+| `MTEST_MONITOR_SAMPLE` | `trace`: the milliseconds between two samples (P10.3) |
+| `MTEST_FIXTURE_<NAME>` | the endpoint of the run fixture `<name>` (P11.2), its name upper-cased with each character that is not a letter or a digit written `_` |
+| `MTEST_SERVE` | the run fixture the program serves instead of running cases (P11.3) |
 
 P2.2 A program that implements the protocol must not pass these variables to a program it starts (each is removed from the started program's environment), so that a test program started by a test is not taken for the runner's. A test that starts a test program as a runner sets the variables it means for it.
 
@@ -69,11 +73,13 @@ P5.2 The first event is `program`. Every event has the field `e`, its kind.
 | `e` | Fields | When |
 |---|---|---|
 | `program` | `protocol` (1), `level` (1–3), `framework`, `version`, `isolation` (the values of P2.1 the program supports), optionally `guide` (P2.5) | first |
-| `case` | `id`, `name`, `file`, `line`, `kind`, `tags`, `clauses`, `expect`, `resources`, `artifacts` | in `list` mode, one per case |
+| `case` | `id`, `name`, `file`, `line`, `kind`, `tags`, `clauses`, `expect`, `resources`, `artifacts`, optionally `uses` (P11.2) | in `list` mode, one per case |
+| `component` | `name` and `pools` (`{name, capacity}`, P7.3), or `fixture` and `scope` (P11.1) | in `list` mode, one per component and run fixture |
 | `begin` | `id`, `t` (milliseconds since the program started), optionally `kind`, `tags`, `clauses` (P3.4) | a case starts |
 | `failure` | `id`, `file`, `line`, `message`, and optionally `expected`, `actual` (strings), `fatal` | an expectation does not hold |
 | `output` | `id`, `stream` (`out` or `err`), `text` | output a case captured |
-| `metric` | `id`, `name`, `value`, `unit`, optionally `samples` (array of numbers), `better` (`lower` or `higher`) | L2 |
+| `metric` | `id`, `name`, `value`, `unit`, optionally `samples` (array of numbers), `better` (`lower` or `higher`), `precision` (P6.6) | L2 |
+| `usage` | `user_ms`, `sys_ms`, optionally `peak_bytes`, `read_bytes`, `written_bytes` | the program's own use at its end (P10.2) |
 | `artifact` | `id`, `path`, `kind` | a file the case produced |
 | `fixture` | `id`, `name`, `ms` | an object the case caused to be made for the cases that share it, and how long making it took |
 | `end` | `id`, `status`, `ms`, optionally `reason` | a case ends |
@@ -98,11 +104,27 @@ P6.4 A conformance case names in `clauses` the clauses of the specification it c
 
 P6.5 A case may bound its metrics: `bounds`, a list of `{metric, max, min}` (either limit may be absent), in the metric's unit, in its `case` event and, for a case not listed, its `begin` (P3.4). The program judges them as expectations at the case's end: a metric over its `max` or under its `min`, or a bounded metric the case did not report, is a `failure` of the case. A case that declared cases is judged by them. A runner reads the bounds to show a metric beside its limit (mtest's `analyze trend`); a measurement against a baseline stays the runner's (P6.2).
 
+P6.6 The use of the machine is reported as metrics of standard names, each with its `precision`: `exact` (the case's own, measured at its bounds), `process` (the program's, of which the case is a part), `approx` (estimated), `sampled` (P10.3).
+
+| Metric | Unit | What |
+|---|---|---|
+| `cpu.user`, `cpu.sys` | `ms` | processor time in user and system mode |
+| `mem.peak` | `B` | the largest resident set |
+| `mem.delta` | `B` | the growth of the largest resident set over the case |
+| `mem.rss` | `B` | the resident set, sampled |
+| `cpu.load` | `1` | the processors in use, sampled |
+| `io.read`, `io.write` | `B` | bytes read and written |
+| `net.sent`, `net.recv` | `B` | bytes sent and received |
+| `alloc.count`, `alloc.bytes` | `1`, `B` | allocations and their bytes |
+| `proc.spawned` | `1` | programs started |
+
 ## P7. Resources and artifacts (L3)
 
 P7.1 `resources` names what a case needs exclusively or in limited number: strings such as `serial:<group>`, `machine` (alone on the machine), `gpu`, `network`, `display`. A runner must not run two cases that hold the same `serial:` group, or a `machine` case with any other, at the same time.
 
 P7.2 `artifacts` names what a case reads: build targets (`target:<name>`), files and directories relative to the project (`file:<path>`), external programs (`program:<name>`). A runner selects the cases affected by a change through them.
+
+P7.3 A resource may have a capacity: a pool a component brings (P11.1) states how many cases hold it at once. A runner must not run more holders of a pool than its capacity; a resource with no stated capacity has one.
 
 ## P8. Kinds
 
@@ -113,3 +135,39 @@ P7.2 `artifacts` names what a case reads: build targets (`target:<name>`), files
 P9.1 A runner that speaks version N sets `MTEST_PROTOCOL=N`. A program that implements only lower versions answers with the highest one it implements in its `program` event; the runner then uses that version or treats the program as L0.
 
 P9.2 Within a version, fields and event kinds are only added. A field changes meaning only in a new version.
+
+## P10. Use of the machine
+
+P10.1 A runner states the level in `MTEST_MONITOR`. `off`: nothing is measured. `basic`: each case's processor time (P6.6, `exact`), and the program's own use at its end. `detailed`: also each case's largest resident set and its growth, and the bytes it read and wrote. `trace`: also the processor load and the resident set over each case, sampled. A case may ask for a level higher than the runner's; the higher one applies to it.
+
+P10.2 A program at a level other than `off` writes one `usage` event before `done`: its processor time, and where the system tells them, its largest resident set and the bytes it read and wrote.
+
+P10.3 At `trace`, a program samples every `MTEST_MONITOR_SAMPLE` milliseconds (50 when absent) while a case runs and reports each series as one metric whose `samples` are the series and whose `value` is its largest sample, with precision `sampled`.
+
+P10.4 A runner measures a program that writes no `usage` event from a process of its own that starts the program, where the system accounts a process's children (Linux, macOS), and records the measurement as the engine's.
+
+## P11. Components and run fixtures
+
+P11.1 A component is a named part of tests that programs share: the pools of resources it brings (P7.3) and the run fixtures it serves. A program lists each in a `component` event (P5.2).
+
+P11.2 A run fixture is one object for a whole run, used by the cases of several programs: a sandboxed home, a server, an index. A case states the run fixtures it uses in `uses`. A runner serves a run fixture before the first case that uses it starts and ends it after the last ends, and gives its endpoint to every program of a case that uses it as `MTEST_FIXTURE_<NAME>`.
+
+P11.3 A runner serves a run fixture by starting a program that lists it with `MTEST_SERVE` naming it, with its input a pipe and without `MTEST_PROTOCOL`. The program runs no case: it prepares the fixture, writes the line `mtest-ready <endpoint>` to its output, and ends the fixture when its input ends. A runner may also serve a run fixture by a command its project names.
+
+P11.4 A run fixture that does not become ready is the machine's failure: the cases that use it end with status `infra` and do not run.
+
+## P12. The store
+
+P12.1 A runner may keep its runs in a store, which other runners and tools read and write in this form (mtest's `.mtest`; a host's runner, such as mcpp's `mcpp test`, writes the same):
+
+| Path | Content |
+|---|---|
+| `index.ndjson` | one line per run: the run's record without its programs and cases |
+| `runs/<id>/run.json` | the run's record: `schema` (`mtest.run/1`), `id`, `started`, `finished`, `status`, `system`, `arch`, `machine`, `commit`, `set`, `selection`, `group`, `monitor`, `ms`, `jobs`, `counts` |
+| `runs/<id>/programs.ndjson` | one line per process of a program: `name`, `argv`, `status`, `exit`, `ms`, `started_ms` (after the run began), `worker`, `select`, `resources`, `fixtures`, `build_started_ms` and `build_ms` when the runner built it, `usage` (P10.2, with `source`: `program` or `engine`) |
+| `runs/<id>/cases.ndjson` | one line per case: `program`, `id`, `kind`, `status`, `ms`, `started_ms` (after the run began), `reason`, `failures`, `metrics`, `bounds`, `tags`, `clauses` |
+| `runs/<id>/fixtures.ndjson` | one line per run fixture served: `name`, `program`, `started_ms`, `ready_ms`, `ended_ms`, `status` |
+
+P12.2 A run identifier sorts by time. Runs of one `group` (the jobs of a CI run) are parts of one whole, which a reader reports together.
+
+P12.3 The times of a run's programs, cases, builds and fixtures form a directed acyclic graph of its work: a build before the processes of its program, a worker's process before its next, the holders of one exclusive resource in turn, a run fixture's serving before its users and its end after them. A reader's critical path is the graph's longest weighted path, weighted by the measured times.

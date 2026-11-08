@@ -120,6 +120,8 @@ report_reading read_report(std::string_view text, std::string_view program) {
         } else if (kind == "begin") {
             // A case not listed (P3.4) states what it is when it begins.
             auto& c = at(id);
+            if (e.contains("t") && e["t"].is_number())
+                c.started_ms = e["t"].get<double>();
             if (auto k = e.value("kind", std::string{}); !k.empty())
                 c.kind = k;
             if (e.contains("tags"))
@@ -138,6 +140,7 @@ report_reading read_report(std::string_view text, std::string_view program) {
             m.unit = e.value("unit", "");
             m.value = e.value("value", 0.0);
             m.better = e.value("better", std::string("lower"));
+            m.precision = e.value("precision", std::string{});
             if (auto s = e.find("samples"); s != e.end() && s->is_array())
                 for (const auto& x : *s)
                     if (x.is_number())
@@ -158,15 +161,35 @@ report_reading read_report(std::string_view text, std::string_view program) {
             c.reason = "the program has no such case";
         } else if (kind == "done") {
             r.done = true;
+        } else if (kind == "component") {
+            component_info ci;
+            ci.name = e.value("name", "");
+            ci.fixture = e.value("fixture", "");
+            if (auto p = e.find("pools"); p != e.end() && p->is_array())
+                for (const auto& x : *p)
+                    ci.pools.emplace_back(x.value("name", ""), x.value("capacity", 1));
+            r.components.push_back(std::move(ci));
+        } else if (kind == "usage") {
+            usage_info u;
+            u.user_ms = e.value("user_ms", 0.0);
+            u.sys_ms = e.value("sys_ms", 0.0);
+            if (e.contains("peak_bytes"))
+                u.peak_bytes = e["peak_bytes"].get<double>();
+            if (e.contains("read_bytes"))
+                u.read_bytes = e["read_bytes"].get<double>();
+            if (e.contains("written_bytes"))
+                u.written_bytes = e["written_bytes"].get<double>();
+            u.source = "program";
+            r.usage = u;
         }
         // P5.4: any other kind is ignored.
     }
     return r;
 }
 
-std::expected<std::vector<case_info>, std::string> list_program(const program_spec& spec,
-                                                                const std::filesystem::path& work,
-                                                                const std::filesystem::path& root) {
+std::expected<std::vector<case_info>, std::string>
+list_program(const program_spec& spec, const std::filesystem::path& work,
+             const std::filesystem::path& root, std::vector<component_info>* components) {
     if (detect_level(spec) < 1) {
         case_info c;
         c.id = spec.name;
@@ -207,7 +230,47 @@ std::expected<std::vector<case_info>, std::string> list_program(const program_sp
         c.name = spec.name;
         return std::vector<case_info>{c};
     }
+    if (components)
+        *components = std::move(r.components);
     return r.listed;
+}
+
+int measure(const std::filesystem::path& out, std::vector<std::string> argv) {
+    if (argv.empty())
+        return 2;
+    os::process::spawn_options o;
+    o.program = resolve_program(argv.front());
+    o.args.assign(argv.begin() + 1, argv.end());
+    o.in = os::process::stdio::inherit;
+    o.out = os::process::stdio::inherit;
+    o.err = os::process::stdio::inherit;
+    auto p = os::process::process::spawn(o);
+    if (!p) {
+        // The engine reads this as the program's failure to start: the machine's, not the test's.
+        (void)os::fs::write(out,
+                            dumped(json{{"started", false},
+                                        {"error", std::format("{} did not start: {}", argv.front(),
+                                                              p.error().message())}}) +
+                                "\n");
+        return 127;
+    }
+    std::optional<os::process::exit_status> st;
+    {
+        // The account of a child is the kernel's once the child is reaped, which closing its
+        // handle does.
+        auto child = std::move(*p);
+        if (auto s = child.wait())
+            st = *s;
+    }
+    json j = {{"source", "engine"}};
+    if (auto u = os::process::resources(os::process::of::children)) {
+        j["user_ms"] = std::chrono::duration<double, std::milli>(u->user).count();
+        j["sys_ms"] = std::chrono::duration<double, std::milli>(u->system).count();
+        if (u->peak_memory)
+            j["peak_bytes"] = double(*u->peak_memory);
+    }
+    (void)os::fs::write(out, dumped(j) + "\n");
+    return st ? st->shell_code() : 1;
 }
 
 run_outcome run_program(const program_spec& spec, const run_request& request) {
@@ -225,6 +288,18 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
 
     std::vector<std::string> command = request.run_under;
     const auto argv = with_loader(spec.argv);
+    // A program that does not speak the protocol reports no use of its own: it is measured from a
+    // process of the engine's that starts it, where the system accounts a process's children.
+    const auto measured = request.work / "usage.json";
+    const bool wrap = p.level < 1 && request.monitor != "off" && !os::is_openkal &&
+                      os::host() != os::platform::windows;
+    if (wrap) {
+        auto self = os::env::self_command();
+        if (!self.empty()) {
+            command.insert(command.end(), self.begin(), self.end());
+            command.insert(command.end(), {"measure", "--out", os::fs::utf8(measured), "--"});
+        }
+    }
     command.insert(command.end(), argv.begin(), argv.end());
     os::process::spawn_options o;
     o.program = resolve_program(command.front());
@@ -252,6 +327,8 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
     }
     std::filesystem::create_directories(request.work / "tmp");
     o.env.emplace_back("MTEST_TMPDIR", os::fs::utf8(request.work / "tmp"));
+    o.env.emplace_back("MTEST_MONITOR", request.monitor);
+    o.env.emplace_back("MTEST_MONITOR_SAMPLE", std::to_string(request.sample_ms));
     if (request.seed)
         o.env.emplace_back("MTEST_SEED", std::to_string(*request.seed));
     os::process::bounds limits;
@@ -280,6 +357,30 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
     out.out = std::move(done->out);
     out.err = std::move(done->err);
 
+    if (wrap)
+        if (auto text = os::fs::read(measured)) {
+            auto j = json::parse(*text, nullptr, false);
+            if (j.is_object() && !j.value("started", true)) {
+                p.status = "infra";
+                p.error = j.value("error", std::string("the program did not start"));
+                case_result c;
+                c.program = spec.name;
+                c.id = spec.name;
+                c.status = "infra";
+                c.reason = p.error;
+                out.cases.push_back(std::move(c));
+                return out;
+            }
+            if (j.is_object()) {
+                usage_info u;
+                u.user_ms = j.value("user_ms", 0.0);
+                u.sys_ms = j.value("sys_ms", 0.0);
+                if (j.contains("peak_bytes"))
+                    u.peak_bytes = j["peak_bytes"].get<double>();
+                u.source = "engine";
+                p.usage = u;
+            }
+        }
     if (p.level < 1) {
         case_result c;
         c.program = spec.name;
@@ -317,6 +418,8 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
                                                  p.exit);
                 }
             }
+            if (r.usage)
+                p.usage = r.usage;
             out.cases = std::move(r.cases);
             const bool case_failed = std::ranges::any_of(out.cases, [](const case_result& c) {
                 return failing(c.status);

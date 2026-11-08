@@ -41,7 +41,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
 - A file declares objects and defines no `main` (with mcpp 2026.11.8.1 or later; an earlier mcpp
   needs `[test] main = { from = "mtest/main" }`). A file that defines `main` declares its cases in it
   and returns `report()`.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.4.1"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.5.0"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -77,6 +77,8 @@ isolation holds for everything inside; the others are the innermost one stated.
 | `diagnose{.env = {{"APP_LOG", "debug"}}}` | how to look at a failure | runs a failing case once more with that environment and keeps the output (`mtest explain`) |
 | `at_most{"ready", 15}`, `at_least{"recall", 0.9}` | the limits of a metric it reports | the case fails when its metric passes a limit or is not reported; `mtest analyze trend` shows each metric beside its limits |
 | `skip_if{cond, "why"}`, `expect_failure{"why"}`, `known_gap{"why", "YYYY-MM-DD"}` | its expected verdict | reports skip, xfail, xpass |
+| `monitor{monitor_level::detailed}` | how closely its use of the machine is measured | measures at least that closely: its processor time (`basic`), its memory and I/O (`detailed`), both over time (`trace`), as metrics with their precision (protocol P10) |
+| `uses{"index"}` | a run fixture it uses | serves the fixture once for the run before the first case that uses it, gives its endpoint (`fixture_endpoint("index")`), ends it after the last |
 
 `Bench` holds `machine`: a measurement means something only on a machine nothing else uses.
 How the tests of a project are laid out, from the directory to the line, is in
@@ -93,6 +95,44 @@ How the tests of a project are laid out, from the directory to the line, is in
 - Parameters: `"is even"_test = values{2, 4, 6} | [](int v) { expect(eq(v % 2, 0)); };`
 - Measurements: `import mcpplibs.mtest.bench;`, then `bench::measure("name", [] { ... });` in a
   `Bench`.
+
+## Components and run fixtures
+
+A part that many tests use is written once, in a library, and made known to the runner:
+
+```cpp
+// in a library the tests depend on
+run_fixture index{"index", [](serving& s) {
+    auto root = make_index();          // prepared once for the whole run
+    s.ready(root.string());            // the endpoint the cases receive
+    s.stopped();                       // returns when the runner ends the fixture
+    remove(root);
+}};
+Component sandbox{"sandbox", {resource_pool{"port", 4}}};   // at most four holders of `port` at once
+
+// in a test
+E2E fetch{"fetch", uses{"index"}, resource{"port"}, [] {
+    auto root = fixture_endpoint("index");
+    ...
+}};
+```
+
+- A **run fixture** is one object for the whole run, shared by the cases of every program that use it:
+  a sandboxed home, a server, an index. The runner starts one program that declares it with
+  `MTEST_SERVE`, gives its endpoint to every case that uses it, and ends it after the last; its
+  serving is a node of the run's graph (`mtest graph --run last`).
+- A **component** names the pools of resources it brings: a resource with a capacity, held by at
+  most that many cases at once.
+- What a case shares only with the cases of its own program is a `shared<T>` (above).
+
+## Use of the machine
+
+Under a runner each case reports its processor time (`cpu.user`, `cpu.sys`), and the program its own
+use when it ends; `[monitor] level = "detailed"` (or `monitor{monitor_level::detailed}` on a case)
+adds the case's largest resident set (`mem.peak`) and its I/O (`io.read`, `io.write`), and `trace`
+samples the load and the resident set over the case (`cpu.load`, `mem.rss`). Each is a metric with
+its precision, so a bound is written as for any metric: `at_most{"mem.peak", 64.0 * 1024 * 1024}`.
+`mtest report --format md` shows them, the run's critical path and its schedule.
 
 ## Running
 

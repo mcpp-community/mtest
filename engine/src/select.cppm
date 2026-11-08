@@ -37,16 +37,22 @@ struct selection_request {
 struct unit_case {
     case_info info;
     std::string why;
+    double expected_ms = 0;  // from history, for dividing a program among processes
 };  // why: the rule that selected it, for `mtest plan`
 struct unit {
     program_spec program;
-    std::vector<unit_case> cases;  // the program's selected cases
-    bool all = false;              // every case of the program: no selection is passed
-    double expected_ms = 0;        // from history, for scheduling
+    std::vector<unit_case> cases;         // the program's selected cases
+    bool all = false;                     // every case of the program: no selection is passed
+    double expected_ms = 0;               // from history, for scheduling
+    std::optional<double> expected_peak;  // its largest resident set, as last measured (bytes)
 };
 
 struct plan {
     std::vector<unit> units;
+    // The run fixtures programs serve (P11) and the pools components bring (P7.3), from the
+    // listings: a fixture's name -> the program that serves it; a pool's name -> its capacity.
+    std::map<std::string, program_spec> fixture_providers;
+    std::map<std::string, int> pools;
     std::vector<std::string> notes;  // what a rule decided, and what it could not know
     std::size_t considered = 0, selected = 0;
 };

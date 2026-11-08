@@ -22,6 +22,7 @@ tags      = ["slow"]
 timeout   = "10m"
 isolation = "process"                   # or "case": a process per case
 kind      = "e2e"                       # the kind of its cases that state none (default: its directory's, else unit)
+split     = true                        # whether [run] split may divide its cases among processes
 
 [discover]
 globs = ["build/tests/*"]               # every executable that matches is a program
@@ -59,6 +60,32 @@ diagnose    = { env = { APP_LOG = "debug" }, timeout = "60s" }   # once more aft
 skip        = "not on this host"        # recorded as skipped, not run
 expect_fail = "a defect upstream"       # a failure is xfail, a pass xpass
 at_most     = { ready = 15 }            # bounds on its metrics (P6.5); at_least likewise
+uses        = ["index"]                 # the run fixtures it uses (P11.2)
+
+# How the engine places work.
+[run]
+split  = "auto"                         # divide a program's cases among processes while workers idle; "off"
+memory = "auto"                         # schedule within the machine's memory, by each program's measured
+                                        # largest resident set; "off", or a size such as "16GiB"
+
+# How closely use is measured (P10): each case's processor time and the program's use at `basic`; also
+# each case's memory and I/O at `detailed`; also the load and memory over time at `trace`.
+[monitor]
+level  = "basic"                        # off, basic, detailed, trace
+sample = "50ms"                         # trace: how often
+
+# What `mtest report --format md`, `--md FILE` and `mtest ci annotate` write.
+[report]
+sections  = ["summary", "failures", "slowest", "metrics", "resources", "path", "gantt"]
+                                        # also kinds, flaky, trend, graph
+scope     = "run"                       # run, program:<glob>, kind:<kind>
+top       = 10                          # rows of a ranked table
+max_nodes = 60                          # nodes of a drawn graph: the critical path's, then the longest
+
+# A run fixture a command serves (P11.3), for one no test program declares: it prints
+# `mtest-ready <endpoint>` and ends when its input ends.
+[fixtures.index]
+command = ["python3", "tests/serve_index.py"]
 
 # The test files `mtest list --static` reads; with host.kind = "mcpp", mcpp.toml's [test] discover
 # (else tests/**/*.cpp).

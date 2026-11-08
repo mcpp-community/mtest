@@ -36,7 +36,7 @@ nothing; a built program's own listing is the authority (`manifest/src/manifest.
 
 | Command | Does |
 |---|---|
-| `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--env K=V`, `--run-under CMD`; `--junit`, `--html`, `--report-json FILE`; `--coverage` measures the coverage map |
+| `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--env K=V`, `--run-under CMD`, `--monitor LEVEL` (P10), `--group G` (runs reported together); `--junit`, `--html`, `--report-json FILE`, `--md FILE`; `--coverage` measures the coverage map. A program's cases are divided among workers that would otherwise idle (`[run] split`), and programs run together within the machine's memory (`[run] memory`) |
 | `rerun` | the cases that failed in the last run |
 | `smoke` | the `smoke` set |
 | `golden` | a run with `MTEST_GOLDEN=update`: golden files are written, not compared |
@@ -53,12 +53,12 @@ status is its one result. Cases tagged `flaky`, and quarantined ones, are retrie
 | Command | Answers |
 |---|---|
 | `explain [--case REF]` | where a case failed, why (both sides), its output, its recent history, whether it is new, and the command that repeats it |
-| `report [--format text\|json\|junit\|html]` | a stored run |
+| `report [--format text\|json\|junit\|html\|md]` | a stored run; `md`: a Markdown report of the sections `--sections` (or `[report]`) names -- summary, kinds, failures, slowest, metrics, resources, flaky, trend, path, graph, gantt -- over `--scope` (`run`, `program:<glob>`, `kind:<kind>`), of one run, `--runs a,b`, or every run of `--group G` together |
 | `diff [--before ID] [--after ID]` | newly failing, fixed, slower, faster |
 | `history --case REF` | one case across the stored runs |
 | `query` | stored case results by `--status`, `--kind`, `--program`, `--case`, `--tag`, `--days`, `--runs` |
-| `analyze METRIC` | `hot`, `durations`, `path` (the critical path), `failures` (grouped by message), `flaky`, `bench`, `trend` (each case's metrics over the last `--runs N` runs beside their bounds, `--case GLOB`), `cost` |
-| `graph [--format json\|dot\|mermaid]` | sources → programs → cases → resources and artifacts |
+| `analyze METRIC` | `hot`, `durations`, `path` (the critical path: the longest weighted path of the run's graph, spec P12.3, with what each step waited for), `failures` (grouped by message), `flaky`, `bench`, `trend` (each case's metrics over the last `--runs N` runs beside their bounds, `--case GLOB`), `cost` |
+| `graph [--format json\|dot\|mermaid\|gantt]` | sources → programs → cases → resources and artifacts; with `--run ID`, the run's graph of work -- builds, processes, run fixtures and what each waited for (worker, resource, build, fixture) -- the critical path marked, or its schedule as a gantt |
 | `gate [--set S]` | a set's gate on a run: no failure, the budget kept, bench verdicts that pass |
 
 A run is named by its identifier, `last`, or `last-N`.
@@ -71,4 +71,7 @@ A run is named by its identifier, `last`, or `last-N`.
 | `store gc\|verify\|import --from DIR` | the store's retention, its consistency, another store taken in (a CI artifact), with its coverage map when that is newer |
 | `coverage show\|import --from FILE` | the coverage map affected selection reads, or another taken in |
 | `ci status OWNER/REPO#N...` | the checks of pull requests, failing ones with their links (by the GitHub CLI) |
-| `ci annotate`, `ci collect --from DIR` | a run's failures as GitHub annotations and a job summary; a CI store taken in |
+| `ci annotate`, `ci collect --from DIR` | a run's failures as GitHub annotations and its Markdown report as the job's summary; a CI store taken in |
+| `ci report [--group G]` | every collected run of a group (default: `GITHUB_RUN_ID`) as one Markdown report, in the job's summary and `--out` |
+| `ci timeline --repo OWNER/REPO --run-id N` | a workflow run's jobs as a schedule with the critical path (each job waited for the job that ended last before it began), as Markdown with a gantt; `--summary` writes it to the job's summary |
+| `measure --out FILE -- ARGV` | runs ARGV and writes what it used (its children's account) as JSON: how the engine measures a program that reports no use of its own (P10.4) |

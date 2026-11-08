@@ -10,6 +10,9 @@
   of another included), and `scan(source, types)` reads a file's cases with them. `mtest list
   --static` reads the types of every C++ source of the project, so a type written once in a module
   its tests import is its base's kind in each of them.
+- A tag selection `a&b` names the cases that have both tags (`--tag 'on:linux-x64&release'`, and a
+  set's `tags`); the tags given are still alternatives. A case has its program's tags as well as its
+  own.
 
 ## [0.4.0] - 2026-11-08
 

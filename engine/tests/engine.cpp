@@ -280,6 +280,11 @@ int main() {
             auto slow = json_of(mtest(root, {"plan", "--json", "--tag", "slow"}));
             expect(
                 eq(slow["units"][0]["program"].get<std::string>(), std::string("suite/02_b.sh")));
+            auto both =
+                json_of(mtest(root, {"plan", "--json", "--tag", "requires:gcc&requires:elf"}));
+            expect(eq(both["selected"].get<int>(), 1)) << "a case with both tags";
+            auto neither = json_of(mtest(root, {"plan", "--json", "--tag", "requires:gcc&slow"}));
+            expect(eq(neither["selected"].get<int>(), 0)) << "no case has both";
             auto run = json_of(mtest(root, {"run", "--json"}));
             expect(eq(run["counts"].value("fail", 0), 1));
             expect(eq(run["failing"][0]["kind"].get<std::string>(), std::string("e2e")))

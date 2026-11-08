@@ -24,9 +24,18 @@ struct skip_signal {
 
 struct running_case {
     std::string id;
-    bool scope = false;  // a named suite: a prefix of identifiers, not a case
-    bool failed = false;
+    bool scope = false;        // a suite: a prefix of identifiers and attributes, not a case
+    attributes attrs;          // what the cases within it have
+    bool failed = false;       // an expectation of its own did not hold
+    bool case_failed = false;  // a case it declared failed
     std::optional<std::filesystem::path> dir;
+};
+
+struct declared_suite {
+    std::string name;
+    std::source_location where;
+    attributes attrs;
+    std::function<void()> body;
 };
 
 struct state {
@@ -41,7 +50,7 @@ struct state {
     std::uint64_t seed = 0;
     bool seed_given = false;
     std::vector<running_case> stack;
-    std::vector<std::pair<std::string, std::function<void()>>> suites;
+    std::vector<declared_suite> suites;
     std::size_t suites_run = 0;
     std::map<std::string, int> counts;
     std::set<std::string> clauses;
@@ -122,7 +131,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.2.0"},
+         {"version", "0.3.0"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
@@ -143,7 +152,28 @@ std::string_view kind_name(kind k) {
 
 std::string full_id(std::string_view name) {
     auto& s = the();
-    return s.stack.empty() ? std::string(name) : s.stack.back().id + "/" + std::string(name);
+    return s.stack.empty() || s.stack.back().id.empty()
+               ? std::string(name)
+               : s.stack.back().id + "/" + std::string(name);
+}
+
+// What a case declared here has besides its own attributes: its suite's and its enclosing cases'.
+attributes inherited() {
+    auto& s = the();
+    return s.stack.empty() ? attributes{} : s.stack.back().attrs;
+}
+
+// Whether a case is reported: it is selected, or declared inside a selected case (P4.1). A case
+// that runs only because it declares a selected one is the scope of that case (P3.4).
+bool reported(const std::string& id) {
+    auto& s = the();
+    if (!s.selection)
+        return true;
+    for (const auto& want : *s.selection)
+        if (want == id ||
+            (id.starts_with(want) && id.size() > want.size() && id[want.size()] == '/'))
+            return true;
+    return false;
 }
 
 // A case runs when it is selected, or is an ancestor or a descendant of a selected case (P4).
@@ -210,9 +240,14 @@ void record_failure(std::string_view message, const std::source_location& where,
 void run_suites() {
     auto& s = the();
     while (s.suites_run < s.suites.size()) {
-        auto [name, f] = s.suites[s.suites_run++];
-        if (!name.empty())
-            s.stack.push_back({full_id(name), true});
+        auto [name, where, attrs, f] = s.suites[s.suites_run++];
+        if (!name.empty()) {
+            // A named suite is a case: listed with its attributes, run when it is selected.
+            test(name, std::move(attrs)) = body(std::move(f), where);
+            continue;
+        }
+        s.stack.push_back({s.stack.empty() ? std::string{} : s.stack.back().id, true,
+                           within(inherited(), attrs)});
         try {
             f();
         } catch (const std::exception& e) {
@@ -222,8 +257,7 @@ void run_suites() {
             record_failure("an exception escaped the suite", std::source_location::current(),
                            nullptr, false);
         }
-        if (!name.empty())
-            s.stack.pop_back();
+        s.stack.pop_back();
     }
 }
 
@@ -284,23 +318,40 @@ void test::operator=(body b) {
     std::unique_lock g(s.lock);
     write_program();
     const std::string id = full_id(name_);
+    const attributes attrs = within(inherited(), attrs_);
     s.seen.insert(id);
-    s.clauses.insert(attrs_.clauses.begin(), attrs_.clauses.end());
+    s.clauses.insert(attrs.clauses.begin(), attrs.clauses.end());
     const std::string file = b.where.file_name();
     if (s.listing) {
         event ev = {{"e", "case"},
                     {"id", id},
                     {"name", name_},
                     {"file", file},
-                    {"line", b.where.line()},
-                    {"kind", kind_name(attrs_.kind.value_or(kind::unit))},
-                    {"tags", attrs_.tags},
-                    {"clauses", attrs_.clauses},
-                    {"resources", attrs_.resources},
-                    {"artifacts", attrs_.artifacts}};
-        if (attrs_.skip)
+                    {"line", b.where.line()}};
+        // A kind no attribute states is the runner's to give (the program's, by its directory).
+        if (attrs.kind)
+            ev["kind"] = kind_name(*attrs.kind);
+        ev["tags"] = attrs.tags;
+        ev["clauses"] = attrs.clauses;
+        ev["resources"] = attrs.resources;
+        ev["artifacts"] = attrs.artifacts;
+        if (attrs.limit)
+            ev["timeout"] = std::chrono::duration<double>(*attrs.limit).count();
+        if (attrs.isolated)
+            ev["isolation"] = "case";
+        if (attrs.retries)
+            ev["retries"] = *attrs.retries;
+        if (attrs.diagnosis) {
+            event d = {{"env", event::object()}};
+            for (const auto& [k, v] : attrs.diagnosis->env)
+                d["env"][k] = v;
+            if (attrs.diagnosis->limit.count() > 0)
+                d["timeout"] = std::chrono::duration<double>(attrs.diagnosis->limit).count();
+            ev["diagnose"] = d;
+        }
+        if (attrs.skip)
             ev["expect"] = "skip";
-        else if (attrs_.expected_failure)
+        else if (attrs.expected_failure)
             ev["expect"] = "fail";
         write_event(ev);
         return;
@@ -321,13 +372,42 @@ void test::operator=(body b) {
                                                : "  FAIL";
         say(std::format("{} {}{}{}", mark, id, reason.empty() ? "" : " -- ", reason));
     };
-    if (attrs_.skip) {
-        write_event({{"e", "begin"}, {"id", id}, {"t", since_start()}});
-        finish("skip", 0, *attrs_.skip);
+    const bool own = reported(id);
+    if (attrs.skip) {
+        // A skipped scope skips the selected cases it declares.
+        std::vector<std::string> skipped{id};
+        if (!own) {
+            skipped.clear();
+            for (const auto& want : *s.selection)
+                if (want.starts_with(id + "/")) {
+                    skipped.push_back(want);
+                    s.seen.insert(want);
+                }
+        }
+        for (const auto& one : skipped) {
+            write_event({{"e", "begin"}, {"id", one}, {"t", since_start()}});
+            event ev = {{"e", "end"},
+                        {"id", one},
+                        {"status", "skip"},
+                        {"ms", 0},
+                        {"reason", *attrs.skip}};
+            s.counts["skip"]++;
+            write_event(ev);
+            say(std::format("  skip {} -- {}", one, *attrs.skip));
+        }
         return;
     }
-    write_event({{"e", "begin"}, {"id", id}, {"t", since_start()}});
-    s.stack.push_back({id});
+    // P3.4: a case declared inside a case is not listed; its begin states what it is.
+    event begun = {{"e", "begin"}, {"id", id}, {"t", since_start()}};
+    if (attrs.kind)
+        begun["kind"] = kind_name(*attrs.kind);
+    if (!attrs.tags.empty())
+        begun["tags"] = attrs.tags;
+    if (!attrs.clauses.empty())
+        begun["clauses"] = attrs.clauses;
+    if (own)
+        write_event(begun);
+    s.stack.push_back({id, false, attrs});
     const auto started = clock::now();
     std::string status = "pass";
     std::string reason;
@@ -353,24 +433,31 @@ void test::operator=(body b) {
         std::error_code ec;
         std::filesystem::remove_all(*done.dir, ec);
     }
+    if (!own) {
+        // A scope is reported only when a statement of its own failed.
+        if (!done.failed)
+            return;
+        write_event(begun);
+    }
     if (status != "skip")
-        status = done.failed ? "fail" : "pass";
-    if (attrs_.expected_failure) {
+        status = done.failed || done.case_failed ? "fail" : "pass";
+    if (attrs.expected_failure) {
         if (status == "fail") {
             status = "xfail";
-            reason = *attrs_.expected_failure;
+            reason = *attrs.expected_failure;
         } else if (status == "pass") {
             status = "xpass";
-            reason = "expected to fail: " + *attrs_.expected_failure;
+            reason = "expected to fail: " + *attrs.expected_failure;
         }
     }
     if (status == "fail" && !s.stack.empty() && !s.stack.back().scope)
-        s.stack.back().failed = true;
+        s.stack.back().case_failed = true;
     finish(status, ms, reason);
 }
 
-suite::suite(std::string name, std::function<void()> f, std::source_location) {
-    the().suites.emplace_back(std::move(name), std::move(f));
+void Suite::add(std::string name, std::source_location where, attributes attrs,
+                std::function<void()> f) {
+    the().suites.push_back({std::move(name), where, std::move(attrs), std::move(f)});
 }
 
 int report() {
@@ -490,15 +577,47 @@ std::set<std::string> declared_clauses() {
     return s.clauses;
 }
 
-test& test::operator[](known_gap g) {
+void apply(attributes& a, known_gap g) {
     // Today, in UTC, as YYYY-MM-DD: the gap holds while today is not past its date.
     const auto today = std::chrono::year_month_day(
         std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now()));
     const auto stamp = std::format("{:%Y-%m-%d}", std::chrono::sys_days(today));
     if (stamp <= g.due)
-        attrs_.expected_failure = std::format("a known gap until {}: {}", g.due, g.reason);
-    attrs_.gap_due = g.due;
-    return *this;
+        a.expected_failure = std::format("a known gap until {}: {}", g.due, g.reason);
+    a.gap_due = g.due;
+}
+
+attributes within(const attributes& outer, const attributes& inner) {
+    attributes a = outer;
+    auto add = [](std::vector<std::string>& to, const std::vector<std::string>& from) {
+        for (const auto& x : from)
+            if (std::ranges::find(to, x) == to.end())
+                to.push_back(x);
+    };
+    add(a.tags, inner.tags);
+    add(a.clauses, inner.clauses);
+    add(a.resources, inner.resources);
+    add(a.artifacts, inner.artifacts);
+    if (inner.kind)
+        a.kind = inner.kind;
+    if (inner.expected_failure)
+        a.expected_failure = inner.expected_failure;
+    if (inner.skip)
+        a.skip = inner.skip;
+    if (inner.gap_due)
+        a.gap_due = inner.gap_due;
+    if (inner.limit)
+        a.limit = inner.limit;
+    a.isolated = a.isolated || inner.isolated;
+    if (inner.retries)
+        a.retries = inner.retries;
+    if (inner.diagnosis)
+        a.diagnosis = inner.diagnosis;
+    return a;
+}
+
+void detail::made_shared(std::string_view name, double ms) {
+    write_event({{"e", "fixture"}, {"id", current_case()}, {"name", name}, {"ms", ms}});
 }
 
 std::vector<std::string> self_command() {

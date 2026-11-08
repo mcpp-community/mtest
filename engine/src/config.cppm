@@ -40,14 +40,22 @@ struct discover_group {
 };
 
 // `[cases."<glob>"]` of mtest.toml, and `[package.metadata.mtest.cases."<glob>"]` of a host's
-// mcpp.toml: what the cases a glob matches (`program::id` or `id`) are, stated beside the code and
-// taking precedence over what a program lists.
+// mcpp.toml: the attributes of the cases a glob matches (`program::id` or `id`; an L0 program's
+// one case is the program), in the vocabulary of the library's (docs/config.md "Case
+// attributes"), for a program whose source states none. What a program states comes first: a
+// kind, a time limit, isolation, retries, a diagnosis, a skip and an expected failure apply where
+// it states none; tags, clauses, resources and artifacts add up.
 struct case_attributes {
     std::string glob;
-    std::vector<std::string> tags, resources;
+    std::vector<std::string> tags, clauses, resources, artifacts;
     std::string kind;
     std::optional<std::chrono::seconds> timeout;
-    std::string origin;  // where it is stated, for `mtest plan`
+    bool isolated = false;
+    int retries = 0;
+    std::optional<std::vector<std::pair<std::string, std::string>>> diagnose_env;
+    double diagnose_timeout = 0;
+    std::string skip, expect_fail;  // reasons
+    std::string origin;             // where it is stated, for `mtest plan`
 };
 
 // `[coverage]`: the coverage map a run under `--coverage` writes (docs/coverage.md).

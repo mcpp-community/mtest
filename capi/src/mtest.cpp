@@ -25,6 +25,10 @@ struct pending_case {
     event body;
     std::vector<std::string> tags, clauses, resources, artifacts;
     bool expect_fail = false;
+    double timeout = 0;
+    bool isolated = false;
+    int retries = 0;
+    std::optional<event> diagnose;
 };
 
 struct state {
@@ -73,6 +77,14 @@ struct state {
             p.body["artifacts"] = p.artifacts;
             if (p.expect_fail)
                 p.body["expect"] = "fail";
+            if (p.timeout > 0)
+                p.body["timeout"] = p.timeout;
+            if (p.isolated)
+                p.body["isolation"] = "case";
+            if (p.retries > 0)
+                p.body["retries"] = p.retries;
+            if (p.diagnose)
+                p.body["diagnose"] = *p.diagnose;
             write(p.body);
         }
         pending.clear();
@@ -100,7 +112,7 @@ void mtest_init(const char* framework, int level) {
              {"protocol", 1},
              {"level", std::clamp(level, 1, 3)},
              {"framework", text(framework)},
-             {"version", "0.2.0"},
+             {"version", "0.3.0"},
              {"isolation", {"process", "case"}}});
 }
 
@@ -113,12 +125,15 @@ void mtest_case(const char* id, const char* file, int line, const char* kind) {
     std::lock_guard g(s.lock);
     s.flush_pending();
     s.seen.insert(id ? id : "");
-    s.pending.push_back({{{"e", "case"},
-                          {"id", text(id)},
-                          {"name", text(id)},
-                          {"file", text(file)},
-                          {"line", line},
-                          {"kind", kind ? kind : "unit"}}});
+    event body = {{"e", "case"},
+                  {"id", text(id)},
+                  {"name", text(id)},
+                  {"file", text(file)},
+                  {"line", line}};
+    // A kind not stated is the runner's to give (the program's, by its directory).
+    if (kind)
+        body["kind"] = kind;
+    s.pending.push_back({std::move(body)});
 }
 
 namespace {
@@ -141,6 +156,41 @@ void mtest_case_resource(const char* value) {
 }
 void mtest_case_artifact(const char* value) {
     attribute(&pending_case::artifacts, value);
+}
+
+void mtest_case_timeout(double seconds) {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    if (!s.pending.empty())
+        s.pending.back().timeout = seconds;
+}
+
+void mtest_case_isolate(void) {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    if (!s.pending.empty())
+        s.pending.back().isolated = true;
+}
+
+void mtest_case_retries(int count) {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    if (!s.pending.empty())
+        s.pending.back().retries = count;
+}
+
+void mtest_case_diagnose(const char* name, const char* value, double seconds) {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    if (s.pending.empty())
+        return;
+    auto& d = s.pending.back().diagnose;
+    if (!d)
+        d = event{{"env", event::object()}};
+    if (name)
+        (*d)["env"][name] = text(value);
+    if (seconds > 0)
+        (*d)["timeout"] = seconds;
 }
 
 void mtest_case_expect_fail(void) {

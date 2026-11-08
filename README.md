@@ -38,21 +38,27 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.2.0"
+mcpplibs.mtest = "0.3.0"
 ```
 
 A failure names its place and both sides (`expected 2, actual 3`). Under a runner the same program
 speaks the protocol; alone it prints one line per case.
 
-A file may declare suites and no `main`; mtest's entry begins it (mcpp 2026.11.8.1 and later; an
-earlier mcpp is told `[test] main = { from = "mtest/main" }`):
+A file may declare its cases as objects and no `main`; mtest's entry begins it (mcpp 2026.11.8.1
+and later; an earlier mcpp is told `[test] main = { from = "mtest/main" }`). Each object is one
+case a runner lists, selects and schedules by the attributes it states (kind by its type,
+resources, time limit, isolation, retries, a diagnosis); the cases its body declares are selectable
+within it ([lib/docs/writing-tests.md](lib/docs/writing-tests.md)):
 
 ```cpp
 import mcpplibs.mtest;
 using namespace mcpplibs::mtest;
 
-suite parsing{"parsing", [] {
-    "an empty line"_test = [] { expect(eq(parse(""), 0)); };
+UTest empty{"an empty line", [] { expect(eq(parse(""), 0)); }};
+
+E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] {
+    "prints its version"_test = [] { /* ... */ };
+    "reads its configuration"_test[retries{1}] = [] { /* ... */ };
 }};
 ```
 

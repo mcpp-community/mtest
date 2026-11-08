@@ -25,13 +25,23 @@ extern "C" {
 void mtest_init(const char* framework, int level);
 /* Whether the runner asked for the list of cases (MTEST_MODE=list). */
 int mtest_listing(void);
-/* A case of the list (P3). `kind` is unit, e2e, cts or bench; NULL is unit. */
+/* A case of the list (P3). `kind` is unit, e2e, cts or bench; NULL states none, and the runner
+   gives the program's (its directory's, mtest docs/layout.md). */
 void mtest_case(const char* id, const char* file, int line, const char* kind);
 /* An attribute of the case last listed: a tag, a clause, a resource, an artifact (level 3). */
 void mtest_case_tag(const char* tag);
 void mtest_case_clause(const char* clause);
 void mtest_case_resource(const char* resource);
 void mtest_case_artifact(const char* artifact);
+/* How long the case last listed may run, in seconds (P3.3). */
+void mtest_case_timeout(double seconds);
+/* The case last listed runs in a process of its own (P3.3). */
+void mtest_case_isolate(void);
+/* The case last listed runs again, alone, up to `count` times after failing (P3.3). */
+void mtest_case_retries(int count);
+/* After the case last listed fails, the runner runs it once more with NAME=VALUE added to its
+   environment, within `seconds` (0: its own limit) (P3.3). Each call adds a variable. */
+void mtest_case_diagnose(const char* name, const char* value, double seconds);
 /* The case last listed is expected to fail (level 3). */
 void mtest_case_expect_fail(void);
 /* Whether the case runs (MTEST_SELECT); every case runs when the runner selected none (P4). */

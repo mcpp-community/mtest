@@ -58,7 +58,10 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
 
 // The attributes `[cases."<glob>"]` states, applied to a case of `program`, and to an L0 program
 // (whose one case is the program).
-void apply_attributes(const config& c, const std::string& program, case_info& ci);
+void apply_attributes(const config& c, const program_spec& program, case_info& ci);
+// The kind a program's place states (docs/layout.md): a directory `unit`, `e2e`, `cts` or `bench`
+// directly below a directory `tests`; empty when it states none.
+std::string layout_kind(std::string_view path);
 void apply_attributes(const config& c, program_spec& p);
 // A path glob in the vocabulary of `[build] sources`: `*` any run of characters, `**/` any
 // directories, none included; a glob beginning with `!` excludes.

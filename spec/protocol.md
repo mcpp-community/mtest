@@ -1,6 +1,6 @@
 # The mtest test protocol, version 1
 
-**Status:** version 1, 2026-11-08.
+**Status:** version 1, 2026-11-08; P3.3, P3.4 and the `fixture` event added 2026-11-08 (P9.2).
 **Scope:** how a test program and a runner talk. A runner is anything that starts test programs and reads their results: the mtest engine, mcpp (`mcpp test`), an IDE, a CI step. A test program is any program, in any language.
 
 This document is normative. The words *must*, *must not* and *may* have their usual meaning. Each clause has a number; tests and conformance reports name clauses by number (`P3.2`).
@@ -50,9 +50,9 @@ P3.1 With `MTEST_MODE=list` the program must write one `program` event, then one
 
 P3.2 A case identifier is a string of UTF-8. It is stable: the same case has the same identifier in every run and on every system. A program forms it from the names it gives its suites and cases, joined by `/` (for example `fs/a file is read`). Identifiers in one program are distinct.
 
-P3.3 A case event may name the case's location (`file`, `line`), kind (P8), tags, the clauses it covers, its expected status, and (L3) its resources and artifacts.
+P3.3 A case event may name the case's location (`file`, `line`), kind (P8), tags, the clauses it covers, its expected status, and (L3) its resources and artifacts, and how a runner runs it: `timeout`, the seconds it may run; `isolation`, `case` when it runs in a process of its own; `retries`, how many times a failing case runs again, alone; `diagnose`, an object of `env` (variables) and `timeout`, the run a runner makes once after the case fails, whose output it keeps and which judges nothing. A case that names no kind is of the kind the runner gives its program (mtest docs/layout.md). A runner that starts a process for one case ends it at the case's `timeout`.
 
-P3.4 A case that exists only when another case runs (a case declared inside a case) need not be listed; it appears in the report when it runs.
+P3.4 A case that exists only when another case runs (a case declared inside a case) need not be listed; it appears in the report when it runs, and its `begin` event may name its kind, tags and clauses. Selecting it runs the case that declares it as its scope: that case is reported only when a statement of its own fails.
 
 ## P4. Selection
 
@@ -70,11 +70,12 @@ P5.2 The first event is `program`. Every event has the field `e`, its kind.
 |---|---|---|
 | `program` | `protocol` (1), `level` (1–3), `framework`, `version`, `isolation` (the values of P2.1 the program supports), optionally `guide` (P2.5) | first |
 | `case` | `id`, `name`, `file`, `line`, `kind`, `tags`, `clauses`, `expect`, `resources`, `artifacts` | in `list` mode, one per case |
-| `begin` | `id`, `t` (milliseconds since the program started) | a case starts |
+| `begin` | `id`, `t` (milliseconds since the program started), optionally `kind`, `tags`, `clauses` (P3.4) | a case starts |
 | `failure` | `id`, `file`, `line`, `message`, and optionally `expected`, `actual` (strings), `fatal` | an expectation does not hold |
 | `output` | `id`, `stream` (`out` or `err`), `text` | output a case captured |
 | `metric` | `id`, `name`, `value`, `unit`, optionally `samples` (array of numbers), `better` (`lower` or `higher`) | L2 |
 | `artifact` | `id`, `path`, `kind` | a file the case produced |
+| `fixture` | `id`, `name`, `ms` | an object the case caused to be made for the cases that share it, and how long making it took |
 | `end` | `id`, `status`, `ms`, optionally `reason` | a case ends |
 | `missing` | `id` | P4.1 |
 | `done` | `status`, `counts` (an object of status to number) | last |

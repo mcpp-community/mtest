@@ -239,6 +239,10 @@ std::expected<json, std::string> explain(const store& s, const run_record& r,
                 }
         }
         item["recent"] = recent;
+        if (!c->diagnosis.empty())
+            item["diagnosis"] = c->diagnosis;  // the output of its diagnostic run
+        if (!c->fixtures.empty())
+            item["fixtures"] = to_json(*c)["fixtures"];
         item["kind_of_failure"] = !failing(c->status) ? "not failing"
                                   : seen == 0         ? "first seen"
                                   : fails == 0        ? "new"

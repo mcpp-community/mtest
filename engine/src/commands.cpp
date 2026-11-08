@@ -199,6 +199,10 @@ answer finish_run(const context& ctx, const run_record& r, const json& p, const 
             all["cases"] = json::array();
             for (const auto& c : r.cases)
                 all["cases"].push_back(to_json(c));
+            // The run's timeline: each program's start, duration, status and what it held.
+            all["timeline"] = json::array();
+            for (const auto& pr : r.programs)
+                all["timeline"].push_back(to_json(pr));
             (void)os::fs::write(os::fs::from_utf8(f), all.dump(2) + "\n");
         }
     }
@@ -214,12 +218,14 @@ answer finish_run(const context& ctx, const run_record& r, const json& p, const 
                                ? std::string{}
                                : std::format("{}:{}", c.failures[0].file, c.failures[0].line)},
                  {"why", c.failures.empty() ? c.reason : c.failures[0].message},
-                 {"again", [&] {
+                 {"again",
+                  [&] {
                       for (const auto& pr : r.programs)
                           if (pr.name == c.program)
                               return reproduce_command(pr, c.id);
                       return reproduce_command(c.program, c.id);
-                  }()}});
+                  }()},
+                 {"diagnosis", c.diagnosis}});
     json data = to_json(r);
     data["failing"] = failing_cases;
     data["notes"] = pl.notes;
@@ -469,6 +475,9 @@ answer cmd_list_static(const std::filesystem::path& cwd) {
             dot != std::string::npos && name.find('/', dot) == std::string::npos)
             name.erase(dot);
         json cases = json::array();
+        program_spec program;
+        program.name = name;
+        program.kind = layout_kind(rel);
         for (const auto& sc : manifest::scan(source)) {
             case_info ci;
             ci.id = sc.id;
@@ -477,14 +486,19 @@ answer cmd_list_static(const std::filesystem::path& cwd) {
             ci.line = sc.line;
             ci.kind = sc.kind;
             ci.tags = sc.tags;
-            apply_attributes(ctx->cfg, name, ci);
+            ci.resources = sc.resources;
+            ci.clauses = sc.clauses;
+            ci.artifacts = sc.artifacts;
+            apply_attributes(ctx->cfg, program, ci);
             cases.push_back({{"case", ci.id},
                              {"name", ci.name},
                              {"file", ci.file},
                              {"line", ci.line},
                              {"kind", ci.kind},
                              {"tags", ci.tags},
-                             {"resources", ci.resources}});
+                             {"resources", ci.resources},
+                             {"clauses", ci.clauses},
+                             {"artifacts", ci.artifacts}});
             text += std::format("{}::{}  {}:{}\n", name, ci.id, rel, ci.line);
         }
         total += cases.size();
@@ -659,6 +673,8 @@ answer cmd_explain(const std::filesystem::path& cwd, const json& p) {
         }
         if (c.contains("output") && !c["output"]["err_tail"].get<std::string>().empty())
             text += "  error output (end):\n" + c["output"]["err_tail"].get<std::string>() + "\n";
+        if (c.contains("diagnosis"))
+            text += "  diagnosis: " + c["diagnosis"].get<std::string>() + "\n";
         text += "  again: " + c["again"].get<std::string>() + "\n";
     }
     return {0, *e, text};
@@ -1469,7 +1485,7 @@ json catalog() {
                {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
                {"run", run_id["run"]},
                {"from", {{"type", "string"}}}}));
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.2.0"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.3.0"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

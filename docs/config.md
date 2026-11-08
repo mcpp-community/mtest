@@ -1,6 +1,10 @@
 # mtest.toml
 
-Every key is optional. With no file the engine runs the programs it is named.
+Every key is optional. With no file the engine runs the programs it is named, and a program written
+with the library states its cases, their kinds and their attributes in its own code
+([lib/docs/writing-tests.md](../lib/docs/writing-tests.md)); that is the form a test is written in.
+The file states what code cannot: programs of another language or framework, where the tests are,
+sets, policies and the store. Its case attributes are the library's, in the same words.
 
 ```toml
 [project]
@@ -17,7 +21,7 @@ resources = ["serial:db"]               # what it holds alone (P7.1)
 tags      = ["slow"]
 timeout   = "10m"
 isolation = "process"                   # or "case": a process per case
-kind      = "e2e"                       # the kind of an L0 program's one case (default unit)
+kind      = "e2e"                       # the kind of its cases that state none (default: its directory's, else unit)
 
 [discover]
 globs = ["build/tests/*"]               # every executable that matches is a program
@@ -37,14 +41,23 @@ resources_from = ["# resources:"]                   # `# resources: serial:home`
 kind = "mcpp"                           # the tests of `mcpp test` (mcpp 2026.11.8.1+)
 args = ["--workspace"]
 
-# What the cases a glob matches (`program::id` or `id`) are, stated beside the code; it takes
-# precedence over what a program lists. A host states the same table in its own manifest:
-# mcpp.toml's [package.metadata.mtest.cases."<glob>"].
+# Case attributes: the cases a glob matches (`program::id` or `id`; an L0 program's one case is the
+# program), for a program whose source states none. The words are the library's attributes. What the
+# program states comes first: a kind, a time limit, retries, a diagnosis, a skip and an expected
+# failure apply where it states none; tags, clauses, resources, artifacts and isolation add up. A
+# host states the same table in its own manifest: mcpp.toml's [package.metadata.mtest.cases."<glob>"].
 [cases."parsing/*"]
-tags      = ["fast"]
-resources = ["serial:db"]
-kind      = "unit"
-timeout   = "30s"                       # an L0 program's
+kind        = "unit"
+tags        = ["fast"]
+clauses     = ["S1"]
+resources   = ["serial:db"]
+artifacts   = ["file:tests/data"]
+timeout     = "30s"
+isolation   = "case"                    # a process of its own
+retries     = 2                         # runs again, alone, after failing
+diagnose    = { env = { APP_LOG = "debug" }, timeout = "60s" }   # once more after a failure, kept
+skip        = "not on this host"        # recorded as skipped, not run
+expect_fail = "a defect upstream"       # a failure is xfail, a pass xpass
 
 # The test files `mtest list --static` reads; with host.kind = "mcpp", mcpp.toml's [test] discover
 # (else tests/**/*.cpp).

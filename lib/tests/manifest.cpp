@@ -12,12 +12,14 @@ int main() {
                               "suite parsing{\"parsing\", [] {\n"
                               "    \"an empty line\"_test[tag{\"fast\"}][kind::e2e] = [] {};\n"
                               "}};\n");
-        expect(fatal(eq(cases.size(), std::size_t(1))));
-        expect(eq(cases[0].id, std::string("parsing/an empty line")));
-        expect(eq(cases[0].line, 3));
-        expect(eq(cases[0].column, 5));
-        expect(eq(cases[0].kind, std::string("e2e")));
-        expect(eq(cases[0].tags, std::vector<std::string>{"fast"}));
+        expect(fatal(eq(cases.size(), std::size_t(2))));
+        expect(eq(cases[0].id, std::string("parsing")));
+        expect(eq(cases[0].line, 2));
+        expect(eq(cases[1].id, std::string("parsing/an empty line")));
+        expect(eq(cases[1].line, 3));
+        expect(eq(cases[1].column, 5));
+        expect(eq(cases[1].kind, std::string("e2e")));
+        expect(eq(cases[1].tags, std::vector<std::string>{"fast"}));
     };
     "a case inside a case, and the suite's end"_test = [] {
         auto cases = mf::scan("mtest::suite s{\"s\", [] {\n"
@@ -27,7 +29,7 @@ int main() {
         std::vector<std::string> ids;
         for (const auto& c : cases)
             ids.push_back(c.id);
-        expect(eq(ids, std::vector<std::string>{"s/outer", "s/outer/inner", "top"}));
+        expect(eq(ids, std::vector<std::string>{"s", "s/outer", "s/outer/inner", "top"}));
     };
     "comments, strings and raw strings are not cases"_test = [] {
         auto cases = mf::scan("// \"a\"_test = [] {};\n"

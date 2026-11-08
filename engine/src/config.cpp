@@ -80,14 +80,32 @@ std::expected<void, std::string> read_attributes(const toml::table& cases, std::
         if (!t)
             return std::unexpected(std::format("{}.\"{}\" must be a table", where, glob.str()));
         known(*t, std::format("{}.\"{}\"", where, glob.str()),
-              {"tags", "resources", "kind", "timeout"}, c);
+              {"tags", "clauses", "resources", "artifacts", "kind", "timeout", "isolation",
+               "retries", "diagnose", "skip", "expect_fail"},
+              c);
         case_attributes a;
         a.glob = std::string(glob.str());
         a.tags = strings((*t)["tags"]);
+        a.clauses = strings((*t)["clauses"]);
         a.resources = strings((*t)["resources"]);
+        a.artifacts = strings((*t)["artifacts"]);
         a.kind = (*t)["kind"].value_or(std::string{});
         if (auto d = duration_of((*t)["timeout"]))
             a.timeout = std::chrono::duration_cast<std::chrono::seconds>(*d);
+        a.isolated = (*t)["isolation"].value_or(std::string{}) == "case";
+        a.retries = static_cast<int>((*t)["retries"].value_or(std::int64_t{0}));
+        if (auto d = (*t)["diagnose"].as_table()) {
+            std::vector<std::pair<std::string, std::string>> env;
+            if (auto e = (*d)["env"].as_table())
+                for (const auto& [k, v] : *e)
+                    if (auto sv = v.value<std::string>())
+                        env.emplace_back(std::string(k.str()), *sv);
+            a.diagnose_env = std::move(env);
+            if (auto dt = duration_of((*d)["timeout"]))
+                a.diagnose_timeout = std::chrono::duration<double>(*dt).count();
+        }
+        a.skip = (*t)["skip"].value_or(std::string{});
+        a.expect_fail = (*t)["expect_fail"].value_or(std::string{});
         a.origin = std::format("{}.\"{}\"", where, a.glob);
         c.attributes.push_back(std::move(a));
     }

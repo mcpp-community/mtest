@@ -15,7 +15,8 @@ struct item {
     std::vector<std::string> select;  // empty: the whole program
     std::set<std::string> resources;
     double expected_ms = 0;
-    std::set<std::string> flaky;  // case ids that may be retried
+    std::map<std::string, int> retries;  // case id -> how many times it may run again
+    std::map<std::string, const case_info*> diagnosed;  // cases with a diagnosis after failing
 };
 
 // P7.1: `machine` holds the machine alone; `serial:<g>` one at a time per group; `gpu`, `display`
@@ -70,8 +71,87 @@ std::string git_commit(const std::filesystem::path& root) {
     return out;
 }
 
+std::chrono::seconds case_limit(double seconds) {
+    return std::chrono::seconds{static_cast<std::int64_t>(std::ceil(seconds))};
+}
+
+// mtest.toml's expected failure, for a case whose program states none: a failure is expected, a
+// pass is not.
+void expected_to_fail(case_result& cr, const std::string& reason) {
+    if (reason.empty())
+        return;
+    if (failing(cr.status) && cr.status != "xpass") {
+        cr.status = "xfail";
+        cr.reason = reason;
+    } else if (cr.status == "pass") {
+        cr.status = "xpass";
+        cr.reason = "expected to fail: " + reason;
+    }
+}
+
 bool unstable(const case_info& c) {
     return std::ranges::find(c.tags, "flaky") != c.tags.end();
+}
+
+// What a case adds to the item that runs it: what it holds, how long it may take, how often it may
+// run again (its own count, else the run's for a case the project marks unstable or quarantined)
+// and its diagnosis.
+void add_case(item& it, const case_info& ci, int run_retries, bool quarantined) {
+    it.resources.insert(ci.resources.begin(), ci.resources.end());
+    const int again = ci.retries > 0 ? ci.retries : (unstable(ci) || quarantined) ? run_retries : 0;
+    if (again > 0)
+        it.retries[ci.id] = again;
+    if (ci.diagnose_env)
+        it.diagnosed[ci.id] = &ci;
+}
+
+// A failing case of `outcome` that may run again does, alone, until it passes or its count is
+// spent; one that then passes is `flaky`, which does not fail the run and is counted.
+void retry_failing(const item& it, const run_request& req, run_outcome& outcome) {
+    for (auto& cr : outcome.cases) {
+        const auto allowed = it.retries.find(cr.id);
+        if (!failing(cr.status) || allowed == it.retries.end())
+            continue;
+        for (int attempt = 1; attempt <= allowed->second && cr.status != "flaky"; ++attempt) {
+            run_request again = req;
+            again.work =
+                req.work / std::format("retry-{}-{}", attempt, std::hash<std::string>{}(cr.id));
+            again.select = {cr.id};
+            auto second = run_program(it.program, again);
+            auto found = std::ranges::find(second.cases, cr.id, &case_result::id);
+            cr.attempts = attempt + 1;
+            if (found != second.cases.end() && found->status == "pass") {
+                cr.status = "flaky";
+                cr.reason = std::format("failed, then passed on attempt {}", attempt + 1);
+            }
+        }
+    }
+}
+
+// A case that still fails and states a diagnosis runs once more, alone, with its environment; the
+// output is kept in the store beside the run and named by the result. It judges nothing.
+void diagnose_failing(const store& s, std::string_view run, const item& it, const run_request& req,
+                      run_outcome& outcome) {
+    for (auto& cr : outcome.cases) {
+        const auto d = it.diagnosed.find(cr.id);
+        if (!failing(cr.status) || d == it.diagnosed.end())
+            continue;
+        run_request again = req;
+        again.work = req.work / std::format("diagnose-{}", std::hash<std::string>{}(cr.id));
+        again.select = {cr.id};
+        again.env.insert(again.env.end(), d->second->diagnose_env->begin(),
+                         d->second->diagnose_env->end());
+        auto program = it.program;
+        if (d->second->diagnose_timeout > 0)
+            program.timeout = case_limit(d->second->diagnose_timeout);
+        auto second = run_program(program, again);
+        const auto dir = run_dir(s, run) / "diagnoses" /
+                         std::to_string(std::hash<std::string>{}(cr.program + "::" + cr.id));
+        std::filesystem::create_directories(dir);
+        (void)os::fs::write(dir / "out.txt", second.out);
+        (void)os::fs::write(dir / "err.txt", second.err);
+        cr.diagnosis = os::fs::generic_utf8(dir);
+    }
 }
 
 }  // namespace
@@ -97,34 +177,76 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
     };
 
     std::vector<item> items;
+    // Cases mtest.toml skips are recorded so, and not run.
+    std::vector<case_result> skipped;
+    auto skips = [&](const unit& u, const unit_case& uc) {
+        if (uc.info.skip.empty())
+            return false;
+        case_result cr;
+        cr.program = u.program.name;
+        cr.id = uc.info.id;
+        cr.kind = uc.info.kind;
+        cr.status = "skip";
+        cr.reason = uc.info.skip;
+        skipped.push_back(std::move(cr));
+        return true;
+    };
     for (const auto& u : p.units) {
         std::set<std::string> program_resources(u.program.resources.begin(),
                                                 u.program.resources.end());
+        if (u.program.level < 1 && !u.cases.empty() && skips(u, u.cases.front()))
+            continue;
         if (u.program.isolation == "case" && u.program.level >= 1) {
             for (const auto& uc : u.cases) {
+                if (skips(u, uc))
+                    continue;
                 item it{u.program,
                         {uc.info.id},
                         program_resources,
                         u.expected_ms / double(u.cases.size()),
                         {}};
-                it.resources.insert(uc.info.resources.begin(), uc.info.resources.end());
-                if (unstable(uc.info) ||
-                    is_quarantined(quarantined_cases, u.program.name, uc.info.id))
-                    it.flaky.insert(uc.info.id);
+                add_case(it, uc.info, retries,
+                         is_quarantined(quarantined_cases, u.program.name, uc.info.id));
+                // P3.3: a case's own limit is its process's.
+                if (uc.info.timeout > 0)
+                    it.program.timeout = case_limit(uc.info.timeout);
                 items.push_back(std::move(it));
             }
             continue;
         }
+        // A case that states isolation runs alone; the others share one process.
+        const auto per_case = u.expected_ms / double(std::max<std::size_t>(1, u.cases.size()));
         item it{u.program, {}, program_resources, u.expected_ms, {}};
-        if (!u.all && u.program.level >= 1)
-            for (const auto& uc : u.cases)
-                it.select.push_back(uc.info.id);
+        // A case that runs alone or is skipped narrows the rest to a selection.
+        const bool narrowed = std::ranges::any_of(u.cases, [](const unit_case& uc) {
+            return uc.info.isolated || !uc.info.skip.empty();
+        });
+        // A process of several cases runs at least as long as the limits its cases state.
+        std::chrono::seconds stated{0};
         for (const auto& uc : u.cases) {
-            it.resources.insert(uc.info.resources.begin(), uc.info.resources.end());
-            if (unstable(uc.info) || is_quarantined(quarantined_cases, u.program.name, uc.info.id))
-                it.flaky.insert(uc.info.id);
+            const bool quarantined = is_quarantined(quarantined_cases, u.program.name, uc.info.id);
+            if (u.program.level >= 1 && skips(u, uc)) {
+                it.expected_ms -= per_case;
+                continue;
+            }
+            if (uc.info.isolated && u.program.level >= 1) {
+                item alone{u.program, {uc.info.id}, program_resources, per_case, {}};
+                add_case(alone, uc.info, retries, quarantined);
+                if (uc.info.timeout > 0)
+                    alone.program.timeout = case_limit(uc.info.timeout);
+                it.expected_ms -= per_case;
+                items.push_back(std::move(alone));
+                continue;
+            }
+            if ((!u.all || narrowed) && u.program.level >= 1)
+                it.select.push_back(uc.info.id);
+            add_case(it, uc.info, retries, quarantined);
+            if (uc.info.timeout > 0)
+                stated += case_limit(uc.info.timeout);
         }
-        items.push_back(std::move(it));
+        it.program.timeout = std::max(it.program.timeout, stated);
+        if (u.program.level < 1 || !it.select.empty() || (u.all && !narrowed))
+            items.push_back(std::move(it));
     }
     std::ranges::sort(items, std::greater{}, &item::expected_ms);
 
@@ -191,28 +313,14 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
                                      os::fs::utf8(*o.coverage_dir / std::to_string(mine)));
                 req.env.emplace_back("GCOV_PREFIX_STRIP", std::to_string(o.coverage_strip));
             }
+            const auto started_ms =
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began)
+                    .count();
             auto outcome = run_program(it.program, req);
-            // Retries: a failing case the project marks unstable (tag `flaky`) or has quarantined
-            // runs again, alone; one that then passes is `flaky`, which does not fail the run and
-            // is counted.
-            for (auto& cr : outcome.cases) {
-                if (!failing(cr.status) || !it.flaky.contains(cr.id))
-                    continue;
-                for (int attempt = 1; attempt <= retries; ++attempt) {
-                    run_request again = req;
-                    again.work = req.work / std::format("retry-{}-{}", attempt,
-                                                        std::hash<std::string>{}(cr.id));
-                    again.select = {cr.id};
-                    auto second = run_program(it.program, again);
-                    auto found = std::ranges::find(second.cases, cr.id, &case_result::id);
-                    cr.attempts = attempt + 1;
-                    if (found != second.cases.end() && found->status == "pass") {
-                        cr.status = "flaky";
-                        cr.reason = std::format("failed, then passed on attempt {}", attempt + 1);
-                        break;
-                    }
-                }
-            }
+            outcome.program.started_ms = started_ms;
+            outcome.program.resources.assign(it.resources.begin(), it.resources.end());
+            retry_failing(it, req, outcome);
+            diagnose_failing(s, rec.id, it, req, outcome);
             for (auto& cr : outcome.cases)
                 if (failing(cr.status) && is_quarantined(quarantined_cases, cr.program, cr.id))
                     cr.quarantined = true;
@@ -281,11 +389,18 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
                     cr.kind = ci->info.kind;
                     cr.tags = ci->info.tags;
                     cr.clauses = ci->info.clauses;
+                    expected_to_fail(cr, ci->info.expect_fail);
+                } else if (cr.kind.empty()) {
+                    // A case a listed case declared (P3.4) is of its program's kind unless its
+                    // begin stated one.
+                    cr.kind = info->program.kind.empty() ? "unit" : info->program.kind;
                 }
             }
             rec.cases.push_back(std::move(cr));
         }
     }
+    for (auto& cr : skipped)
+        rec.cases.push_back(std::move(cr));
     std::error_code ec;
     std::filesystem::remove_all(s.dir / "work" / rec.id, ec);
     rec.counts = count(rec.cases);

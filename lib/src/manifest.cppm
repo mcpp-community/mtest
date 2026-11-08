@@ -1,9 +1,12 @@
 // The static case manifest: the cases a source file declares with this library, read from its text
 // without building it -- `"name"_test` literals with their attributes (`[kind::e2e]`,
-// `[tag{"slow"}]`), inside named suites (`suite x{"name", ...}`) and inside other cases, with the
-// identifiers the program would list (`suite/case/inner`). Tools that show or plan cases before a
+// `[tag{"slow"}]`, `[resource{"machine"}]`), the cases named suites are (`E2E cli{"cli",
+// resource{"serial:home"}, [] { ... }}`), and the cases declared inside either, which have the
+// kind and attributes of what declares them, with the identifiers the program reports
+// (`suite/case/inner`). Tools that show or plan cases before a
 // build read it (`mtest list --static`, an editor); the program's own listing (P3) is the
-// authority once it is built.
+// authority once it is built. What only the program decides -- a `skip_if` condition, a time
+// limit -- is left to that listing.
 export module mcpplibs.mtest.manifest;
 
 import std;
@@ -14,8 +17,8 @@ struct static_case {
     std::string id;    // as the program lists it
     std::string name;  // the literal
     int line = 0, column = 0;
-    std::string kind = "unit";
-    std::vector<std::string> tags;
+    std::string kind;  // empty: no attribute and no suite states one (the program's is given)
+    std::vector<std::string> tags, resources, clauses, artifacts;
 };
 
 std::vector<static_case> scan(std::string_view source);
@@ -128,41 +131,125 @@ struct reader {
     }
 };
 
+// What a case has: its own attributes within its suite's and its enclosing cases'.
+struct attrs {
+    std::string kind;
+    std::vector<std::string> tags, resources, clauses, artifacts;
+};
+
+void add(std::vector<std::string>& to, const std::string& value) {
+    if (std::ranges::find(to, value) == to.end())
+        to.push_back(value);
+}
+
+attrs within(const attrs& outer, const attrs& inner) {
+    attrs a = outer;
+    if (!inner.kind.empty())
+        a.kind = inner.kind;
+    for (const auto& x : inner.tags)
+        add(a.tags, x);
+    for (const auto& x : inner.resources)
+        add(a.resources, x);
+    for (const auto& x : inner.clauses)
+        add(a.clauses, x);
+    for (const auto& x : inner.artifacts)
+        add(a.artifacts, x);
+    return a;
+}
+
 struct scope {
     std::string id;
     int depth;  // the brace depth inside it
+    attrs has;
 };
 
-// `[kind::e2e]`, `[tag{"slow"}]`, ... after a literal: each bracket group, read for the kind and
-// the tags it names.
-void read_attributes(reader& r, static_case& c) {
+// The suite types and the kind each states (Suite and suite state none).
+std::optional<std::string> suite_kind(std::string_view word) {
+    if (word == "Suite" || word == "suite")
+        return std::string{};
+    if (word == "UTest")
+        return std::string("unit");
+    if (word == "CTS")
+        return std::string("cts");
+    if (word == "E2E")
+        return std::string("e2e");
+    if (word == "Bench")
+        return std::string("bench");
+    return std::nullopt;
+}
+
+// One attribute's words and literals (`kind::e2e`, `tag{"slow"}`, `mtest::resource("machine")`):
+// a literal is what the word before it names; a word after `kind` is the kind.
+struct attribute_reader {
+    attrs& into;
+    std::string last_word;
+
+    void literal(const std::string& value) {
+        if (last_word == "tag")
+            add(into.tags, value);
+        else if (last_word == "resource")
+            add(into.resources, value);
+        else if (last_word == "clause")
+            add(into.clauses, value);
+        else if (last_word == "artifact")
+            add(into.artifacts, value);
+    }
+    void word(std::string w) {
+        if (last_word == "kind")
+            into.kind = w;
+        last_word = std::move(w);
+    }
+    // Reads one token at `r`; false at a character that is not part of an attribute.
+    bool token(reader& r) {
+        const char ch = r.peek();
+        if (ch == '"' || (ch == 'R' && r.peek(1) == '"')) {
+            literal(r.string_literal());
+            return true;
+        }
+        if (ident(ch)) {
+            word(r.word());
+            return true;
+        }
+        if (ch != ':' && ch != '{' && ch != '}' && ch != '(' && ch != ')' &&
+            !std::isspace(static_cast<unsigned char>(ch)))
+            last_word.clear();
+        return false;
+    }
+};
+
+// `[kind::e2e]`, `[tag{"slow"}]`, ... after a case's literal: each bracket group.
+void read_case_attributes(reader& r, attrs& into) {
+    attribute_reader a{into};
     for (r.skip_space(); r.peek() == '['; r.skip_space()) {
         int depth = 0;
-        std::string last_word;
         do {
-            const char ch = r.peek();
-            if (ch == '"') {
-                auto value = r.string_literal();
-                if (last_word == "tag")
-                    c.tags.push_back(value);
+            if (a.token(r))
                 continue;
-            }
-            if (ident(ch)) {
-                auto w = r.word();
-                if (last_word == "kind")
-                    c.kind = w;
-                last_word = w;
-                continue;
-            }
-            if (ch == '[')
+            if (r.peek() == '[')
                 ++depth;
-            else if (ch == ']')
+            else if (r.peek() == ']')
                 --depth;
-            else if (ch != ':' && ch != '{' && ch != '}' &&
-                     !std::isspace(static_cast<unsigned char>(ch)))
-                last_word.clear();
             r.step();
         } while (!r.done() && depth > 0);
+    }
+}
+
+// `, resource{"machine"}, tag{"slow"}` between a suite's name and its body: up to the body's `[`
+// (a lambda) or the suite's closing `}`, at the suite's own depth.
+void read_suite_attributes(reader& r, attrs& into) {
+    attribute_reader a{into};
+    int nesting = 0;
+    for (r.skip_space(); !r.done(); r.skip_space()) {
+        const char ch = r.peek();
+        if (nesting == 0 && (ch == '[' || ch == '}'))
+            return;
+        if (a.token(r))
+            continue;
+        if (ch == '{' || ch == '(')
+            ++nesting;
+        else if (ch == '}' || ch == ')')
+            --nesting;
+        r.step();
     }
 }
 
@@ -175,11 +262,14 @@ std::vector<static_case> scan(std::string_view source) {
     int depth = 0;
     // A scope opened by the next `{`: a named suite's or a case's body.
     std::optional<std::string> pending;
+    attrs pending_attrs;
     int pending_parens = 0;
-    // `suite <var>{"<name>"`: 1 after `suite`, 2 after its variable, 3 after its `{`.
+    // `<Suite type> <var>{"<name>"`: 1 after the type, 2 after its variable, 3 after its `{`.
     int suite_state = 0;
+    std::string suite_type_kind;
     std::string previous;
     auto prefix = [&] { return scopes.empty() ? std::string{} : scopes.back().id + "/"; };
+    auto outer = [&] { return scopes.empty() ? attrs{} : scopes.back().has; };
     while (!r.done()) {
         r.skip_space();
         if (r.done())
@@ -189,17 +279,30 @@ std::vector<static_case> scan(std::string_view source) {
             const int line = r.line, column = r.column();
             auto value = r.string_literal();
             if (suite_state == 3) {
+                // A named suite is a case, and the scope of the cases its body declares.
                 pending.reset();
-                scopes.push_back({prefix() + value, depth});
+                attrs own;
+                own.kind = suite_type_kind;
+                if (suite_type_kind == "bench")
+                    own.resources.push_back("machine");
+                read_suite_attributes(r, own);
+                const attrs has = within(outer(), own);
+                out.push_back({prefix() + value, value, line, column, has.kind, has.tags,
+                               has.resources, has.clauses, has.artifacts});
+                scopes.push_back({prefix() + value, depth, has});
                 suite_state = 0;
                 continue;
             }
             if (r.text.substr(r.at, 5) == "_test" && !ident(r.peek(5))) {
                 for (int k = 0; k < 5; ++k)
                     r.step();
-                static_case c{prefix() + value, value, line, column};
-                read_attributes(r, c);
+                attrs own;
+                read_case_attributes(r, own);
+                const attrs has = within(outer(), own);
+                static_case c{prefix() + value, value,         line,        column,       has.kind,
+                              has.tags,         has.resources, has.clauses, has.artifacts};
                 pending = c.id;
+                pending_attrs = has;
                 pending_parens = 0;
                 out.push_back(std::move(c));
             }
@@ -212,9 +315,10 @@ std::vector<static_case> scan(std::string_view source) {
         }
         if (ident(ch)) {
             auto w = r.word();
-            if (w == "suite" && (previous.empty() || previous == "mtest"))
+            if (auto k = suite_kind(w); k && (previous.empty() || previous == "mtest")) {
                 suite_state = 1;
-            else if (suite_state == 1)
+                suite_type_kind = *k;
+            } else if (suite_state == 1)
                 suite_state = 2;
             else
                 suite_state = 0;
@@ -239,7 +343,7 @@ std::vector<static_case> scan(std::string_view source) {
             if (suite_state == 2)
                 suite_state = 3;
             else if (pending && pending_parens <= 0) {
-                scopes.push_back({*pending, depth});
+                scopes.push_back({*pending, depth, pending_attrs});
                 pending.reset();
             }
         } else if (ch == '}') {

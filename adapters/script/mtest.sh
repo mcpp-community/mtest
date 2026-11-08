@@ -38,7 +38,7 @@ _mtest_list() {   # a JSON array of the arguments
 _mtest_event() { [ -n "$_mtest_report" ] && printf '{%s}\n' "$1" >> "$_mtest_report"; return 0; }
 _mtest_ms() { local now; now=$(date +%s%N 2>/dev/null || echo 0); echo $(( (now - _mtest_started) / 1000000 )); }
 
-_mtest_event '"e":"program","protocol":1,"level":3,"framework":"mtest.sh","version":"0.2.0","isolation":["process","case"]'
+_mtest_event '"e":"program","protocol":1,"level":3,"framework":"mtest.sh","version":"0.3.0","isolation":["process","case"]'
 
 _mtest_selected() {
     [ -z "$_mtest_select" ] && return 0
@@ -50,10 +50,14 @@ _mtest_selected() {
     return 1
 }
 
-# mtest_case ID FUNCTION [--tag T] [--kind K] [--clause C] [--resource R] [--artifact A] [--expect-fail REASON] [--skip REASON]
+# mtest_case ID FUNCTION [--tag T] [--kind K] [--clause C] [--resource R] [--artifact A] [--timeout SECONDS]
+#            [--isolate] [--retries N] [--diagnose-env NAME=VALUE] [--diagnose-timeout SECONDS]
+#            [--expect-fail REASON] [--skip REASON]
+# A case that states no kind is of the program's (its directory's, docs/layout.md).
 mtest_case() {
     local id="$1" fn="$2"; shift 2
-    local tags=() clauses=() resources=() artifacts=() kind=unit xfail="" skip=""
+    local tags=() clauses=() resources=() artifacts=() kind="" limit="" xfail="" skip=""
+    local isolate="" retries="" diagnose=() diagnose_limit=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --tag) tags+=("$2"); shift 2 ;;
@@ -61,6 +65,11 @@ mtest_case() {
             --clause) clauses+=("$2"); shift 2 ;;
             --resource) resources+=("$2"); shift 2 ;;
             --artifact) artifacts+=("$2"); shift 2 ;;
+            --timeout) limit="$2"; shift 2 ;;
+            --isolate) isolate=1; shift ;;
+            --retries) retries="$2"; shift 2 ;;
+            --diagnose-env) diagnose+=("$2"); shift 2 ;;
+            --diagnose-timeout) diagnose_limit="$2"; shift 2 ;;
             --expect-fail) xfail="$2"; shift 2 ;;
             --skip) skip="$2"; shift 2 ;;
             *) echo "mtest_case: unknown option $1" >&2; shift ;;
@@ -69,7 +78,19 @@ mtest_case() {
     _mtest_seen+=("$id")
     if [ "$_mtest_mode" = list ]; then
         local ev
-        ev="\"e\":\"case\",\"id\":$(_mtest_json "$id"),\"name\":$(_mtest_json "$id"),\"file\":$(_mtest_json "${BASH_SOURCE[1]:-$0}"),\"line\":${BASH_LINENO[0]:-0},\"kind\":$(_mtest_json "$kind"),\"tags\":$(_mtest_list "${tags[@]}"),\"clauses\":$(_mtest_list "${clauses[@]}"),\"resources\":$(_mtest_list "${resources[@]}"),\"artifacts\":$(_mtest_list "${artifacts[@]}")"
+        ev="\"e\":\"case\",\"id\":$(_mtest_json "$id"),\"name\":$(_mtest_json "$id"),\"file\":$(_mtest_json "${BASH_SOURCE[1]:-$0}"),\"line\":${BASH_LINENO[0]:-0},\"tags\":$(_mtest_list "${tags[@]}"),\"clauses\":$(_mtest_list "${clauses[@]}"),\"resources\":$(_mtest_list "${resources[@]}"),\"artifacts\":$(_mtest_list "${artifacts[@]}")"
+        [ -n "$kind" ] && ev+=",\"kind\":$(_mtest_json "$kind")"
+        [ -n "$limit" ] && ev+=",\"timeout\":$limit"
+        [ -n "$isolate" ] && ev+=',"isolation":"case"'
+        [ -n "$retries" ] && ev+=",\"retries\":$retries"
+        if [ ${#diagnose[@]} -gt 0 ] || [ -n "$diagnose_limit" ]; then
+            local env_fields="" kv
+            for kv in ${diagnose[@]+"${diagnose[@]}"}; do
+                [ -n "$env_fields" ] && env_fields+=","
+                env_fields+="$(_mtest_json "${kv%%=*}"):$(_mtest_json "${kv#*=}")"
+            done
+            ev+=",\"diagnose\":{\"env\":{$env_fields}${diagnose_limit:+,\"timeout\":$diagnose_limit}}"
+        fi
         [ -n "$skip" ] && ev+=',"expect":"skip"'
         [ -n "$xfail" ] && [ -z "$skip" ] && ev+=',"expect":"fail"'
         _mtest_event "$ev"

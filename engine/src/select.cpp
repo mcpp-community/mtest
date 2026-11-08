@@ -205,8 +205,9 @@ void discover_group_programs(const config& c, const discover_group& g,
                 it.disable_recursion_pending();
             continue;
         }
-        if (it->is_regular_file(ec) &&
-            std::ranges::any_of(g.globs, [&](const std::string& p) { return glob_match(p, rel); }))
+        if (it->is_regular_file(ec) && std::ranges::any_of(g.globs, [&](const std::string& p) {
+                return path_glob_match(p, rel);
+            }))
             files.emplace_back(rel, it->path());
     }
     std::ranges::sort(files);
@@ -291,15 +292,47 @@ void keep_shard(plan& out, int index, int count) {
 
 }  // namespace
 
-void apply_attributes(const config& c, const std::string& program, case_info& ci) {
+// A case's kind and time limit are the program's statement when it makes one (docs/config.md
+// "Case attributes"); tags and resources add up.
+void apply_attributes(const config& c, const program_spec& program, case_info& ci) {
     for (const auto& a : c.attributes) {
-        if (!glob_match(a.glob, ci.id) && !glob_match(a.glob, program + "::" + ci.id))
+        if (!glob_match(a.glob, ci.id) && !glob_match(a.glob, program.name + "::" + ci.id))
             continue;
         add_unique(ci.tags, a.tags);
         add_unique(ci.resources, a.resources);
-        if (!a.kind.empty())
+        if (!a.kind.empty() && ci.kind.empty())
             ci.kind = a.kind;
+        if (a.timeout && ci.timeout <= 0)
+            ci.timeout = double(a.timeout->count());
+        add_unique(ci.clauses, a.clauses);
+        add_unique(ci.artifacts, a.artifacts);
+        ci.isolated = ci.isolated || a.isolated;
+        if (a.retries > 0 && ci.retries == 0)
+            ci.retries = a.retries;
+        if (a.diagnose_env && !ci.diagnose_env) {
+            ci.diagnose_env = a.diagnose_env;
+            ci.diagnose_timeout = a.diagnose_timeout;
+        }
+        // The program's own verdict comes first: a case it lists as skipped or failing keeps it.
+        if (!a.skip.empty() && ci.expect.empty() && ci.skip.empty())
+            ci.skip = a.skip;
+        if (!a.expect_fail.empty() && ci.expect.empty() && ci.expect_fail.empty())
+            ci.expect_fail = a.expect_fail;
     }
+    if (ci.kind.empty())
+        ci.kind = program.kind.empty() ? "unit" : program.kind;
+}
+
+std::string layout_kind(std::string_view path) {
+    std::string_view previous;
+    for (const auto part : std::views::split(path, '/')) {
+        const std::string_view word(part.begin(), part.end());
+        if (previous == "tests" &&
+            (word == "unit" || word == "e2e" || word == "cts" || word == "bench"))
+            return std::string(word);
+        previous = word;
+    }
+    return {};
 }
 
 void apply_attributes(const config& c, program_spec& p) {
@@ -345,7 +378,7 @@ std::expected<std::vector<program_spec>, std::string> discover(const config& c,
                     it.disable_recursion_pending();
                 continue;
             }
-            if (!glob_match(g, rel) || !executable_file(it->path()))
+            if (!path_glob_match(g, rel) || !executable_file(it->path()))
                 continue;
             program_spec s;
             s.name = rel;
@@ -365,8 +398,23 @@ std::expected<std::vector<program_spec>, std::string> discover(const config& c,
         return std::unexpected(
             std::format("host.kind = \"{}\" is not a host this engine knows (mcpp)", c.host));
     }
-    for (auto& p : out)
+    for (auto& p : out) {
+        // The place first: a kind mtest.toml states is applied over it.
+        if (p.kind.empty()) {
+            std::vector<std::string> places = p.sources;
+            places.push_back(p.name);
+            if (p.origin == "host")
+                places.push_back("tests/" + p.name);
+            for (auto place : places) {
+                std::ranges::replace(place, '\\', '/');
+                if (p.kind = layout_kind(place); !p.kind.empty())
+                    break;
+            }
+        }
         apply_attributes(c, p);
+        if (p.kind.empty())
+            p.kind = "unit";
+    }
     return out;
 }
 
@@ -502,7 +550,7 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
         u.program = p;
         u.program.level = detect_level(p);
         for (auto ci : *listed) {
-            apply_attributes(c, p.name, ci);
+            apply_attributes(c, u.program, ci);
             ++out.considered;
             const auto key = p.name + "::" + ci.id;
             auto pick = [&]() -> std::optional<std::string> {

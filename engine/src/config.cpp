@@ -47,7 +47,8 @@ constexpr std::initializer_list<std::string_view> kProgramKeys = {"command",   "
                                                                   "env",       "level",
                                                                   "resources", "sources",
                                                                   "tags",      "timeout",
-                                                                  "isolation", "kind"};
+                                                                  "isolation", "kind",
+                                                                  "split"};
 
 void read_program(const toml::table& t, program_spec& s) {
     if (auto v = t["cwd"].value<std::string>())
@@ -68,6 +69,8 @@ void read_program(const toml::table& t, program_spec& s) {
         s.timeout = std::chrono::duration_cast<std::chrono::seconds>(*d);
     if (auto v = t["isolation"].value<std::string>())
         s.isolation = *v;
+    if (auto v = t["split"].value<bool>())
+        s.split = *v;
     if (auto v = t["kind"].value<std::string>())
         s.kind = *v;
 }
@@ -81,7 +84,7 @@ std::expected<void, std::string> read_attributes(const toml::table& cases, std::
             return std::unexpected(std::format("{}.\"{}\" must be a table", where, glob.str()));
         known(*t, std::format("{}.\"{}\"", where, glob.str()),
               {"tags", "clauses", "resources", "artifacts", "kind", "timeout", "isolation",
-               "retries", "diagnose", "skip", "expect_fail", "at_most", "at_least"},
+               "retries", "diagnose", "skip", "expect_fail", "at_most", "at_least", "uses"},
               c);
         case_attributes a;
         a.glob = std::string(glob.str());
@@ -89,6 +92,7 @@ std::expected<void, std::string> read_attributes(const toml::table& cases, std::
         a.clauses = strings((*t)["clauses"]);
         a.resources = strings((*t)["resources"]);
         a.artifacts = strings((*t)["artifacts"]);
+        a.uses = strings((*t)["uses"]);
         a.kind = (*t)["kind"].value_or(std::string{});
         if (auto d = duration_of((*t)["timeout"]))
             a.timeout = std::chrono::duration_cast<std::chrono::seconds>(*d);
@@ -195,6 +199,27 @@ void add_builtin_sets(config& c) {
     add(release);
 }
 
+std::optional<double> parse_size(std::string_view text) {
+    double v = 0;
+    auto [p, ec] = std::from_chars(text.data(), text.data() + text.size(), v);
+    if (ec != std::errc{} || v < 0)
+        return std::nullopt;
+    const std::string_view unit = text.substr(std::size_t(p - text.data()));
+    if (unit == "GiB")
+        return v * 1024 * 1024 * 1024;
+    if (unit == "MiB")
+        return v * 1024 * 1024;
+    if (unit == "KiB")
+        return v * 1024;
+    if (unit == "GB")
+        return v * 1e9;
+    if (unit == "MB")
+        return v * 1e6;
+    if (unit == "B" || unit.empty())
+        return v;
+    return std::nullopt;
+}
+
 std::expected<config, std::string> load_config(const std::filesystem::path& dir) {
     config c;
     c.root = dir;
@@ -212,7 +237,7 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
     }
     known(t, "mtest.toml",
           {"project", "programs", "discover", "host", "sets", "policy", "retry", "regression",
-           "store", "trace", "cases", "coverage", "static"},
+           "store", "trace", "cases", "coverage", "static", "run", "monitor", "report", "fixtures"},
           c);
     if (auto p = t["project"].as_table()) {
         known(*p, "project", {"store", "jobs"}, c);
@@ -354,6 +379,45 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
             c.tools[tool.name] = std::move(tool);
         }
     }
+    if (auto r = t["run"].as_table()) {
+        known(*r, "run", {"split", "memory"}, c);
+        c.run.split = (*r)["split"].value_or(std::string("auto"));
+        if (c.run.split != "auto" && c.run.split != "off")
+            return std::unexpected("run.split is \"auto\" or \"off\"");
+        c.run.memory = (*r)["memory"].value_or(std::string("auto"));
+        if (c.run.memory != "auto" && c.run.memory != "off" && !parse_size(c.run.memory))
+            return std::unexpected("run.memory is \"auto\", \"off\" or a size such as \"16GiB\"");
+    }
+    if (auto m = t["monitor"].as_table()) {
+        known(*m, "monitor", {"level", "sample"}, c);
+        c.monitor.level = (*m)["level"].value_or(std::string("basic"));
+        if (auto d = duration_of((*m)["sample"]))
+            c.monitor.sample_ms = int(std::max<long long>(1, d->count()));
+        if (c.monitor.level != "off" && c.monitor.level != "basic" &&
+            c.monitor.level != "detailed" && c.monitor.level != "trace")
+            return std::unexpected("monitor.level is off, basic, detailed or trace");
+    }
+    if (auto r = t["report"].as_table()) {
+        known(*r, "report", {"sections", "scope", "top", "max_nodes"}, c);
+        if (r->contains("sections"))
+            c.report.sections = strings((*r)["sections"]);
+        c.report.scope = (*r)["scope"].value_or(std::string("run"));
+        c.report.top = static_cast<int>((*r)["top"].value_or(std::int64_t{10}));
+        c.report.max_nodes = static_cast<int>((*r)["max_nodes"].value_or(std::int64_t{60}));
+    }
+    if (auto fs = t["fixtures"].as_table())
+        for (const auto& [name, node] : *fs) {
+            auto ft = node.as_table();
+            if (!ft)
+                return std::unexpected(std::format("fixtures.{} must be a table", name.str()));
+            known(*ft, std::format("fixtures.{}", name.str()), {"command"}, c);
+            fixture_spec f;
+            f.name = std::string(name.str());
+            f.command = strings((*ft)["command"]);
+            if (f.command.empty())
+                return std::unexpected(std::format("fixtures.{}.command names no program", f.name));
+            c.fixtures.push_back(std::move(f));
+        }
     if (c.host == "mcpp")
         if (auto e = read_host_metadata(c); !e)
             return std::unexpected(e.error());

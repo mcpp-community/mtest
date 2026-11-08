@@ -54,20 +54,11 @@ std::vector<bound_info> bounds_from(const json& j) {
 }
 
 json to_json(const case_info& c) {
-    return {{"id", c.id},
-            {"name", c.name},
-            {"file", c.file},
-            {"line", c.line},
-            {"kind", c.kind},
-            {"tags", c.tags},
-            {"clauses", c.clauses},
-            {"resources", c.resources},
-            {"artifacts", c.artifacts},
-            {"expect", c.expect},
-            {"timeout", c.timeout},
-            {"isolated", c.isolated},
-            {"retries", c.retries},
-            {"bounds", to_json(c.bounds)}};
+    return {{"id", c.id},           {"name", c.name},           {"file", c.file},
+            {"line", c.line},       {"kind", c.kind},           {"tags", c.tags},
+            {"clauses", c.clauses}, {"resources", c.resources}, {"artifacts", c.artifacts},
+            {"expect", c.expect},   {"timeout", c.timeout},     {"isolated", c.isolated},
+            {"retries", c.retries}, {"uses", c.uses},           {"bounds", to_json(c.bounds)}};
 }
 json to_json(const failure_info& f) {
     json j = {{"file", f.file}, {"line", f.line}, {"message", f.message}};
@@ -80,11 +71,14 @@ json to_json(const failure_info& f) {
     return j;
 }
 json to_json(const metric_info& m) {
-    return {{"name", m.name},
-            {"value", m.value},
-            {"unit", m.unit},
-            {"samples", m.samples},
-            {"better", m.better}};
+    json j = {{"name", m.name},
+              {"value", m.value},
+              {"unit", m.unit},
+              {"samples", m.samples},
+              {"better", m.better}};
+    if (!m.precision.empty())
+        j["precision"] = m.precision;
+    return j;
 }
 json to_json(const case_result& c) {
     json j = {{"program", c.program},
@@ -123,6 +117,8 @@ json to_json(const case_result& c) {
         j["bounds"] = to_json(c.bounds);
     if (c.attempts > 1)
         j["attempts"] = c.attempts;
+    if (c.started_ms >= 0)
+        j["started_ms"] = c.started_ms;
     return j;
 }
 json to_json(const program_result& p) {
@@ -140,7 +136,39 @@ json to_json(const program_result& p) {
     j["started_ms"] = p.started_ms;
     if (!p.resources.empty())
         j["resources"] = p.resources;
+    if (p.worker >= 0)
+        j["worker"] = p.worker;
+    if (!p.select.empty())
+        j["select"] = p.select;
+    if (!p.fixtures.empty())
+        j["fixtures"] = p.fixtures;
+    if (p.build_started_ms >= 0) {
+        j["build_started_ms"] = p.build_started_ms;
+        j["build_ms"] = p.build_ms;
+    }
+    if (p.usage) {
+        json u = {{"user_ms", p.usage->user_ms},
+                  {"sys_ms", p.usage->sys_ms},
+                  {"source", p.usage->source}};
+        if (p.usage->peak_bytes)
+            u["peak_bytes"] = *p.usage->peak_bytes;
+        if (p.usage->read_bytes)
+            u["read_bytes"] = *p.usage->read_bytes;
+        if (p.usage->written_bytes)
+            u["written_bytes"] = *p.usage->written_bytes;
+        j["usage"] = u;
+    }
     return j;
+}
+
+json to_json(const fixture_run& f) {
+    return {{"name", f.name},         {"program", f.program},   {"started_ms", f.started_ms},
+            {"ready_ms", f.ready_ms}, {"ended_ms", f.ended_ms}, {"status", f.status}};
+}
+
+fixture_run fixture_run_from(const json& j) {
+    return {str(j, "name"),           str(j, "program"),        j.value("started_ms", 0.0),
+            j.value("ready_ms", 0.0), j.value("ended_ms", 0.0), str(j, "status")};
 }
 json to_json(const run_record& r) {
     return {{"schema", "mtest.run/1"},
@@ -157,6 +185,8 @@ json to_json(const run_record& r) {
             {"ms", r.ms},
             {"jobs", r.jobs},
             {"counts", r.counts},
+            {"group", r.group},
+            {"monitor", r.monitor},
             {"programs", r.programs.size()},
             {"cases", r.cases.size()}};
 }
@@ -186,6 +216,7 @@ case_info case_info_from(const json& j) {
     c.clauses = strings<std::string>(j, "clauses");
     c.resources = strings<std::string>(j, "resources");
     c.artifacts = strings<std::string>(j, "artifacts");
+    c.uses = strings<std::string>(j, "uses");
     return c;
 }
 case_result case_result_from(const json& j) {
@@ -207,6 +238,7 @@ case_result case_result_from(const json& j) {
             mi.unit = str(m, "unit");
             mi.better = m.value("better", std::string("lower"));
             mi.value = m.value("value", 0.0);
+            mi.precision = m.value("precision", std::string{});
             if (auto s = m.find("samples"); s != m.end() && s->is_array())
                 for (const auto& x : *s)
                     if (x.is_number())
@@ -223,6 +255,7 @@ case_result case_result_from(const json& j) {
             c.fixtures.push_back({str(f, "name"), f.value("ms", 0.0)});
     c.diagnosis = str(j, "diagnosis");
     c.bounds = bounds_from(j);
+    c.started_ms = j.value("started_ms", -1.0);
     return c;
 }
 program_result program_result_from(const json& j) {
@@ -241,6 +274,24 @@ program_result program_result_from(const json& j) {
     p.origin = j.value("origin", std::string("config"));
     p.started_ms = j.value("started_ms", 0.0);
     p.resources = strings<std::string>(j, "resources");
+    p.worker = j.value("worker", -1);
+    p.select = strings<std::string>(j, "select");
+    p.fixtures = strings<std::string>(j, "fixtures");
+    p.build_started_ms = j.value("build_started_ms", -1.0);
+    p.build_ms = j.value("build_ms", 0.0);
+    if (auto u = j.find("usage"); u != j.end() && u->is_object()) {
+        usage_info ui;
+        ui.user_ms = u->value("user_ms", 0.0);
+        ui.sys_ms = u->value("sys_ms", 0.0);
+        ui.source = u->value("source", std::string{});
+        if (u->contains("peak_bytes"))
+            ui.peak_bytes = (*u)["peak_bytes"].get<double>();
+        if (u->contains("read_bytes"))
+            ui.read_bytes = (*u)["read_bytes"].get<double>();
+        if (u->contains("written_bytes"))
+            ui.written_bytes = (*u)["written_bytes"].get<double>();
+        p.usage = ui;
+    }
     return p;
 }
 run_record run_record_from(const json& j) {
@@ -257,6 +308,8 @@ run_record run_record_from(const json& j) {
     r.selection = str(j, "selection");
     r.ms = j.value("ms", 0.0);
     r.jobs = j.value("jobs", 1);
+    r.group = str(j, "group");
+    r.monitor = j.value("monitor", std::string("basic"));
     if (auto it = j.find("counts"); it != j.end() && it->is_object())
         for (auto& item_ : it->items())
             if (auto& k = item_.key(); true)

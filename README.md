@@ -38,7 +38,7 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.4.1"
+mcpplibs.mtest = "0.5.0"
 ```
 
 A failure names its place and both sides (`expected 2, actual 3`). Under a runner the same program
@@ -70,6 +70,7 @@ mtest run --set smoke              # the sets of mtest.toml: smoke, regression, 
 mtest explain                      # where the last failure was, why, and the command that repeats it
 mtest plan --since origin/main     # what a change affects, and why each case is in
 mtest analyze hot                  # the slowest cases; also durations, path, failures, flaky, bench
+mtest report --format md           # the run as Markdown: failures, metrics, use of the machine, the critical path in mermaid
 mtest serve                        # the same commands for an agent (MCP) or an IDE (JSON-RPC)
 ```
 

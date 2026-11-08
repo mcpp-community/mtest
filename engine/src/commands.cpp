@@ -10,6 +10,8 @@ import mcpplibs.mtest.engine.analysis;
 import mcpplibs.mtest.engine.output;
 import mcpplibs.mtest.engine.exec;
 import mcpplibs.mtest.engine.coverage;
+import mcpplibs.mtest.engine.dag;
+import mcpplibs.mtest.engine.report;
 import mcpplibs.mtest.manifest;
 
 namespace mcpplibs::mtest::engine {
@@ -185,8 +187,13 @@ std::string describe_selection(const json& p) {
     q.erase("programs");
     q.erase("argv");
     q.erase("report");
+    q.erase("monitor");
+    q.erase("group");
+    q.erase("sections");
     return dumped(q);
 }
+
+report_options report_options_of(const context& ctx, const json& p);
 
 answer finish_run(const context& ctx, const run_record& r, const json& p, const plan& pl) {
     if (auto rep = p.find("report"); rep != p.end() && rep->is_object()) {
@@ -194,6 +201,9 @@ answer finish_run(const context& ctx, const run_record& r, const json& p, const 
             (void)os::fs::write(os::fs::from_utf8(f), junit_xml(r));
         if (auto f = text_of(*rep, "html"); !f.empty())
             (void)os::fs::write(os::fs::from_utf8(f), html_page(r));
+        if (auto f = text_of(*rep, "md"); !f.empty())
+            (void)os::fs::write(os::fs::from_utf8(f),
+                                markdown_report(ctx.st, {r}, report_options_of(ctx, p)));
         if (auto f = text_of(*rep, "json"); !f.empty()) {
             json all = to_json(r);
             all["cases"] = json::array();
@@ -288,6 +298,8 @@ answer cmd_run(const std::filesystem::path& cwd, const json& p,
     o.retries = p.value("retries", -1);
     o.set = sel->set;
     o.selection = describe_selection(p);
+    o.monitor = text_of(p, "monitor");
+    o.group = text_of(p, "group");
     o.on_event = events;
     // `--coverage`: the run measures the coverage map (docs/coverage.md).
     std::map<std::filesystem::path, std::vector<std::string>> coverage_cases;
@@ -593,14 +605,81 @@ answer cmd_cancel(const std::filesystem::path& cwd, const json& p) {
             std::format("cancelling {}: it stops after the programs now running\n", id)};
 }
 
+// The words of a list given as an array or as one comma-separated string.
+std::vector<std::string> words_of(const json& p, const char* key) {
+    std::vector<std::string> out;
+    for (const auto& w : strings(p, key))
+        for (auto part : std::views::split(std::string_view(w), ','))
+            if (auto s = std::string(part.begin(), part.end()); !s.empty())
+                out.push_back(s);
+    if (out.empty())
+        if (auto t = text_of(p, key); !t.empty())
+            for (auto part : std::views::split(std::string_view(t), ','))
+                out.emplace_back(part.begin(), part.end());
+    return out;
+}
+
+report_options report_options_of(const context& ctx, const json& p) {
+    report_options o;
+    o.sections = words_of(p, "sections");
+    if (o.sections.empty())
+        o.sections = ctx.cfg.report.sections;
+    o.scope = text_of(p, "scope", ctx.cfg.report.scope);
+    o.top = p.value("top", ctx.cfg.report.top);
+    o.max_nodes = p.value("max_nodes", ctx.cfg.report.max_nodes);
+    o.title = text_of(p, "title");
+    return o;
+}
+
+// The runs a report is of: a group's (every stored run of it), a list, or one.
+std::expected<std::vector<run_record>, answer> runs_of(const context& ctx, const json& p) {
+    std::vector<run_record> out;
+    if (auto g = text_of(p, "group"); !g.empty()) {
+        for (const auto& r : runs(ctx.st))
+            if (r.group == g)
+                if (auto full = load_run(ctx.st, r.id))
+                    out.push_back(std::move(*full));
+        if (out.empty())
+            return std::unexpected(usage(std::format("no stored run of group {}", g)));
+        return out;
+    }
+    if (auto list = words_of(p, "runs"); !list.empty()) {
+        for (const auto& id : list) {
+            auto r = load_run(ctx.st, id);
+            if (!r)
+                return std::unexpected(usage(std::format("no stored run {}", id)));
+            out.push_back(std::move(*r));
+        }
+        return out;
+    }
+    auto r = run_named(ctx, p);
+    if (!r)
+        return std::unexpected(r.error());
+    out.push_back(std::move(*r));
+    return out;
+}
+
 answer cmd_report(const std::filesystem::path& cwd, const json& p) {
     auto ctx = open(cwd);
     if (!ctx)
         return ctx.error();
+    const auto format = text_of(p, "format", "text");
+    if (format == "md") {
+        auto all = runs_of(*ctx, p);
+        if (!all)
+            return all.error();
+        auto body = markdown_report(ctx->st, *all, report_options_of(*ctx, p));
+        json data = {{"runs", all->size()},
+                     {"conclusion", std::format("a report of {} run(s)", all->size())}};
+        if (auto out = text_of(p, "out"); !out.empty()) {
+            (void)os::fs::write(os::fs::from_utf8(out), body);
+            body = std::format("wrote {}\n", out);
+        }
+        return {0, data, body};
+    }
     auto r = run_named(*ctx, p);
     if (!r)
         return r.error();
-    const auto format = text_of(p, "format", "text");
     std::string body = format == "junit"  ? junit_xml(*r)
                        : format == "html" ? html_page(*r)
                        : format == "json" ? std::string{}
@@ -776,74 +855,6 @@ answer cmd_query(const std::filesystem::path& cwd, const json& p) {
     return {0, {{"rows", rows}, {"conclusion", std::format("{} row(s)", rows.size())}}, text};
 }
 
-// `analyze trend`: each metric of each case over the last `count` stored runs, oldest first, beside
-// the bounds the case states (P6.5): its last value, its range and median, and how far the last is
-// from its bound.
-json trend(const store& s, std::size_t count, const std::vector<std::string>& cases) {
-    struct series {
-        std::string program, id, metric, unit;
-        std::vector<double> values;
-        std::vector<bound_info> bounds;
-    };
-    std::map<std::string, series> all;
-    const auto stored = runs(s);
-    const std::size_t from = stored.size() > count ? stored.size() - count : 0;
-    auto take = [&](const case_result& c) {
-        const bool wanted =
-            cases.empty() || std::ranges::any_of(cases, [&](const std::string& g) {
-                return glob_match(g, c.id) || glob_match(g, c.program + "::" + c.id);
-            });
-        if (!wanted)
-            return;
-        for (const auto& m : c.metrics) {
-            auto& one = all[c.program + "::" + c.id + "::" + m.name];
-            one.program = c.program;
-            one.id = c.id;
-            one.metric = m.name;
-            one.unit = m.unit;
-            one.values.push_back(m.value);
-            if (!c.bounds.empty())
-                one.bounds = c.bounds;
-        }
-    };
-    for (std::size_t i = from; i < stored.size(); ++i)
-        if (auto r = load_run(s, stored[i].id))
-            std::ranges::for_each(r->cases, take);
-    json items = json::array();
-    std::size_t over = 0;
-    for (auto& [key, one] : all) {
-        auto sorted = one.values;
-        std::ranges::sort(sorted);
-        const double last = one.values.back();
-        json item = {{"program", one.program},
-                     {"case", one.id},
-                     {"metric", one.metric},
-                     {"unit", one.unit},
-                     {"runs", one.values.size()},
-                     {"last", last},
-                     {"min", sorted.front()},
-                     {"max", sorted.back()},
-                     {"median", sorted[sorted.size() / 2]},
-                     {"values", one.values}};
-        const auto b = std::ranges::find(one.bounds, one.metric, &bound_info::metric);
-        if (b != one.bounds.end()) {
-            item["bound"] = to_json(std::vector<bound_info>{*b})[0];
-            over += (b->max && last > *b->max) || (b->min && last < *b->min);
-            // The share of the bound the last value leaves: 0.2 is 20% inside it.
-            if (b->max && *b->max != 0)
-                item["margin"] = (*b->max - last) / *b->max;
-            else if (b->min && *b->min != 0)
-                item["margin"] = (last - *b->min) / *b->min;
-        }
-        items.push_back(std::move(item));
-    }
-    return {{"items", items},
-            {"runs", stored.size() - from},
-            {"conclusion",
-             std::format("{} metric(s) over the last {} run(s); {} past its bound now",
-                         items.size(), stored.size() - from, over)}};
-}
-
 answer cmd_analyze(const std::filesystem::path& cwd, const json& p) {
     auto ctx = open(cwd);
     if (!ctx)
@@ -860,8 +871,10 @@ answer cmd_analyze(const std::filesystem::path& cwd, const json& p) {
             return r.error();
         if (metric == "hot")
             data = hot(*r, std::size_t(p.value("top", 10)));
-        else if (metric == "durations" || metric == "path")
+        else if (metric == "durations")
             data = durations(*r);
+        else if (metric == "path")
+            data = critical_path(*r);
         else if (metric == "failures")
             data = failures(*r);
         else if (metric == "bench") {
@@ -909,10 +922,59 @@ answer cmd_analyze(const std::filesystem::path& cwd, const json& p) {
     return {0, data, text};
 }
 
+// The graph of a stored run (`mtest graph --run <id>`): its work and what each waited for, the
+// critical path marked.
+answer run_graph(const context& ctx, const json& p) {
+    auto r = run_named(ctx, p);
+    if (!r)
+        return r.error();
+    const auto g = dag_of(*r);
+    const auto format = text_of(p, "format", "json");
+    const int max_nodes = p.value("max_nodes", ctx.cfg.report.max_nodes);
+    json nodes = json::array(), edges = json::array();
+    for (const auto& n : g.nodes)
+        nodes.push_back({{"id", n.id},
+                         {"kind", n.kind},
+                         {"label", n.label},
+                         {"start_ms", n.start_ms},
+                         {"end_ms", n.end_ms},
+                         {"worker", n.worker},
+                         {"critical", n.critical}});
+    for (const auto& e : g.edges)
+        edges.push_back({{"from", g.nodes[e.from].id},
+                         {"to", g.nodes[e.to].id},
+                         {"why", e.why},
+                         {"critical", e.critical}});
+    json data = {{"run", r->id},
+                 {"nodes", nodes},
+                 {"edges", edges},
+                 {"path_ms", g.path_ms},
+                 {"conclusion", critical_path(*r)["conclusion"]}};
+    std::string text;
+    if (format == "mermaid")
+        text = mermaid_graph(g, max_nodes);
+    else if (format == "gantt")
+        text = mermaid_gantt(g, max_nodes);
+    else if (format == "dot") {
+        text = "digraph run {\n  rankdir=LR;\n";
+        for (std::size_t i = 0; i < g.nodes.size(); ++i)
+            text += std::format("  n{} [label=\"{}\"{}];\n", i, g.nodes[i].label,
+                                g.nodes[i].critical ? ", color=red" : "");
+        for (const auto& e : g.edges)
+            text += std::format("  n{} -> n{} [label=\"{}\"{}];\n", e.from, e.to, e.why,
+                                e.critical ? ", color=red" : "");
+        text += "}\n";
+    } else
+        text = dumped(data, 2) + "\n";
+    return {0, data, text};
+}
+
 answer cmd_graph(const std::filesystem::path& cwd, const json& p) {
     auto ctx = open(cwd);
     if (!ctx)
         return ctx.error();
+    if (p.contains("run"))
+        return run_graph(*ctx, p);
     auto programs = programs_of(*ctx, p);
     if (!programs)
         return programs.error();
@@ -1233,6 +1295,123 @@ answer cmd_bisect_step(const std::filesystem::path& cwd, const json& p) {
     return a;
 }
 
+// THE PIPELINE AS A GRAPH (`mtest ci timeline --repo OWNER/REPO --run-id N`): the jobs of a GitHub
+// Actions run, by the GitHub CLI, each a node from its start to its end; a job's predecessor is the
+// job that ended last before it began, which is what it waited for when it waited (its `needs` or
+// a runner). The critical path runs back from the job that ended last.
+answer ci_timeline(const json& p) {
+    const auto repo = text_of(p, "repo");
+    const auto id = text_of(p, "run_id");
+    if (repo.empty() || id.empty())
+        return usage("ci timeline needs --repo OWNER/REPO and --run-id N");
+    os::process::spawn_options o;
+    o.program = "gh";
+    o.args = {"run", "view", id, "-R", repo, "--json", "jobs,createdAt,displayTitle"};
+    o.in = os::process::stdio::null;
+    auto r = os::process::run(std::move(o));
+    if (!r)
+        return machine("gh did not start: " + r.error().message());
+    auto j = json::parse(r->out, nullptr, false);
+    if (j.is_discarded() || !j.contains("jobs"))
+        return machine("gh gave no jobs: " + r->err);
+    // `YYYY-MM-DDTHH:MM:SSZ`, read field by field: not every standard library
+    // has `std::chrono::parse`.
+    auto epoch = [](const std::string& iso) -> double {
+        int f[6]{};
+        constexpr std::size_t at[6] = {0, 5, 8, 11, 14, 17}, width[6] = {4, 2, 2, 2, 2, 2};
+        if (iso.size() < 20 || iso[19] != 'Z')
+            return -1.0;
+        for (int i = 0; i < 6; ++i) {
+            const char* b = iso.data() + at[i];
+            if (std::from_chars(b, b + width[i], f[i]).ptr != b + width[i])
+                return -1.0;
+        }
+        const std::chrono::year_month_day day{std::chrono::year{f[0]},
+                                              std::chrono::month(unsigned(f[1])),
+                                              std::chrono::day(unsigned(f[2]))};
+        if (!day.ok())
+            return -1.0;
+        const auto t = std::chrono::sys_days{day} + std::chrono::hours{f[3]} +
+                       std::chrono::minutes{f[4]} + std::chrono::seconds{f[5]};
+        return double(
+                   std::chrono::duration_cast<std::chrono::seconds>(t.time_since_epoch()).count()) *
+               1000;
+    };
+    const double t0 = epoch(j.value("createdAt", ""));
+    run_record run;
+    run.id = std::format("{}#{}", repo, id);
+    for (const auto& job : j["jobs"]) {
+        const double a = epoch(job.value("startedAt", "")), b = epoch(job.value("completedAt", ""));
+        if (a < 0 || b < a)
+            continue;
+        program_result pr;
+        pr.name = job.value("name", "");
+        pr.status = job.value("conclusion", "");
+        pr.started_ms = a - t0;
+        pr.ms = b - a;
+        pr.worker = int(run.programs.size());  // each job its own runner
+        run.programs.push_back(std::move(pr));
+        run.ms = std::max(run.ms, b - t0);
+    }
+    // Each job waited for the job that ended last before it began.
+    auto g = dag_of(run);
+    for (std::size_t i = 0; i < g.nodes.size(); ++i) {
+        std::optional<std::size_t> before;
+        for (std::size_t k = 0; k < g.nodes.size(); ++k)
+            if (k != i && g.nodes[k].end_ms <= g.nodes[i].start_ms + 1000 &&
+                (!before || g.nodes[k].end_ms > g.nodes[*before].end_ms))
+                before = k;
+        if (before)
+            g.edges.push_back({*before, i, "after", false});
+    }
+    // The critical path again, over these edges.
+    std::size_t last = 0;
+    for (std::size_t i = 1; i < g.nodes.size(); ++i)
+        if (g.nodes[i].end_ms > g.nodes[last].end_ms)
+            last = i;
+    g.path.clear();
+    g.path_ms = 0;
+    for (std::optional<std::size_t> at = g.nodes.empty() ? std::nullopt : std::optional(last);
+         at;) {
+        g.path.insert(g.path.begin(), *at);
+        g.nodes[*at].critical = true;
+        g.path_ms += g.nodes[*at].ms();
+        std::optional<std::size_t> next;
+        for (auto& e : g.edges)
+            if (e.to == *at) {
+                e.critical = true;
+                next = e.from;
+            }
+        at = next;
+    }
+    std::string md = std::format("# The jobs of {} ({})\n\n", run.id, j.value("displayTitle", ""));
+    md += std::
+        format("Wall clock {:.1f} min; the critical path is {} job(s), {:.1f} min of work.\n\n",
+               run.ms / 60000, g.path.size(), g.path_ms / 60000);
+    md += "| job | start | time |\n|---|---:|---:|\n";
+    for (auto i : g.path)
+        md += std::format("| {} | {:.1f} min | {:.1f} min |\n", g.nodes[i].label,
+                          g.nodes[i].start_ms / 60000, g.nodes[i].ms() / 60000);
+    md += "\n```mermaid\n" + mermaid_gantt(g, p.value("max_nodes", 80)) + "```\n";
+    if (auto summary = os::env::get("GITHUB_STEP_SUMMARY");
+        summary && !summary->empty() && p.value("summary", false))
+        (void)os::fs::append(os::fs::from_utf8(*summary), md);
+    if (auto out = text_of(p, "out"); !out.empty())
+        (void)os::fs::write(os::fs::from_utf8(out), md);
+    json path = json::array();
+    for (auto i : g.path)
+        path.push_back({{"job", g.nodes[i].label},
+                        {"start_ms", g.nodes[i].start_ms},
+                        {"ms", g.nodes[i].ms()}});
+    return {0,
+            {{"run", run.id},
+             {"wall", run.ms},
+             {"path", path},
+             {"conclusion", std::format("the critical path is {} job(s) of a {:.1f} min run",
+                                        g.path.size(), run.ms / 60000)}},
+            md};
+}
+
 answer cmd_ci(const std::filesystem::path& cwd, const json& p) {
     const auto action = text_of(p, "action", "status");
     if (action == "status") {
@@ -1304,9 +1483,35 @@ answer cmd_ci(const std::filesystem::path& cwd, const json& p) {
                                 c.program, c.id, f.message.empty() ? c.reason : f.message);
         }
         if (auto summary = os::env::get("GITHUB_STEP_SUMMARY"); summary && !summary->empty())
-            (void)os::fs::append(os::fs::from_utf8(*summary), "```\n" + summary_text(*r) + "```\n");
+            (void)os::fs::append(os::fs::from_utf8(*summary),
+                                 markdown_report(ctx->st, {*r}, report_options_of(*ctx, p)));
         return {0, {{"conclusion", std::format("annotated run {}", r->id)}}, text};
     }
+    if (action == "report") {
+        // The runs of one group (the jobs of a CI run, collected) as one report, for the summary
+        // of the job that collects them.
+        json q = p;
+        if (!q.contains("group"))
+            if (auto id = os::env::get("GITHUB_RUN_ID"))
+                q["group"] = *id;
+        auto all = runs_of(*ctx, q);
+        if (!all)
+            return all.error();
+        auto o = report_options_of(*ctx, q);
+        if (o.title.empty())
+            o.title = std::format("mtest report of {} run(s)", all->size());
+        const auto body = markdown_report(ctx->st, *all, o);
+        if (auto summary = os::env::get("GITHUB_STEP_SUMMARY"); summary && !summary->empty())
+            (void)os::fs::append(os::fs::from_utf8(*summary), body);
+        if (auto out = text_of(p, "out"); !out.empty())
+            (void)os::fs::write(os::fs::from_utf8(out), body);
+        return {0,
+                {{"runs", all->size()},
+                 {"conclusion", std::format("reported {} run(s)", all->size())}},
+                body};
+    }
+    if (action == "timeline")
+        return ci_timeline(p);
     if (action == "collect") {
         auto from = text_of(p, "from");
         if (from.empty())
@@ -1389,6 +1594,15 @@ answer dispatch(const std::filesystem::path& cwd, std::string_view command, cons
         return cmd_bisect(cwd, p);
     if (command == "bisect-step")
         return cmd_bisect_step(cwd, p);
+    if (command == "measure") {
+        std::vector<std::string> argv;
+        if (auto it = p.find("argv"); it != p.end() && it->is_array())
+            for (const auto& v : *it)
+                if (v.is_string())
+                    argv.push_back(v.get<std::string>());
+        const int code = measure(os::fs::from_utf8(text_of(p, "out")), argv);
+        return {code, {{"status", code}, {"conclusion", std::format("ended with {}", code)}}, ""};
+    }
     if (command == "ci")
         return cmd_ci(cwd, p);
     return usage(std::format("no command {} (mtest help)", command));
@@ -1482,7 +1696,18 @@ json catalog() {
                 {"properties",
                  {{"junit", {{"type", "string"}, {"description", "a JUnit XML file of the run"}}},
                   {"html", {{"type", "string"}, {"description", "an HTML page of the run"}}},
-                  {"json", {{"type", "string"}, {"description", "the run's record as JSON"}}}}}}}}),
+                  {"json", {{"type", "string"}, {"description", "the run's record as JSON"}}},
+                  {"md",
+                   {{"type", "string"},
+                    {"description", "a Markdown report of the run ([report])"}}}}}}},
+              {"monitor",
+               {{"enum", {"off", "basic", "detailed", "trace"}},
+                {"description", "how closely use is measured ([monitor] level)"}}},
+              {"group",
+               {{"type", "string"},
+                {"description", "runs of one group are reported together (MTEST_GROUP)"}}},
+              {"sections",
+               {{"type", "string"}, {"description", "the report's sections, comma-separated"}}}}),
         true);
     add("rerun", "Run again the cases that failed in the last run.", with({}), true);
     add("smoke", "Run the smoke set (within its budget).", with({}), true);
@@ -1498,10 +1723,23 @@ json catalog() {
                 {"description", "read the test files' text; build and run nothing"}}}}));
     add("status", "The runs in progress, and the last run.", plain({}));
     add("cancel", "Stop a run in progress after the programs now running.", plain(run_id), true);
-    add("report", "A stored run as text, JSON, JUnit XML or HTML.",
+    add("report",
+        "A stored run as text, JSON, JUnit XML, HTML, or Markdown with its graph and critical "
+        "path.",
         plain({{"run", run_id["run"]},
-               {"format", {{"enum", {"text", "json", "junit", "html"}}}},
-               {"out", {{"type", "string"}}}}));
+               {"format", {{"enum", {"text", "json", "junit", "html", "md"}}}},
+               {"out", {{"type", "string"}}},
+               {"group", {{"type", "string"}, {"description", "md: every stored run of a group"}}},
+               {"runs", {{"type", "string"}, {"description", "md: runs, comma-separated"}}},
+               {"sections",
+                {{"type", "string"},
+                 {"description", "md: summary, kinds, failures, slowest, metrics, resources, "
+                                 "flaky, trend, path, graph, gantt"}}},
+               {"scope",
+                {{"type", "string"}, {"description", "md: run, program:<glob>, kind:<kind>"}}},
+               {"top", {{"type", "integer"}}},
+               {"max_nodes", {{"type", "integer"}}},
+               {"title", {{"type", "string"}}}}));
     add("diff", "What changed between two runs: newly failing, fixed, slower, faster.",
         plain({{"before", run_id["run"]},
                {"after", run_id["run"]},
@@ -1534,8 +1772,11 @@ json catalog() {
                {"runs", {{"type", "integer"}}},
                {"case", {{"type", "array"}, {"items", {{"type", "string"}}}}}}));
     add("graph",
-        "The topology: sources, programs, cases, resources and artifacts, as JSON, DOT or Mermaid.",
-        with({{"format", {{"enum", {"json", "dot", "mermaid"}}}}}));
+        "The topology: sources, programs, cases, resources and artifacts; or, with --run, a run's "
+        "graph of work with its critical path (JSON, DOT, Mermaid, gantt).",
+        with({{"format", {{"enum", {"json", "dot", "mermaid", "gantt"}}}},
+              {"run", run_id["run"]},
+              {"max_nodes", {{"type", "integer"}}}}));
     add("gate", "A set's gate on a run: failures, budget, bench verdicts.",
         plain({{"run", run_id["run"]}, {"set", {{"type", "string"}}}}));
     add("quarantine",
@@ -1569,13 +1810,26 @@ json catalog() {
                {"program", {{"type", "array"}}}}),
         true);
     add("ci",
-        "Across pull requests: their checks (status); a run's failures as annotations (annotate); "
-        "a CI store taken in (collect).",
-        plain({{"action", {{"enum", {"status", "annotate", "collect"}}}},
+        "Across pull requests: their checks (status); a run's failures as annotations and its "
+        "report as the job's summary (annotate); a CI store taken in (collect); the runs of a "
+        "group as one report (report); a workflow run's jobs as a graph with its critical path "
+        "(timeline).",
+        plain({{"action", {{"enum", {"status", "annotate", "collect", "report", "timeline"}}}},
                {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
                {"run", run_id["run"]},
-               {"from", {{"type", "string"}}}}));
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.4.1"}, {"tools", tools}};
+               {"from", {{"type", "string"}}},
+               {"group", {{"type", "string"}}},
+               {"sections", {{"type", "string"}}},
+               {"out", {{"type", "string"}}},
+               {"repo", {{"type", "string"}, {"description", "timeline: OWNER/REPO"}}},
+               {"run_id", {{"type", "string"}, {"description", "timeline: the workflow run"}}},
+               {"summary",
+                {{"type", "boolean"}, {"description", "timeline: also the job's summary"}}}}));
+    add("measure", "Run a program and write what it used (its children's account) to --out.",
+        plain({{"out", {{"type", "string"}}},
+               {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),
+        true);
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.5.0"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

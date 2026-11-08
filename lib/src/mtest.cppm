@@ -15,6 +15,12 @@ export namespace mcpplibs::mtest {
 
 enum class kind { unit, e2e, cts, bench };
 
+// HOW CLOSELY A CASE'S USE OF THE MACHINE IS MEASURED (P10). `basic' (a runner's default):
+// processor time per case and the program's largest resident set; `detailed': also the case's own
+// largest resident set and growth, and the bytes it read and wrote; `trace': also processor and
+// memory over time, sampled. Each is a metric of the case (P6.6) with its precision.
+enum class monitor_level { off, basic, detailed, trace };
+
 // What a runner does when a case fails: it runs the case once more, alone, with `env` added to its
 // environment (a verbose log, a tracer's switch) and within `limit` (zero: the case's own), and
 // keeps that run's output beside the result. The second run is a record, never a verdict.
@@ -44,6 +50,8 @@ struct attributes {
     std::optional<int> retries;                      // runs again after failing (retries)
     std::optional<mtest::diagnose> diagnosis;        // what a runner does after it fails (diagnose)
     std::vector<metric_bound> bounds;                // what its metrics may be (at_most, at_least)
+    std::optional<mtest::monitor_level> monitoring;  // how closely its use is measured (monitor)
+    std::vector<std::string> uses;                   // the run fixtures it uses (P11)
 };
 
 // Each is written in brackets after the case's name, "x"_test[tag{"slow"}][resource{"machine"}],
@@ -97,6 +105,15 @@ struct at_least {
     std::string metric;
     double value;
 };
+// The case is measured at least this closely: monitor{monitor_level::detailed}.
+struct monitor {
+    mtest::monitor_level level = mtest::monitor_level::detailed;
+};
+// The case uses the run fixture `fixture' (P11): a runner makes one for the run before the first
+// case that uses it, and gives its endpoint to them (fixture_endpoint).
+struct uses {
+    std::string fixture;
+};
 
 // Each attribute applied to a set of them. Tags, clauses, resources, artifacts and bounds add up,
 // and a case within an isolated suite is isolated; a kind, a skip, an expected failure, a known
@@ -140,6 +157,12 @@ inline void apply(attributes& a, at_most b) {
 }
 inline void apply(attributes& a, at_least b) {
     a.bounds.push_back({std::move(b.metric), std::nullopt, b.value});
+}
+inline void apply(attributes& a, monitor m) {
+    a.monitoring = m.level;
+}
+inline void apply(attributes& a, uses u) {
+    a.uses.push_back(std::move(u.fixture));
 }
 void apply(attributes& a, known_gap g);
 
@@ -571,5 +594,49 @@ bool under_runner();
 std::set<std::string> declared_clauses();
 // This program again, as the system names it, for a test that starts copies of itself.
 std::vector<std::string> self_command();
+
+// ---- components (P11) ---------------------------------------------------------
+
+// What a run fixture's serving is given: `ready` publishes the endpoint the cases that use it
+// receive (a directory, an address); `stopped` returns when the runner ends the fixture.
+class serving {
+public:
+    void ready(std::string_view endpoint);
+    void stopped();
+};
+// A RUN FIXTURE: one thing the whole run shares -- a sandboxed home, a server, an index -- served
+// by any program that declares it, for the cases of every program that use it:
+//
+//   run_fixture index{"index", [](serving& s) {
+//       auto dir = make_index();
+//       s.ready(dir.string());
+//       s.stopped();
+//   }};
+//   E2E fetch{"fetch", uses{"index"}, [] { auto root = fixture_endpoint("index"); ... }};
+//
+// A runner lists it (a `component` event), starts one program that declares it with MTEST_SERVE
+// naming it before the first case that uses it, gives its endpoint as MTEST_FIXTURE_<NAME>, and
+// ends it after the last: a node of the run's graph.
+class run_fixture {
+public:
+    run_fixture(std::string_view name, std::function<void(serving&)> serve,
+                std::source_location where = std::source_location::current());
+};
+// A resource of limited number: at most `capacity` cases hold it at once (P7.3), where P7.1's
+// exclusive resources have one.
+struct resource_pool {
+    std::string name;
+    int capacity = 1;
+};
+// A COMPONENT: a reusable part of tests, named, with the pools it brings. Its fixtures are its
+// run_fixture objects and its case types are C++ types of its library; the component makes them
+// known to a runner together (`component` event).
+class Component {
+public:
+    Component(std::string_view name, std::vector<resource_pool> pools = {},
+              std::source_location where = std::source_location::current());
+};
+// The endpoint of a run fixture the current case uses; empty outside a runner that serves it.
+std::string fixture_endpoint(std::string_view name);
 
 }  // namespace mcpplibs::mtest

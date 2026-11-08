@@ -73,6 +73,12 @@ void write_run(const store& s, const run_record& r) {
         programs += dumped(to_json(p)) + "\n";
     (void)os::fs::write_atomic(dir / "cases.ndjson", cases);
     (void)os::fs::write_atomic(dir / "programs.ndjson", programs);
+    if (!r.fixtures.empty()) {
+        std::string fixtures;
+        for (const auto& f : r.fixtures)
+            fixtures += dumped(to_json(f)) + "\n";
+        (void)os::fs::write_atomic(dir / "fixtures.ndjson", fixtures);
+    }
     (void)os::fs::append(s.dir / "index.ndjson", meta + "\n");
 }
 
@@ -115,6 +121,8 @@ std::optional<run_record> load_run(const store& s, std::string_view id) {
         r.cases.push_back(case_result_from(j));
     for (const auto& j : read_lines(dir / "programs.ndjson"))
         r.programs.push_back(program_result_from(j));
+    for (const auto& j : read_lines(dir / "fixtures.ndjson"))
+        r.fixtures.push_back(fixture_run_from(j));
     return r;
 }
 

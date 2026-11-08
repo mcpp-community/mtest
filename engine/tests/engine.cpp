@@ -594,5 +594,95 @@ printf ')" + header +
         expect(eq(j["counts"].value("fail", 0), 1));
         expect(mcpplibs::os::fs::read(root / ".mtest" / "index.ndjson").has_value());
     };
+    // ---- 0.5.0: the run as a graph, its report, its use of the machine, its fixtures ----------
+    "a run's critical path is the longest path of its graph"_test[kind::e2e] = [] {
+        // One worker: the second program waited for the first, so both are on the path.
+        auto root = project({{"a.sh", "sleep 0.3\n"}, {"b.sh", "sleep 0.1\n"}});
+        expect(fatal(
+            eq(mtest(root, {"run", "--json", "--jobs", "1", "bash a.sh", "bash b.sh"}).status, 0)));
+        auto j = json_of(mtest(root, {"analyze", "path", "--json"}));
+        expect(fatal(eq(j["path"].size(), std::size_t(2)))) << j.dump();
+        expect(eq(j["path"][1]["waited_for"].get<std::string>(), std::string("worker")));
+        expect(ge(j["path_ms"].get<double>(), 350.0));
+        auto g = mtest(root, {"graph", "--run", "last", "--format", "mermaid"});
+        expect(contains(g.out, "flowchart LR"));
+        expect(contains(g.out, "class n0,n1 crit")) << g.out;
+    };
+    "a markdown report has the sections asked for, with mermaid"_test[kind::e2e] = [] {
+        auto root = project({{"a.sh", "exit 0\n"}, {"b.sh", "echo broken >&2; exit 3\n"}});
+        (void)mtest(root, {"run", "--json", "bash a.sh", "bash b.sh"});
+        auto r =
+            mtest(root, {"report", "--format", "md", "--sections", "summary,failures,path,gantt"});
+        expect(contains(r.out, "## Summary"));
+        expect(contains(r.out, "## Failures"));
+        expect(contains(r.out, "exit 3"));
+        expect(contains(r.out, "## Critical path"));
+        expect(contains(r.out, "```mermaid\ngantt"));
+        expect(!contains(r.out, "## Slowest cases")) << "a section not asked for is left out";
+    };
+    "a run writes its markdown report when asked"_test[kind::e2e] = [] {
+        auto root =
+            project({{"a.sh", "exit 0\n"}, {"mtest.toml", "[report]\nsections = [\"summary\"]\n"}});
+        expect(fatal(eq(mtest(root, {"run", "--json", "--md", "r.md", "bash a.sh"}).status, 0)));
+        auto text = mcpplibs::os::fs::read(root / "r.md");
+        expect(fatal(text.has_value()));
+        expect(contains(*text, "## Summary"));
+    };
+    "the runs of a group are one report"_test[kind::e2e] = [] {
+        auto root = project({{"a.sh", "exit 0\n"}, {"b.sh", "exit 0\n"}});
+        (void)mtest(root, {"run", "--json", "--group", "ci-7", "bash a.sh"});
+        (void)mtest(root, {"run", "--json", "--group", "ci-7", "bash b.sh"});
+        auto r =
+            mtest(root, {"report", "--format", "md", "--group", "ci-7", "--sections", "summary"});
+        expect(contains(r.out, "| **all** |")) << r.out;
+    };
+    "a program's cases are divided among idle workers"_test[kind::e2e] = [] {
+        const std::string head = "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
+        auto root = project({{"t.sh", head + "w() { sleep 0.2; }\nmtest_case a w\nmtest_case b w\n"
+                                             "mtest_case c w\nmtest_case d w\nmtest_report\n"}});
+        expect(fatal(
+            eq(mtest(root, {"run", "--json", "--jobs", "2", "--report-json", "r.json", "bash t.sh"})
+                   .status,
+               0)));
+        auto r = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
+        expect(fatal(eq(r["timeline"].size(), std::size_t(2)))) << r["timeline"].dump();
+        expect(eq(r["timeline"][0]["select"].size() + r["timeline"][1]["select"].size(),
+                  std::size_t(4)));
+        expect(ne(r["timeline"][0]["worker"], r["timeline"][1]["worker"]));
+    };
+    "a run fixture is served once and its endpoint reaches its users"_test[kind::e2e] = [] {
+        auto root = project(
+            {{"serve.sh",
+              "echo \"mtest-ready $PWD/served\"; mkdir -p served; cat >/dev/null; rmdir served\n"},
+             {"u1.sh", "test -d \"$MTEST_FIXTURE_HOME\" && echo one >> "
+                       "\"$MTEST_FIXTURE_HOME/../uses.txt\"\n"},
+             {"u2.sh", "test -d \"$MTEST_FIXTURE_HOME\" && echo two >> "
+                       "\"$MTEST_FIXTURE_HOME/../uses.txt\"\n"},
+             {"mtest.toml", "[fixtures.home]\ncommand = [\"bash\", \"serve.sh\"]\n"
+                            "[cases.\"*u*\"]\nuses = [\"home\"]\n"}});
+        auto j = json_of(mtest(root, {"run", "--json", "--jobs", "2", "bash u1.sh", "bash u2.sh"}));
+        expect(eq(j["status"].get<std::string>(), std::string("pass"))) << j.dump();
+        auto uses = mcpplibs::os::fs::read(root / "uses.txt");
+        expect(fatal(uses.has_value()));
+        expect(eq(std::ranges::count(*uses, '\n'), 2));
+        expect(!std::filesystem::exists(root / "served"))
+            << "the fixture ended after its last user";
+        auto path = json_of(mtest(root, {"graph", "--run", "last", "--json"}));
+        expect(contains(path.dump(), "fixture:home"));
+    };
+    "a program that does not speak the protocol is measured from outside"_test[kind::e2e] = [] {
+        if (mcpplibs::os::host() == mcpplibs::os::platform::windows)
+            skip("Windows does not account a program's children");
+        if (!mcpplibs::os::process::resources(mcpplibs::os::process::of::children))
+            skip("this system tells no program its children's use of resources");
+        auto root = project({{"big.sh", "head -c 40000000 /dev/zero | tail -c 1 >/dev/null\n"}});
+        expect(fatal(
+            eq(mtest(root, {"run", "--json", "--report-json", "r.json", "bash big.sh"}).status,
+               0)));
+        auto r = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
+        const auto& u = r["timeline"][0]["usage"];
+        expect(eq(u["source"].get<std::string>(), std::string("engine"))) << u.dump();
+        expect(gt(u["peak_bytes"].get<double>(), 1.0e6));
+    };
     return report();
 }

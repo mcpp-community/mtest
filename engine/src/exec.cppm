@@ -18,6 +18,11 @@ struct run_request {
     std::optional<std::uint64_t> seed;
     std::vector<std::pair<std::string, std::string>> env;  // added to the spec's
     std::vector<std::string> run_under;  // a prefix of the command (a tracer, a wrapper)
+    // P10: how closely use is measured (off, basic, detailed, trace). A program that does not speak
+    // the protocol is measured from a process of the engine's own that starts it (`mtest measure`),
+    // where the system accounts a process's children (Linux, macOS).
+    std::string monitor = "basic";
+    int sample_ms = 50;  // `trace`
 };
 
 struct run_outcome {
@@ -27,9 +32,13 @@ struct run_outcome {
 };
 
 // Lists the cases of a program at level 1 or more (P3); an L0 program has one case, its own name.
-std::expected<std::vector<case_info>, std::string> list_program(const program_spec& spec,
-                                                                const std::filesystem::path& work,
-                                                                const std::filesystem::path& root);
+std::expected<std::vector<case_info>, std::string>
+list_program(const program_spec& spec, const std::filesystem::path& work,
+             const std::filesystem::path& root, std::vector<component_info>* components = nullptr);
+
+// `mtest measure --out FILE -- ARGV`: runs ARGV with this process's streams, writes what it used
+// (its children's account) to FILE as JSON, and ends with its status.
+int measure(const std::filesystem::path& out, std::vector<std::string> argv);
 // Runs it once.
 run_outcome run_program(const program_spec& spec, const run_request& request);
 
@@ -39,7 +48,9 @@ struct report_reading {
     std::vector<case_result> cases;
     int level = 0;
     bool done = false;
-    std::vector<std::string> problems;  // lines that are not events, events out of order
+    std::vector<std::string> problems;       // lines that are not events, events out of order
+    std::vector<component_info> components;  // P11, in a listing
+    std::optional<usage_info> usage;         // P10, the program's own
 };
 report_reading read_report(std::string_view text, std::string_view program);
 

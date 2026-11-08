@@ -55,6 +55,7 @@ struct case_attributes {
     std::optional<std::vector<std::pair<std::string, std::string>>> diagnose_env;
     double diagnose_timeout = 0;
     std::string skip, expect_fail;   // reasons
+    std::vector<std::string> uses;   // run fixtures (P11)
     std::vector<bound_info> bounds;  // at_most / at_least of its metrics (P6.5)
     std::string origin;              // where it is stated, for `mtest plan`
 };
@@ -71,6 +72,37 @@ struct trace_tool {
     std::vector<std::string> run_under;  // prefixed to the program's command
     std::vector<std::string> build;      // run first: a rebuild the tool needs (a sanitizer)
     std::vector<std::pair<std::string, std::string>> env;
+};
+
+// `[run]`: how the engine places work (docs/config.md "Running").
+struct run_spec {
+    // "auto": a program's cases are divided among several processes of it while workers would
+    // otherwise idle, by their measured times; "off": a program runs in one process.
+    std::string split = "auto";
+    // The memory the engine schedules within: "auto" (the machine's), "off", or a size ("16GiB").
+    // Programs run together only while their largest resident sets, as measured, fit.
+    std::string memory = "auto";
+};
+
+// `[monitor]` (P10): how closely use is measured; a case may ask for more.
+struct monitor_spec {
+    std::string level = "basic";  // off, basic, detailed, trace
+    int sample_ms = 50;           // `trace`: how often the load and the resident set are sampled
+};
+
+// `[report]`: what `mtest report --format md` writes when the command does not say.
+struct report_spec {
+    std::vector<std::string> sections{"summary",   "failures", "slowest", "metrics",
+                                      "resources", "path",     "gantt"};
+    std::string scope = "run";  // run, program:<name>, kind:<kind>, group
+    int top = 10;               // rows of the ranked tables
+    int max_nodes = 60;         // nodes of a drawn graph
+};
+
+// `[fixtures.<name>]`: a run fixture a command serves (P11), for one no test program declares.
+struct fixture_spec {
+    std::string name;
+    std::vector<std::string> command;
 };
 
 struct config {
@@ -94,8 +126,15 @@ struct config {
     int keep_days = 30;
     int keep_runs = 200;
     std::map<std::string, trace_tool> tools;
+    run_spec run;
+    monitor_spec monitor;
+    report_spec report;
+    std::vector<fixture_spec> fixtures;
     std::vector<std::string> warnings;  // keys this engine does not know
 };
+
+// "16GiB", "512MiB", "1.5GB": bytes; nullopt for anything else.
+std::optional<double> parse_size(std::string_view text);
 
 // Reads `dir`/mtest.toml, or the defaults when there is none. Errors name the key.
 std::expected<config, std::string> load_config(const std::filesystem::path& dir);

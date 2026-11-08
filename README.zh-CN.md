@@ -37,7 +37,7 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.4.1"
+mcpplibs.mtest = "0.5.0"
 ```
 
 失败时给出位置与两侧的值（`expected 2, actual 3`）。在运行器之下，同一程序按协议报告；单独运行时每个用例输出一行。
@@ -65,6 +65,7 @@ mtest run --set smoke              # mtest.toml 中的集合：smoke、regressio
 mtest explain                      # 上一次失败的位置、原因，以及复现它的命令
 mtest plan --since origin/main     # 一次改动影响哪些用例，以及每个用例入选的原因
 mtest analyze hot                  # 最慢的用例；另有 durations、path、failures、flaky、bench
+mtest report --format md           # 以 Markdown 报告一次运行：失败、指标、资源使用、以 mermaid 绘出的关键路径
 mtest serve                        # 同样的命令，供 Agent（MCP）或 IDE（JSON-RPC）使用
 ```
 

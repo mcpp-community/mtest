@@ -13,7 +13,7 @@
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "gtest"
-version     = "0.4.1"
+version     = "0.5.0"
 description = "GoogleTest speaking the mtest protocol: a test main that lists, selects and reports GoogleTest's cases"
 license     = "Apache-2.0"
 

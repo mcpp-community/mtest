@@ -278,7 +278,7 @@ int main(int argc, char** argv) {
         (*params)["argv"] = program;
     auto a = dispatch(cwd, name == "bisect-step" ? name : dispatched, *params, {});
     if (parsed->is_flag_set("json"))
-        std::println("{}", a.data.dump(2));
+        std::println("{}", dumped(a.data, 2));
     else if (a.status == 2)
         std::print(std::cerr, "{}", a.text);
     else

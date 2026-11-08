@@ -13,6 +13,8 @@ The form of a project's tests, and what a case may state about its metrics.
   conformance suite's `bounded` case and clause P6.5 hold every level-3 implementation to it.
 - `mtest analyze trend`: each case's metrics over the last `--runs N` stored runs, oldest first, with
   their range, median and last value beside their bounds and the margin the last leaves.
+- The engine writes a program's output that is not UTF-8 (a Windows code page) with the
+  replacement character; 0.3.0 ended with an exception storing such a run.
 - The Python adapter states what 0.3.0 added: a time limit, isolation, retries, a diagnosis; a case
   that names no kind is of its program's.
 - `docs/layout.md` is the form of a project's tests: the directory, the project, the code, the data

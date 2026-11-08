@@ -20,6 +20,10 @@ std::string str(const json& j, const char* key) {
 }
 }  // namespace
 
+std::string dumped(const json& j, int indent) {
+    return j.dump(indent, ' ', false, json::error_handler_t::replace);
+}
+
 json to_json(const std::vector<bound_info>& bounds) {
     json out = json::array();
     for (const auto& b : bounds) {

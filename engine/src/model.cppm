@@ -46,6 +46,8 @@ struct case_info {
     // mtest.toml's skip and expected failure, for a case whose program states neither (reasons).
     std::string skip, expect_fail;
     std::vector<bound_info> bounds;
+    std::vector<bound_info>
+        stated_bounds;  // mtest.toml's, which the engine judges (the program judges its own)
 };
 
 // A shared object a case caused to be made (P5.2 `fixture`), and how long making it took.
@@ -111,6 +113,9 @@ struct run_record {
     std::map<std::string, int> counts;
 };
 
+// JSON as text, a byte that is not UTF-8 (a program's output in a Windows code page) written as
+// U+FFFD rather than refused.
+std::string dumped(const json& j, int indent = -1);
 json to_json(const case_info& c);
 json to_json(const std::vector<bound_info>& bounds);
 std::vector<bound_info> bounds_from(const json& j);

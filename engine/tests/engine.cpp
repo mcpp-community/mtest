@@ -565,5 +565,14 @@ printf ')" + header +
         expect(eq(j["status"].get<std::string>(), std::string("fail"))) << j.dump();
         expect(contains(j["failing"][0]["why"].get<std::string>(), "over its bound 3"));
     };
+    "output that is not UTF-8 is stored and reported, not refused"_test[kind::e2e] = [] {
+        auto root = project(
+            {{"bad.sh", "printf 'cp1252 \\x97 \\xff\\n'; printf '\\x97\\n' >&2; exit 1\n"}});
+        auto r = mtest(root, {"run", "--json", "bash bad.sh"});
+        expect(eq(r.status, 1)) << r.err;
+        auto j = json_of(r);
+        expect(eq(j["counts"].value("fail", 0), 1));
+        expect(mcpplibs::os::fs::read(root / ".mtest" / "index.ndjson").has_value());
+    };
     return report();
 }

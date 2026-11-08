@@ -185,7 +185,7 @@ std::string describe_selection(const json& p) {
     q.erase("programs");
     q.erase("argv");
     q.erase("report");
-    return q.dump();
+    return dumped(q);
 }
 
 answer finish_run(const context& ctx, const run_record& r, const json& p, const plan& pl) {
@@ -203,7 +203,7 @@ answer finish_run(const context& ctx, const run_record& r, const json& p, const 
             all["timeline"] = json::array();
             for (const auto& pr : r.programs)
                 all["timeline"].push_back(to_json(pr));
-            (void)os::fs::write(os::fs::from_utf8(f), all.dump(2) + "\n");
+            (void)os::fs::write(os::fs::from_utf8(f), dumped(all, 2) + "\n");
         }
     }
     json failing_cases = json::array();
@@ -598,7 +598,7 @@ answer cmd_report(const std::filesystem::path& cwd, const json& p) {
         data["cases"].push_back(to_json(c));
     data["conclusion"] = std::format("run {} {}", r->id, r->status);
     if (format == "json")
-        body = data.dump(2) + "\n";
+        body = dumped(data, 2) + "\n";
     if (auto out = text_of(p, "out"); !out.empty()) {
         (void)os::fs::write(os::fs::from_utf8(out), body);
         body = std::format("wrote {}\n", out);
@@ -888,7 +888,7 @@ answer cmd_analyze(const std::filesystem::path& cwd, const json& p) {
     std::string text = data["conclusion"].get<std::string>() + "\n";
     if (data.contains("items"))
         for (const auto& x : data["items"])
-            text += "  " + x.dump() + "\n";
+            text += "  " + dumped(x) + "\n";
     if (data.contains("groups"))
         for (const auto& g : data["groups"])
             text += std::format("  {} x {}\n", g["count"].get<std::size_t>(),
@@ -969,7 +969,7 @@ answer cmd_graph(const std::filesystem::path& cwd, const json& p) {
             text += std::format("  {} -->|{}| {}\n", ids[e["from"]], e["kind"].get<std::string>(),
                                 ids[e["to"]]);
     } else {
-        text = data.dump(2) + "\n";
+        text = dumped(data, 2) + "\n";
     }
     return {0, data, text};
 }

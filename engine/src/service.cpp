@@ -12,7 +12,7 @@ std::mutex out_lock;
 
 void send(const json& message) {
     std::lock_guard g(out_lock);
-    std::cout << message.dump() << '\n';
+    std::cout << dumped(message) << '\n';
     std::cout.flush();
 }
 

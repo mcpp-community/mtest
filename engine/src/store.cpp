@@ -64,13 +64,13 @@ std::filesystem::path run_dir(const store& s, std::string_view id) {
 void write_run(const store& s, const run_record& r) {
     const auto dir = run_dir(s, r.id);
     std::filesystem::create_directories(dir);
-    const auto meta = to_json(r).dump();
+    const auto meta = dumped(to_json(r));
     (void)os::fs::write_atomic(dir / "run.json", meta + "\n");
     std::string cases, programs;
     for (const auto& c : r.cases)
-        cases += to_json(c).dump() + "\n";
+        cases += dumped(to_json(c)) + "\n";
     for (const auto& p : r.programs)
-        programs += to_json(p).dump() + "\n";
+        programs += dumped(to_json(p)) + "\n";
     (void)os::fs::write_atomic(dir / "cases.ndjson", cases);
     (void)os::fs::write_atomic(dir / "programs.ndjson", programs);
     (void)os::fs::append(s.dir / "index.ndjson", meta + "\n");
@@ -82,7 +82,7 @@ void write_failure(const store& s, std::string_view id, std::size_t n, const pro
     std::filesystem::create_directories(dir);
     (void)os::fs::write(dir / "out.txt", out);
     (void)os::fs::write(dir / "err.txt", err);
-    (void)os::fs::write(dir / "program.json", to_json(p).dump(2) + "\n");
+    (void)os::fs::write(dir / "program.json", dumped(to_json(p), 2) + "\n");
 }
 
 std::vector<run_record> runs(const store& s) {
@@ -133,7 +133,7 @@ failure_outputs(const store& s, std::string_view id, std::string_view program) {
 
 void write_progress(const store& s, std::string_view id, const json& progress) {
     std::filesystem::create_directories(run_dir(s, id));
-    (void)os::fs::write_atomic(run_dir(s, id) / "progress.json", progress.dump() + "\n");
+    (void)os::fs::write_atomic(run_dir(s, id) / "progress.json", dumped(progress) + "\n");
 }
 
 std::vector<std::pair<std::string, json>> active_runs(const store& s) {
@@ -180,7 +180,7 @@ void set_quarantine(const store& s, const std::vector<quarantined>& list) {
     for (const auto& q : list)
         j.push_back(
             {{"program", q.program}, {"id", q.id}, {"reason", q.reason}, {"until", q.until}});
-    (void)os::fs::write_atomic(s.dir / "quarantine.json", j.dump(2) + "\n");
+    (void)os::fs::write_atomic(s.dir / "quarantine.json", dumped(j, 2) + "\n");
 }
 
 bool is_quarantined(const std::vector<quarantined>& list, std::string_view program,
@@ -205,7 +205,7 @@ gc_report collect(const store& s, int keep_days, int keep_runs) {
         const bool recent = keep_days > 0 && all[i].id.substr(0, 15) >= cutoff_id;
         if (among_newest || recent) {
             ++g.kept;
-            kept_index += to_json(all[i]).dump() + "\n";
+            kept_index += dumped(to_json(all[i])) + "\n";
             continue;
         }
         const auto dir = run_dir(s, all[i].id);
@@ -252,7 +252,7 @@ std::size_t import_store(const store& s, const std::filesystem::path& other) {
                               std::filesystem::copy_options::recursive, ec);
         if (ec)
             continue;
-        (void)os::fs::append(s.dir / "index.ndjson", to_json(r).dump() + "\n");
+        (void)os::fs::append(s.dir / "index.ndjson", dumped(to_json(r)) + "\n");
         ++taken;
     }
     // The coverage map, when the other store's was measured later (docs/coverage.md).

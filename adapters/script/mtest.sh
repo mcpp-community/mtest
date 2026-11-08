@@ -39,7 +39,7 @@ _mtest_list() {   # a JSON array of the arguments
 _mtest_event() { [ -n "$_mtest_report" ] && printf '{%s}\n' "$1" >> "$_mtest_report"; return 0; }
 _mtest_ms() { local now; now=$(date +%s%N 2>/dev/null || echo 0); echo $(( (now - _mtest_started) / 1000000 )); }
 
-_mtest_event '"e":"program","protocol":1,"level":3,"framework":"mtest.sh","version":"0.4.0","isolation":["process","case"]'
+_mtest_event '"e":"program","protocol":1,"level":3,"framework":"mtest.sh","version":"0.4.1","isolation":["process","case"]'
 
 _mtest_selected() {
     [ -z "$_mtest_select" ] && return 0

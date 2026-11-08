@@ -312,8 +312,9 @@ expectation expect(fatal_condition value,
 struct body {
     std::function<void()> run;
     std::source_location where;
+    // A body returns nothing: a case ends at its end, at `return;`, at skip() or at fail().
     template <class F>
-    requires std::invocable<F&>
+    requires std::invocable<F&> && std::is_void_v<std::invoke_result_t<F&>>
     body(F f, std::source_location w = std::source_location::current())
         : run(std::move(f)), where(w) {}
 };
@@ -337,6 +338,9 @@ struct parameterized {
 template <class T, class F>
 requires std::invocable<F&, const T&>
 parameterized<T, F> operator|(values<T> v, F f) {
+    static_assert(std::is_void_v<std::invoke_result_t<F&, const T&>>,
+                  "a body returns nothing: a case ends at its end, at `return;`, at skip() or at "
+                  "fail()");
     return {std::move(v.items), std::move(f), v.where};
 }
 
@@ -419,6 +423,9 @@ public:
     template <class F>
     requires std::invocable<F&>
     Suite(F f, std::source_location where = std::source_location::current()) {
+        static_assert(std::is_void_v<std::invoke_result_t<F&>>,
+                      "a body returns nothing: a case ends at its end, at `return;`, at skip() or "
+                      "at fail()");
         add({}, where, attributes{}, std::function<void()>(std::move(f)));
     }
 protected:
@@ -435,6 +442,9 @@ private:
         auto all = std::forward_as_tuple(std::forward<A>(args)...);
         using body_type = std::remove_cvref_t<std::tuple_element_t<n - 1, std::tuple<A...>>>;
         static_assert(std::invocable<body_type&>, "a suite ends with its body: [] { ... }");
+        static_assert(std::is_void_v<std::invoke_result_t<body_type&>>,
+                      "a body returns nothing: a case ends at its end, at `return;`, at skip() or "
+                      "at fail()");
         [&]<std::size_t... I>(std::index_sequence<I...>) {
             (apply(attrs, std::remove_cvref_t<std::tuple_element_t<I, std::tuple<A...>>>(
                               std::get<I>(all))),

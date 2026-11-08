@@ -469,6 +469,21 @@ printf ')" + header +
         expect(eq(cases[3]["case"].get<std::string>(), std::string("plain/by place")));
         expect(eq(cases[3]["kind"].get<std::string>(), std::string("cts"))) << "by its directory";
     };
+    "a suite type a module beside the tests declares"_test[kind::e2e] = [] {
+        auto root = project(
+            {{"tests/bench/timed.cppm",
+              "export module timed;\nimport mcpplibs.mtest;\n"
+              "export class Timed : public mcpplibs::mtest::Bench {\npublic:\n"
+              "    using Bench::Bench;\n};\n"},
+             {"tests/bench/startup.cpp", "import timed;\nTimed startup{\"startup\", [] {}};\n"},
+             {"mcpp.toml", "[package]\nname = \"p\"\nversion = \"0.1.0\"\n"},
+             {"mtest.toml", "[host]\nkind = \"mcpp\"\n"}});
+        auto j = json_of(mtest(root, {"list", "--static", "--json"}));
+        const auto& cases = j["programs"][0]["cases"];
+        expect(fatal(eq(cases.size(), std::size_t(1)))) << j.dump();
+        expect(eq(cases[0]["kind"].get<std::string>(), std::string("bench")));
+        expect(eq(cases[0]["resources"], json{"machine"}));
+    };
     "a case's isolation, retries and diagnosis, as the program states them"_test[kind::e2e] = [] {
         const std::string head = "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
         auto root = project(

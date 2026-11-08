@@ -57,7 +57,9 @@ Bench startup{"startup", at_most{"ready", 15}, resource{"machine"}, [] {
 - **No `main`**: mtest's entry begins the program. A file that starts copies of itself writes `main`
   and ends it with `return run(argc, argv)`.
 - **A project's own kind of case is a type of its own** (`class Fixture : public CTS { ... }`): it adds
-  what every case of that kind has, and the static manifest reads it as its base's kind.
+  what every case of that kind has, and the static manifest reads it as its base's kind, in the file
+  or in a module or header the project's tests share.
+- **A body returns nothing**: a case ends at its end, at `return;`, at `skip()` or at `fail()`.
 
 ## The data
 

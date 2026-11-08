@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.1] - 2026-11-08
+
+- A body that returns a value does not compile. A case ends at its end, at `return;`, at `skip()`
+  or at `fail()`; a value a body returned was lost, and a `main` made into an object's body kept its
+  `return 1;` as undefined behaviour.
+- The static manifest reads a project's own suite types wherever the project declares them:
+  `manifest::types_of(sources)` gives the types a set of sources declares (one derived from a type
+  of another included), and `scan(source, types)` reads a file's cases with them. `mtest list
+  --static` reads the types of every C++ source of the project, so a type written once in a module
+  its tests import is its base's kind in each of them.
+
 ## [0.4.0] - 2026-11-08
 
 The form of a project's tests, and what a case may state about its metrics.

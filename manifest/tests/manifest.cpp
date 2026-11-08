@@ -65,5 +65,19 @@ int main() {
         expect(eq(cases[1].kind, std::string("bench")));
         expect(eq(cases[1].resources, std::vector<std::string>{"machine"}));
     };
+    "a suite type another source declares, and one derived from it"_test = [] {
+        const std::vector<std::string> sources{"export module cases;\nexport class Slow : public "
+                                               "Timed { using Timed::Timed; };\n",
+                                               "export module timed;\nexport struct Timed : "
+                                               "mtest::Bench { using Bench::Bench; };\n",
+                                               "import cases;\nSlow one{\"one\", [] {}};\n"};
+        const auto types = mf::types_of(sources);
+        expect(eq(types, mf::suite_types{{"Slow", "bench"}, {"Timed", "bench"}}));
+        auto cases = mf::scan(sources[2], types);
+        expect(fatal(eq(cases.size(), std::size_t(1))));
+        expect(eq(cases[0].kind, std::string("bench")));
+        expect(eq(mf::scan(sources[2]).size(), std::size_t(0)))
+            << "a type it does not know names no case";
+    };
     return report();
 }

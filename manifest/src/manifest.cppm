@@ -33,7 +33,16 @@ struct static_case {
     std::vector<static_bound> bounds;
 };
 
-std::vector<static_case> scan(std::string_view source);
+// The suite types sources declare (`class Fixture : public CTS`), by name, each with the kind of
+// the type it derives from (empty for `Suite`'s).
+using suite_types = std::map<std::string, std::string>;
+
+// The cases `source` declares. `known` are suite types other sources declare: a project's own type
+// is usually written once, in a module its tests import.
+std::vector<static_case> scan(std::string_view source, const suite_types& known = {});
+
+// The suite types `sources` declare, a type in one deriving from a type in another included.
+suite_types types_of(std::span<const std::string> sources);
 
 }  // namespace mcpplibs::mtest::manifest
 
@@ -292,9 +301,9 @@ void read_suite_attributes(reader& r, attrs& into) {
     }
 }
 
-}  // namespace
-
-std::vector<static_case> scan(std::string_view source) {
+// The cases `source` declares, and in `types` the suite types it declares beside `known`.
+std::vector<static_case> read(std::string_view source, const suite_types& known,
+                              suite_types& types) {
     reader r{source};
     std::vector<static_case> out;
     std::vector<scope> scopes;
@@ -309,7 +318,8 @@ std::vector<static_case> scan(std::string_view source) {
     std::string previous;
     // A suite type of the file's own (`class Fixture : public CTS { ... }`) is of its base's kind:
     // 1 after `class`, 2 after its name, 3 after its `:`.
-    std::map<std::string, std::string> derived;
+    suite_types& derived = types;
+    derived.insert(known.begin(), known.end());
     int class_state = 0;
     std::string class_name;
     auto kind_of = [&](const std::string& w) -> std::optional<std::string> {
@@ -420,6 +430,27 @@ std::vector<static_case> scan(std::string_view source) {
         }
     }
     return out;
+}
+
+}  // namespace
+
+std::vector<static_case> scan(std::string_view source, const suite_types& known) {
+    suite_types types;
+    return read(source, known, types);
+}
+
+suite_types types_of(std::span<const std::string> sources) {
+    suite_types types;
+    // A pass reads every source with the types found so far; one that finds none ends.
+    for (std::size_t found = 1; found != types.size();) {
+        found = types.size();
+        for (const auto& source : sources) {
+            suite_types more;
+            read(source, types, more);
+            types.insert(more.begin(), more.end());
+        }
+    }
+    return types;
 }
 
 }  // namespace mcpplibs::mtest::manifest

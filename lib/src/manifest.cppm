@@ -268,6 +268,18 @@ std::vector<static_case> scan(std::string_view source) {
     int suite_state = 0;
     std::string suite_type_kind;
     std::string previous;
+    // A suite type of the file's own (`class Fixture : public CTS { ... }`) is of its base's kind:
+    // 1 after `class`, 2 after its name, 3 after its `:`.
+    std::map<std::string, std::string> derived;
+    int class_state = 0;
+    std::string class_name;
+    auto kind_of = [&](const std::string& w) -> std::optional<std::string> {
+        if (auto k = suite_kind(w))
+            return k;
+        if (auto it = derived.find(w); it != derived.end())
+            return it->second;
+        return std::nullopt;
+    };
     auto prefix = [&] { return scopes.empty() ? std::string{} : scopes.back().id + "/"; };
     auto outer = [&] { return scopes.empty() ? attrs{} : scopes.back().has; };
     while (!r.done()) {
@@ -315,7 +327,18 @@ std::vector<static_case> scan(std::string_view source) {
         }
         if (ident(ch)) {
             auto w = r.word();
-            if (auto k = suite_kind(w); k && (previous.empty() || previous == "mtest")) {
+            if (w == "class" || w == "struct") {
+                class_state = 1;
+            } else if (class_state == 1 && w != "final") {
+                class_name = w;
+                class_state = 2;
+            } else if (class_state == 3 && w != "public" && w != "mtest" && w != "mcpplibs") {
+                if (auto k = kind_of(w))
+                    derived[class_name] = *k;
+                class_state = 0;
+            }
+            if (auto k = kind_of(w);
+                k && class_state == 0 && (previous.empty() || previous == "mtest")) {
                 suite_state = 1;
                 suite_type_kind = *k;
             } else if (suite_state == 1)
@@ -331,8 +354,9 @@ std::vector<static_case> scan(std::string_view source) {
             continue;  // `mtest::suite`: `previous` stays
         }
         previous.clear();
+        class_state = ch == ':' && class_state == 2 ? 3 : 0;
         // `suite x{"name"`: the brace right after the variable, then the literal right after it.
-        if (suite_state == 3 || (suite_state == 2 && ch != '{'))
+        if (suite_state == 1 || suite_state == 3 || (suite_state == 2 && ch != '{'))
             suite_state = 0;
         if (ch == '(')
             ++pending_parens;

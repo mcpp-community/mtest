@@ -51,5 +51,19 @@ int main() {
             ids.push_back(c.id);
         expect(eq(ids, std::vector<std::string>{"named", "after"}));
     };
+    "a suite type of the file's own is of its base's kind"_test = [] {
+        auto cases = mf::scan("class Fixture : public mtest::CTS {\n"
+                              "public:\n    template <class... A> Fixture(name_here n, A&&... a) : "
+                              "CTS(n, a...) {}\n};\n"
+                              "Fixture one{\"one\", resource{\"machine\"}};\n"
+                              "struct Timed final : Bench { using Bench::Bench; };\n"
+                              "Timed two{\"two\", [] {}};\n");
+        expect(fatal(eq(cases.size(), std::size_t(2))));
+        expect(eq(cases[0].id, std::string("one")));
+        expect(eq(cases[0].kind, std::string("cts")));
+        expect(eq(cases[0].resources, std::vector<std::string>{"machine"}));
+        expect(eq(cases[1].kind, std::string("bench")));
+        expect(eq(cases[1].resources, std::vector<std::string>{"machine"}));
+    };
     return report();
 }

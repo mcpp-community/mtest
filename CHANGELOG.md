@@ -29,8 +29,9 @@ records what it did.
   case at that case's time limit and gives a process of several at least the sum of theirs, retries
   a case as often as it states, records each program's start and what it held (`timeline` of
   `--report-json`), and records skips and expected failures `mtest.toml` states.
-- The static manifest reads the suite types, a suite's attributes, `resource`, `clause` and
-  `artifact`; `mtest list --static` gives a case the kind and attributes `mtest list` gives it.
+- The static manifest reads the suite types, a suite type the file derives from one
+  (`class Fixture : public CTS`), a suite's attributes, `resource`, `clause` and `artifact`;
+  `mtest list --static` gives a case the kind and attributes `mtest list` gives it.
 - Discovery globs match `**/` as no directory too (`tests/**/*.sh` matches `tests/a.sh`).
 
 ## [0.2.0] - 2026-11-08

@@ -463,13 +463,26 @@ answer cmd_list_static(const std::filesystem::path& cwd) {
             files.push_back(it->path());
     }
     std::ranges::sort(files);
+    auto read_file = [](const std::filesystem::path& file) {
+        std::ifstream in(file, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)), {});
+    };
+    // The suite types the project's C++ sources declare: a type its tests share is usually
+    // written in a module or a header beside them, not in a file the globs name.
+    std::vector<std::string> sources;
+    for (const auto& file : files) {
+        static const std::set<std::string> cxx{".cpp", ".cc", ".cxx", ".cppm", ".ixx",
+                                               ".mpp", ".h",  ".hh",  ".hpp",  ".hxx"};
+        if (cxx.contains(file.extension().string()))
+            sources.push_back(read_file(file));
+    }
+    const auto types = manifest::types_of(sources);
     for (const auto& file : files) {
         const auto rel = os::fs::generic_utf8(std::filesystem::relative(file, ctx->cfg.root, ec));
         const auto base = first_match(rel);
         if (!base)
             continue;
-        std::ifstream in(file, std::ios::binary);
-        const std::string source((std::istreambuf_iterator<char>(in)), {});
+        const auto source = read_file(file);
         auto name = rel.substr(base->size());
         if (const auto dot = name.rfind('.');
             dot != std::string::npos && name.find('/', dot) == std::string::npos)
@@ -478,7 +491,7 @@ answer cmd_list_static(const std::filesystem::path& cwd) {
         program_spec program;
         program.name = name;
         program.kind = layout_kind(rel);
-        for (const auto& sc : manifest::scan(source)) {
+        for (const auto& sc : manifest::scan(source, types)) {
             case_info ci;
             ci.id = sc.id;
             ci.name = sc.name;
@@ -1394,7 +1407,10 @@ json catalog() {
          {{"type", "array"},
           {"items", {{"type", "string"}}},
           {"description", "case identifier globs, `program::id` or `id`"}}},
-        {"tag", {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "case tags"}}},
+        {"tag",
+         {{"type", "array"},
+          {"items", {{"type", "string"}}},
+          {"description", "case tags, one of them; `a&b` names a case with both"}}},
         {"exclude_tag",
          {{"type", "array"}, {"items", {{"type", "string"}}}, {"description", "tags left out"}}},
         {"kind",
@@ -1559,7 +1575,7 @@ json catalog() {
                {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
                {"run", run_id["run"]},
                {"from", {{"type", "string"}}}}));
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.4.0"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.4.1"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

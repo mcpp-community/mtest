@@ -460,9 +460,13 @@ bool any_glob(const std::vector<std::string>& patterns, std::string_view text) {
     return std::ranges::any_of(patterns, [&](const std::string& p) { return glob_match(p, text); });
 }
 
+// Whether `have` holds one of `want`; a wanted `a&b` holds when `have` holds each of its parts.
 bool has_any(const std::vector<std::string>& have, const std::vector<std::string>& want) {
     return std::ranges::any_of(want, [&](const std::string& w) {
-        return std::ranges::find(have, w) != have.end();
+        return std::ranges::all_of(std::views::split(std::string_view(w), '&'), [&](auto part) {
+            return std::ranges::find(have, std::string_view(part.begin(), part.end())) !=
+                   have.end();
+        });
     });
 }
 
@@ -562,7 +566,9 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                                : std::nullopt;
                 if (!r.cases.empty() && !any_glob(r.cases, ci.id) && !any_glob(r.cases, key))
                     return std::nullopt;
-                if (!r.tags.empty() && !has_any(ci.tags, r.tags) && !has_any(p.tags, r.tags))
+                auto tags = ci.tags;  // the case's and its program's
+                tags.insert(tags.end(), p.tags.begin(), p.tags.end());
+                if (!r.tags.empty() && !has_any(tags, r.tags))
                     return std::nullopt;
                 if (!r.kinds.empty() && std::ranges::find(r.kinds, ci.kind) == r.kinds.end())
                     return std::nullopt;
@@ -601,8 +607,7 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                             return std::format("set {}: {}", st.name, *why);
                         continue;
                     }
-                    const bool by_tag =
-                        !st.tags.empty() && (has_any(ci.tags, st.tags) || has_any(p.tags, st.tags));
+                    const bool by_tag = !st.tags.empty() && has_any(tags, st.tags);
                     const bool by_kind =
                         !st.kinds.empty() && std::ranges::find(st.kinds, ci.kind) != st.kinds.end();
                     const bool by_case =

@@ -3,7 +3,7 @@
 # own listener. A program's tests stay GoogleTest's (`TEST`, `EXPECT_EQ`); the package supplies `main`:
 #
 #   [dev-dependencies]
-#   mcpplibs.mtest.gtest = "0.4.0"
+#   mcpplibs.mtest.gtest = "0.4.1"
 #
 # mcpp 2026.11.8.1 and later begin a test file that defines no `main` here by itself (`test-main`);
 # an earlier mcpp is told `[test] main = { from = "gtest/main" }`.
@@ -13,7 +13,7 @@
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "gtest"
-version     = "0.4.0"
+version     = "0.4.1"
 description = "GoogleTest speaking the mtest protocol: a test main that lists, selects and reports GoogleTest's cases"
 license     = "Apache-2.0"
 

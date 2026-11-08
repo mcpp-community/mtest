@@ -11,6 +11,11 @@ using json = nlohmann::json;
 
 namespace {
 
+// A body returns nothing: a value it returned would be lost, and a `main` made an object's body
+// keeps its `return 1;` (the suite types state the same with a static_assert).
+static_assert(std::is_constructible_v<body, void (*)()>);
+static_assert(!std::is_constructible_v<body, int (*)()>);
+
 // Where the shared object of `kept` says what happened to it; set by the program a case starts.
 std::filesystem::path journal() {
     if (auto p = std::getenv("SUITES_JOURNAL"))

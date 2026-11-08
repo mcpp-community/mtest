@@ -41,7 +41,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
 - A file declares objects and defines no `main` (with mcpp 2026.11.8.1 or later; an earlier mcpp
   needs `[test] main = { from = "mtest/main" }`). A file that defines `main` declares its cases in it
   and returns `report()`.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.4.0"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.4.1"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations

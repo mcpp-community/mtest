@@ -245,8 +245,10 @@ int main() {
                 {{"suite/01_a.sh", "# requires: gcc elf\n# resources: serial:home\nexit 0\n"},
                  {"suite/02_b.sh", "# requires:\nexit 3\n"},
                  {"suite/helper.txt", ""},
+                 {"suite/helper.sh", "exit 7\n"},
                  {"mtest.toml",
-                  "[discover.e2e]\nglobs = [\"suite/*.sh\"]\ncommand = [\"bash\", \"{path}\"]\n"
+                  "[discover.e2e]\nglobs = [\"suite/[0-9]*.sh\"]\ncommand = [\"bash\", "
+                  "\"{path}\"]\n"
                   "kind = \"e2e\"\ntimeout = \"30s\"\n"
                   "tags_from = { \"# requires:\" = \"requires:\" }\nresources_from = [\"# "
                   "resources:\"]\n"

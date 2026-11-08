@@ -9,10 +9,46 @@ namespace mcpplibs::mtest::engine {
 
 namespace os = mcpplibs::os;
 
+namespace {
+
+// `[abc]`, `[a-z]` and `[!x]` at `p[pi]`: whether `c` is in the class, and where the class ends;
+// none when `p[pi]` opens no class.
+std::optional<std::pair<bool, std::size_t>> char_class(std::string_view p, std::size_t pi, char c) {
+    if (pi >= p.size() || p[pi] != '[')
+        return std::nullopt;
+    std::size_t i = pi + 1;
+    const bool negated = i < p.size() && (p[i] == '!' || p[i] == '^');
+    if (negated)
+        ++i;
+    bool in = false;
+    for (bool first = true; i < p.size() && (first || p[i] != ']'); first = false, ++i) {
+        if (i + 2 < p.size() && p[i + 1] == '-' && p[i + 2] != ']') {
+            in = in || (p[i] <= c && c <= p[i + 2]);
+            i += 2;
+        } else
+            in = in || p[i] == c;
+    }
+    if (i >= p.size())
+        return std::nullopt;  // no `]`: a literal `[`
+    return std::pair{in != negated, i + 1};
+}
+
+}  // namespace
+
 bool glob_match(std::string_view p, std::string_view t) {
     std::size_t pi = 0, ti = 0, star = std::string_view::npos, mark = 0;
     while (ti < t.size()) {
-        if (pi < p.size() && (p[pi] == '?' || p[pi] == t[ti])) {
+        if (auto cls = char_class(p, pi, t[ti])) {
+            if (cls->first) {
+                pi = cls->second;
+                ++ti;
+                continue;
+            }
+            if (star == std::string_view::npos)
+                return false;
+            pi = star + 1;
+            ti = ++mark;
+        } else if (pi < p.size() && (p[pi] == '?' || p[pi] == t[ti])) {
             ++pi;
             ++ti;
         } else if (pi < p.size() && p[pi] == '*') {

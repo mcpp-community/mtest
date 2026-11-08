@@ -22,7 +22,7 @@ kind      = "e2e"                       # the kind of an L0 program's one case (
 [discover]
 globs = ["build/tests/*"]               # every executable that matches is a program
 
-# A group: every file the globs match is a program, run by the command ({path}: the file,
+# A group: every file the globs match (`*`, `?`, `[0-9]`, `[!x]`) is a program, run by the command ({path}: the file,
 # absolute; {name}: its path from the root), with the keys of [programs.*]. Each word after a
 # prefix on the file's first 64 lines is a tag (with the tag prefix given) or a resource.
 [discover.e2e]

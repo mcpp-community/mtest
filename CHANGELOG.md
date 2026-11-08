@@ -9,7 +9,7 @@
 - `[cases."<glob>"]`, and a host's `[package.metadata.mtest.cases."<glob>"]` in mcpp.toml, state the
   tags, resources, kind and timeout of the cases a glob matches, taking precedence over what a
   program lists.
-- `--exclude-program GLOB` leaves the programs a glob matches out of a selection.
+- `--exclude-program GLOB` leaves the programs a glob matches out of a selection; globs take character classes (`[0-9]`, `[!x]`).
 - `--shard I/N` selects the I-th of N parts: each program, the longest first, to the part with the
   least expected time; every machine with the same store computes the same parts.
 - The coverage map (`docs/coverage.md`): `mtest run --coverage` records, for each case, the sources

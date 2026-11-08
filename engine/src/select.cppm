@@ -21,7 +21,7 @@ std::expected<std::vector<program_spec>, std::string> discover(const config& c,
 struct selection_request {
     std::string set;                 // a set's name; empty: every case
     std::vector<std::string> cases;  // identifier globs (`*` and `?`), `program::id` or `id`
-    std::vector<std::string> tags, kinds, programs, exclude_tags;
+    std::vector<std::string> tags, kinds, programs, exclude_tags, exclude_programs;
     std::optional<std::vector<std::string>>
         changed;  // the paths a change touched, for affected selection
     std::optional<std::chrono::milliseconds> budget;  // run the most useful cases that fit

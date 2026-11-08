@@ -260,6 +260,8 @@ int main() {
             expect(nodes.contains("resource:serial:home")) << graph.dump();
             auto gcc = json_of(mtest(root, {"plan", "--json", "--exclude-tag", "requires:gcc"}));
             expect(eq(gcc["selected"].get<int>(), 1));
+            auto rest = json_of(mtest(root, {"plan", "--json", "--exclude-program", "suite/02*"}));
+            expect(eq(rest["selected"].get<int>(), 1));
             auto slow = json_of(mtest(root, {"plan", "--json", "--tag", "slow"}));
             expect(
                 eq(slow["units"][0]["program"].get<std::string>(), std::string("suite/02_b.sh")));

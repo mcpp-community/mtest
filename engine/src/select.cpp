@@ -452,7 +452,8 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
 
     std::vector<program_spec> pool;
     for (const auto& p : programs)
-        if (r.programs.empty() || any_glob(r.programs, p.name))
+        if ((r.programs.empty() || any_glob(r.programs, p.name)) &&
+            !any_glob(r.exclude_programs, p.name))
             pool.push_back(p);
     for (const auto& p : pool) {
         auto listed =

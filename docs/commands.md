@@ -17,6 +17,7 @@ acts on. Exit status: `0` done, `1` a test or a gate failed, `2` a usage error, 
 | `--program GLOB` | the programs whose name matches |
 | `--case GLOB` | cases by identifier, or `program::identifier`; `*` and `?` |
 | `--tag T`, `--kind K`, `--exclude-tag T` | by tag; by kind (`unit`, `e2e`, `cts`, `bench`) |
+| `--exclude-program GLOB` | the programs whose name matches are left out |
 | `--set S` | a set ([sets.md](sets.md)) |
 | `--since COMMIT`, `--changed PATH` | the cases a change affects: a case's `file:` artifacts, its program's `sources` |
 | `--budget 60s` | the most useful cases that fit: those that failed lately, then the quickest |

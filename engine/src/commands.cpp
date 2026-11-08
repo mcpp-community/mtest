@@ -117,6 +117,7 @@ std::expected<selection_request, answer> selection_of(const context& ctx, const 
     r.kinds = strings(p, "kind");
     r.programs = strings(p, "program");
     r.exclude_tags = strings(p, "exclude_tag");
+    r.exclude_programs = strings(p, "exclude_program");
     r.failed_only = p.value("failed", false);
     if (auto since = text_of(p, "since"); !since.empty()) {
         auto paths = changed_since(ctx.cfg.root, since);
@@ -1324,6 +1325,10 @@ json catalog() {
           {"description", "changed paths: only the cases they affect"}}},
         {"budget",
          {{"type", "string"}, {"description", "a duration: the most useful cases that fit"}}},
+        {"exclude_program",
+         {{"type", "array"},
+          {"items", {{"type", "string"}}},
+          {"description", "programs whose name a glob matches are left out"}}},
         {"shard",
          {{"type", "string"},
           {"description", "I/N: the I-th of N parts by expected time, the same on every machine"}}},

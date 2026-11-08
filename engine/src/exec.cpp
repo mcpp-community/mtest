@@ -150,6 +150,7 @@ std::expected<std::vector<case_info>, std::string> list_program(const program_sp
         case_info c;
         c.id = spec.name;
         c.name = spec.name;
+        c.kind = spec.kind;
         c.tags = spec.tags;
         c.resources = spec.resources;
         return std::vector<case_info>{c};

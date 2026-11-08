@@ -20,6 +20,11 @@ struct execute_options {
     // Called for each event of the run, from the threads that run it: run/started, case/finished,
     // program/finished, run/finished (the service streams them; docs/service.md).
     std::function<void(const json&)> on_event;
+    // `--coverage`: each program writes its `.gcda` files below a directory of its own here
+    // (`GCOV_PREFIX`), and `coverage_cases` receives the cases each directory serves.
+    std::optional<std::filesystem::path> coverage_dir;
+    int coverage_strip = 0;
+    std::map<std::filesystem::path, std::vector<std::string>>* coverage_cases = nullptr;
 };
 
 run_record execute(const config& c, const store& s, const plan& p, const execute_options& o);

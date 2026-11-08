@@ -26,6 +26,9 @@ struct selection_request {
         changed;  // the paths a change touched, for affected selection
     std::optional<std::chrono::milliseconds> budget;  // run the most useful cases that fit
     bool failed_only = false;  // the cases that failed in the last run (`rerun --failed`)
+    // `--shard I/N`: the I-th (1-based) of N parts, the longest units first, each to the part
+    // with the least expected time; every machine with the same store computes the same parts.
+    std::optional<std::pair<int, int>> shard;
 };
 
 struct unit_case {
@@ -50,6 +53,15 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                                            const std::vector<program_spec>& programs,
                                            const selection_request& r);
 
+// The attributes `[cases."<glob>"]` states, applied to a case of `program`, and to an L0 program
+// (whose one case is the program).
+void apply_attributes(const config& c, const std::string& program, case_info& ci);
+void apply_attributes(const config& c, program_spec& p);
+// A path glob in the vocabulary of `[build] sources`: `*` any run of characters, `**/` any
+// directories, none included; a glob beginning with `!` excludes.
+bool path_glob_match(std::string_view pattern, std::string_view path);
+// "2/8": the second of eight parts.
+std::expected<std::pair<int, int>, std::string> parse_shard(std::string_view text);
 // `*` matches any run of characters, `?` one.
 bool glob_match(std::string_view pattern, std::string_view text);
 // The paths a change touched: `git diff --name-only <base>...HEAD`, run in `root`.

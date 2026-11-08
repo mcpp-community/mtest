@@ -27,6 +27,36 @@ struct bench_policy {
         "last-pass";  // a run identifier, or the last run in which the case passed
 };
 
+// `[discover.<name>]`: the files a glob matches, each a program run by a command (`{path}`: the
+// file, absolute; `{name}`: its path from the root), with the keys of `[programs.*]`, and tags and
+// resources read from the file's first lines: each word after a line's prefix.
+struct discover_group {
+    std::string name;
+    std::vector<std::string> globs;
+    std::vector<std::string> command;
+    program_spec base;
+    std::vector<std::pair<std::string, std::string>> tags_from;  // line prefix, tag prefix
+    std::vector<std::string> resources_from;                     // line prefixes
+};
+
+// `[cases."<glob>"]` of mtest.toml, and `[package.metadata.mtest.cases."<glob>"]` of a host's
+// mcpp.toml: what the cases a glob matches (`program::id` or `id`) are, stated beside the code and
+// taking precedence over what a program lists.
+struct case_attributes {
+    std::string glob;
+    std::vector<std::string> tags, resources;
+    std::string kind;
+    std::optional<std::chrono::seconds> timeout;
+    std::string origin;  // where it is stated, for `mtest plan`
+};
+
+// `[coverage]`: the coverage map a run under `--coverage` writes (docs/coverage.md).
+struct coverage_spec {
+    std::string objects;   // the directory of the instrumented objects (`.gcno`, `.gcda`)
+    std::string database;  // a compile database that names each object's source
+    std::chrono::milliseconds max_age{std::chrono::days{7}};  // an older map affects every case
+};
+
 struct trace_tool {
     std::string name;
     std::vector<std::string> run_under;  // prefixed to the program's command
@@ -39,8 +69,14 @@ struct config {
     std::filesystem::path store = ".mtest";
     int jobs = 0;  // 0: the machine's
     std::vector<program_spec> programs;
-    std::vector<std::string> discover;  // globs of executables
-    std::string host;                   // "mcpp", or empty
+    std::vector<std::string> discover;   // globs of executables
+    std::vector<discover_group> groups;  // [discover.<name>]
+    std::vector<case_attributes> attributes;
+    // `[static] globs`: the test files `mtest list --static` reads; a host's own when it names
+    // them (mcpp.toml `[test] discover`, else `tests/**/*.cpp`).
+    std::vector<std::string> static_globs;
+    coverage_spec coverage;
+    std::string host;  // "mcpp", or empty
     std::vector<std::string> host_args;
     std::map<std::string, set_spec> sets;
     bench_policy bench;

@@ -239,5 +239,165 @@ int main() {
             expect(j.contains("conclusion")) << args.front();
         }
     };
+    "a discovered group: a command per file, tags and resources from its first lines"_test
+        [kind::e2e] = [] {
+            auto root = project(
+                {{"suite/01_a.sh", "# requires: gcc elf\n# resources: serial:home\nexit 0\n"},
+                 {"suite/02_b.sh", "# requires:\nexit 3\n"},
+                 {"suite/helper.txt", ""},
+                 {"mtest.toml",
+                  "[discover.e2e]\nglobs = [\"suite/*.sh\"]\ncommand = [\"bash\", \"{path}\"]\n"
+                  "kind = \"e2e\"\ntimeout = \"30s\"\n"
+                  "tags_from = { \"# requires:\" = \"requires:\" }\nresources_from = [\"# "
+                  "resources:\"]\n"
+                  "[cases.\"suite/02_*\"]\ntags = [\"slow\"]\n"}});
+            auto plan = json_of(mtest(root, {"plan", "--json"}));
+            expect(eq(plan["selected"].get<int>(), 2)) << plan.dump();
+            auto graph = json_of(mtest(root, {"graph", "--json"}));
+            std::set<std::string> nodes;
+            for (const auto& n : graph["nodes"])
+                nodes.insert(n.value("id", ""));
+            expect(nodes.contains("resource:serial:home")) << graph.dump();
+            auto gcc = json_of(mtest(root, {"plan", "--json", "--exclude-tag", "requires:gcc"}));
+            expect(eq(gcc["selected"].get<int>(), 1));
+            auto slow = json_of(mtest(root, {"plan", "--json", "--tag", "slow"}));
+            expect(
+                eq(slow["units"][0]["program"].get<std::string>(), std::string("suite/02_b.sh")));
+            auto run = json_of(mtest(root, {"run", "--json"}));
+            expect(eq(run["counts"].value("fail", 0), 1));
+            expect(eq(run["failing"][0]["kind"].get<std::string>(), std::string("e2e")))
+                << run.dump();
+        };
+    "parts of a selection: every program in one part, the longest first"_test[kind::e2e] = [] {
+        auto root =
+            project({{"a.sh", "sleep 0.4\n"},
+                     {"b.sh", "sleep 0.2\n"},
+                     {"c.sh", "exit 0\n"},
+                     {"d.sh", "exit 0\n"},
+                     {"mtest.toml",
+                      "[discover.s]\nglobs = [\"*.sh\"]\ncommand = [\"bash\", \"{path}\"]\n"}});
+        (void)mtest(root, {"run"});
+        std::multiset<std::string> seen;
+        for (const char* part : {"1/2", "2/2"}) {
+            auto j = json_of(mtest(root, {"plan", "--json", "--shard", part}));
+            for (const auto& u : j["units"])
+                seen.insert(u["program"].get<std::string>());
+        }
+        expect(eq(seen.size(), std::size_t(4)));
+        expect(eq(seen.count("a.sh"), std::size_t(1)));
+        auto first = json_of(mtest(root, {"plan", "--json", "--shard", "1/2"}));
+        expect(eq(first["units"][0]["program"].get<std::string>(), std::string("a.sh")))
+            << "the longest program opens the first part";
+        expect(eq(mtest(root, {"plan", "--shard", "3/2"}).status, 2));
+    };
+    "a coverage map decides which cases a change affects"_test[kind::e2e] = [] {
+        auto root = project(
+            {{"a.sh", "exit 0\n"},
+             {"b.sh", "exit 0\n"},
+             {"mtest.toml", "[discover.s]\nglobs = [\"*.sh\"]\ncommand = [\"bash\", \"{path}\"]\n"},
+             {"map.json",
+              R"({"format":"mtest-coverage/1","commit":"c0ffee","time":"t","epoch":)" +
+                  std::to_string(std::chrono::duration_cast<std::chrono::seconds>(
+                                     std::chrono::system_clock::now().time_since_epoch())
+                                     .count()) +
+                  R"(,"cases":{"a.sh::a.sh":["src/x.cpp"],"b.sh::b.sh":["src/y.cpp"]}})"}});
+        auto before = json_of(mtest(root, {"plan", "--json", "--changed", "src/x.cpp"}));
+        expect(eq(before["selected"].get<int>(), 2))
+            << "without a map, a program that states nothing is affected";
+        expect(eq(mtest(root, {"coverage", "import", "--from", "map.json"}).status, 0));
+        auto x = json_of(mtest(root, {"plan", "--json", "--changed", "src/x.cpp"}));
+        expect(eq(x["selected"].get<int>(), 1)) << x.dump();
+        expect(contains(x["units"][0]["cases"][0]["why"].get<std::string>(), "ran src/x.cpp"));
+        auto shown = json_of(mtest(root, {"coverage", "--json"}));
+        expect(shown["fresh"].get<bool>());
+    };
+    "a run under --coverage reads the counters each program's .gcda files record"_test[kind::
+                                                                                           e2e] = [] {
+        // GCC's format, written by the program itself: a.gcda with an arc that ran, b.gcda with a
+        // run of zero counters (a negative length, GCC 12 and later).
+        const std::string header =
+            R"(\x61\x64\x63\x67\x2a\x31\x36\x42\x01\x02\x03\x04\x05\x06\x07\x08)"
+            R"(\x00\x00\x00\x01\x0c\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00)";
+        auto root = project(
+            {{"t.sh",
+              "mkdir -p \"$GCOV_PREFIX\"\nprintf '" + header +
+                  R"(\x00\x00\xa1\x01\x08\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' > "$GCOV_PREFIX/a.gcda"
+printf ')" + header +
+                  R"(\x00\x00\xa1\x01\xf8\xff\xff\xff\x00\x00\x00\x00' > "$GCOV_PREFIX/b.gcda"
+)"},
+             {"compile_commands.json",
+              R"([{"directory":".","file":"a.c","output":"obj/a.o"},{"directory":".","file":"b.c","output":"obj/b.o"}])"},
+             {"mtest.toml",
+              "[programs.t]\ncommand = [\"bash\", \"t.sh\"]\n"
+              "[coverage]\nobjects = \"obj\"\ndatabase = \"compile_commands.json\"\n"}});
+        std::filesystem::create_directories(root / "obj");
+        auto run = json_of(mtest(root, {"run", "--json", "--coverage"}));
+        expect(eq(run["status"].get<std::string>(), std::string("pass"))) << run.dump();
+        auto map = json_of(mtest(root, {"coverage", "--json"}));
+        expect(eq(map["cases"]["t::t"], json::array({"a.c"}))) << map.dump();
+    };
+    "a run under --coverage maps each case to the sources it executed"_test[kind::e2e] = [] {
+        // GCC's own `.gcda` files, where a plain `gcc` builds a program here.
+        auto gcc = mcpplibs::os::env::find_executable("gcc");
+        if (mcpplibs::os::host() != mcpplibs::os::platform::linux || !gcc)
+            return;
+        auto root =
+            project({{"a.c", "int used(int x) { return x + 1; }\n"},
+                     {"b.c", "int unused(int x) { return x * 2; }\n"},
+                     {"main.c", "int used(int);\nint main(void) { return used(-1); }\n"},
+                     {"mtest.toml",
+                      "[programs.p]\ncommand = [\"./prog\"]\n"
+                      "[coverage]\nobjects = \"obj\"\ndatabase = \"compile_commands.json\"\n"}});
+        std::filesystem::create_directories(root / "obj");
+        std::string db = "[";
+        for (const char* f : {"a", "b", "main"}) {
+            auto r =
+                e2e::run({.argv = {mcpplibs::os::fs::utf8(*gcc), "--coverage", "-c",
+                                   std::string(f) + ".c", "-o", "obj/" + std::string(f) + ".o"},
+                          .cwd = root});
+            if (r.status != 0)
+                return;  // no plain C toolchain on this machine: the case above covers the format
+            db += std::format(R"({}{{"directory":"{}","file":"{}.c","output":"obj/{}.o"}})",
+                              db.size() > 1 ? "," : "", mcpplibs::os::fs::generic_utf8(root), f, f);
+        }
+        std::ofstream(root / "compile_commands.json") << db << "]";
+        auto link = e2e::run({.argv = {mcpplibs::os::fs::utf8(*gcc), "--coverage", "obj/a.o",
+                                       "obj/b.o", "obj/main.o", "-o", "prog"},
+                              .cwd = root});
+        if (link.status != 0)
+            return;
+        auto run = json_of(mtest(root, {"run", "--json", "--coverage"}));
+        expect(eq(run["status"].get<std::string>(), std::string("pass"))) << run.dump();
+        auto map = json_of(mtest(root, {"coverage", "--json"}));
+        const auto& files = map["cases"]["p::p"];
+        expect(std::ranges::find(files, json("a.c")) != files.end()) << map.dump();
+        expect(std::ranges::find(files, json("b.c")) == files.end()) << map.dump();
+        auto changed = json_of(mtest(root, {"plan", "--json", "--changed", "b.c"}));
+        expect(eq(changed["selected"].get<int>(), 0)) << changed.dump();
+    };
+    "the cases a test file declares, read without building it"_test[kind::e2e] = [] {
+        auto root = project(
+            {{"tests/unit/parse.cpp",
+              "import mcpplibs.mtest;\nusing namespace mcpplibs::mtest;\n"
+              "suite parsing{\"parsing\", [] {\n"
+              "    \"an empty line\"_test[tag{\"fast\"}] = [] { expect(true); };\n"
+              "    // \"commented\"_test = [] {};\n"
+              "    \"fields\"_test[kind::e2e] = [] {\n        \"one\"_test = [] {};\n    };\n"
+              "}};\n"},
+             {"mcpp.toml",
+              "[package]\nname = \"p\"\nversion = \"0.1.0\"\n"
+              "[package.metadata.mtest.cases.\"parsing/fields*\"]\nresources = [\"serial:db\"]\n"},
+             {"mtest.toml", "[host]\nkind = \"mcpp\"\n"}});
+        auto j = json_of(mtest(root, {"list", "--static", "--json"}));
+        expect(eq(j["cases"].get<int>(), 3)) << j.dump();
+        const auto& cases = j["programs"][0]["cases"];
+        expect(eq(j["programs"][0]["program"].get<std::string>(), std::string("unit/parse")));
+        expect(eq(cases[0]["case"].get<std::string>(), std::string("parsing/an empty line")));
+        expect(eq(cases[0]["tags"][0].get<std::string>(), std::string("fast")));
+        expect(eq(cases[0]["line"].get<int>(), 4));
+        expect(eq(cases[1]["kind"].get<std::string>(), std::string("e2e")));
+        expect(eq(cases[2]["case"].get<std::string>(), std::string("parsing/fields/one")));
+        expect(eq(cases[1]["resources"][0].get<std::string>(), std::string("serial:db")));
+    };
     return report();
 }

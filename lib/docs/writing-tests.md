@@ -27,7 +27,7 @@ suite parsing{"parsing", [] {
 - A file declares suites and defines no `main` (with mcpp 2026.11.8.1 or later; an earlier mcpp
   needs `[test] main = { from = "mtest/main" }`). A file that defines `main` declares its cases in it
   and returns `report()`.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.1.0"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.2.0"`.
 - A case's identifier is `<suite>/<name>`; it is stable, so a selection and a history name it.
 
 ## Expectations
@@ -68,6 +68,10 @@ skipped, `fail("why")` as failed.
 
 A failure reads `case parsing/a field holds its text failed at tests/parsing.cpp:12: ...`; the JSON
 record has `expected` and `actual`.
+
+Attributes stated beside the code, `[package.metadata.mtest.cases."<glob>"]` in mcpp.toml (`tags`,
+`resources`, `kind`, `timeout`), apply to the cases a glob matches and take precedence over what the
+program lists. `mtest list --static` reads the cases a file declares without building it.
 
 More: [mtest](https://github.com/mcpp-community/mtest) — the library, the protocol
 (`spec/protocol.md`), and the engine `mtest` for history, analysis and gates.

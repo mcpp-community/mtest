@@ -22,6 +22,7 @@ struct program_spec {
     std::chrono::seconds timeout{300};
     std::string isolation = "process";  // "process" or "case"
     std::string origin = "config";      // "given" (the command line), "config", "discover", "host"
+    std::string kind = "unit";          // the kind of an L0 program's one case
 };
 
 struct case_info {

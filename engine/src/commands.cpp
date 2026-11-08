@@ -9,8 +9,12 @@ import mcpplibs.mtest.engine.schedule;
 import mcpplibs.mtest.engine.analysis;
 import mcpplibs.mtest.engine.output;
 import mcpplibs.mtest.engine.exec;
+import mcpplibs.mtest.engine.coverage;
+import mcpplibs.mtest.manifest;
 
 namespace mcpplibs::mtest::engine {
+
+namespace manifest = mcpplibs::mtest::manifest;
 
 namespace os = mcpplibs::os;
 
@@ -128,6 +132,12 @@ std::expected<selection_request, answer> selection_of(const context& ctx, const 
             return std::unexpected(usage(std::format("budget {} is not a duration (60s, 5m)", b)));
         r.budget = d;
     }
+    if (auto sh = text_of(p, "shard"); !sh.empty()) {
+        auto parts = parse_shard(sh);
+        if (!parts)
+            return std::unexpected(usage(parts.error()));
+        r.shard = *parts;
+    }
     if (r.set == "pr" && !r.changed) {
         // The `pr` set is the change's: against the branch a pull request merges into, else main.
         const auto base = os::env::get("GITHUB_BASE_REF").value_or("");
@@ -195,6 +205,7 @@ answer finish_run(const context& ctx, const run_record& r, const json& p, const 
             failing_cases.push_back(
                 {{"program", c.program},
                  {"case", c.id},
+                 {"kind", c.kind},
                  {"status", c.status},
                  {"where", c.failures.empty()
                                ? std::string{}
@@ -269,8 +280,88 @@ answer cmd_run(const std::filesystem::path& cwd, const json& p,
     o.set = sel->set;
     o.selection = describe_selection(p);
     o.on_event = events;
+    // `--coverage`: the run measures the coverage map (docs/coverage.md).
+    std::map<std::filesystem::path, std::vector<std::string>> coverage_cases;
+    if (p.value("coverage", false)) {
+        if (ctx->cfg.coverage.objects.empty())
+            return usage("--coverage needs [coverage] objects and database in mtest.toml");
+        o.coverage_dir = ctx->st.dir / "work" / "coverage";
+        std::error_code ec;
+        std::filesystem::remove_all(*o.coverage_dir, ec);
+        o.coverage_strip = gcov_strip(ctx->cfg.root / os::fs::from_utf8(ctx->cfg.coverage.objects));
+        o.coverage_cases = &coverage_cases;
+    }
     auto r = execute(ctx->cfg, ctx->st, *pl, o);
+    if (o.coverage_dir) {
+        auto m = collect_coverage(ctx->cfg, coverage_cases, r.commit);
+        if (!m)
+            pl->notes.push_back("coverage: " + m.error());
+        else {
+            write_coverage(coverage_file(ctx->st), *m);
+            std::size_t files = 0;
+            for (const auto& [_, f] : m->cases)
+                files = std::max(files, f.size());
+            pl->notes.push_back(std::format("coverage: {} case(s) mapped, at most {} file(s) each",
+                                            m->cases.size(), files));
+        }
+        std::error_code ec;
+        std::filesystem::remove_all(*o.coverage_dir, ec);
+    }
     return finish_run(*ctx, r, p, *pl);
+}
+
+// `mtest coverage show|import`: the store's coverage map, or another taken in (a CI artifact).
+answer cmd_coverage(const std::filesystem::path& cwd, const json& p) {
+    auto ctx = open(cwd);
+    if (!ctx)
+        return ctx.error();
+    const auto action = text_of(p, "action");
+    const auto file = coverage_file(ctx->st);
+    if (action == "import") {
+        const auto from = text_of(p, "from");
+        if (from.empty())
+            return usage("coverage import needs --from FILE");
+        auto m = read_coverage(cwd / os::fs::from_utf8(from));
+        if (!m)
+            return usage(m.error());
+        write_coverage(file, *m);
+        return {0,
+                {{"cases", m->cases.size()},
+                 {"commit", m->commit},
+                 {"conclusion", std::format("the coverage map of {} ({} case(s)) is the store's",
+                                            m->commit.substr(0, 12), m->cases.size())}},
+                std::format("coverage map of {} taken in: {} case(s)\n", m->commit.substr(0, 12),
+                            m->cases.size())};
+    }
+    if (!action.empty() && action != "show")
+        return usage(std::format("coverage {}: the actions are show and import", action));
+    auto m = read_coverage(file);
+    if (!m)
+        return {0,
+                {{"conclusion", "the store has no coverage map: affected selection reads "
+                                "programs' sources and cases' artifacts only"}},
+                "no coverage map\n"};
+    const bool fresh = fresh_coverage(ctx->st, ctx->cfg.coverage.max_age).has_value();
+    json cases = json::object();
+    std::string text = std::format("coverage map of {} at {}{}\n", m->commit.substr(0, 12), m->time,
+                                   fresh ? "" : " (older than [coverage] max_age: not read)");
+    const auto only = strings(p, "case");
+    for (const auto& [k, files] : m->cases) {
+        if (!only.empty() &&
+            !std::ranges::any_of(only, [&](const std::string& g) { return glob_match(g, k); }))
+            continue;
+        cases[k] = files;
+        text += std::format("{}: {} file(s)\n", k, files.size());
+    }
+    return {0,
+            {{"commit", m->commit},
+             {"time", m->time},
+             {"fresh", fresh},
+             {"cases", cases},
+             {"conclusion",
+              std::format("{} case(s) mapped at {}{}", m->cases.size(), m->commit.substr(0, 12),
+                          fresh ? "" : "; older than max_age")}},
+            text};
 }
 
 answer cmd_plan(const std::filesystem::path& cwd, const json& p) {
@@ -319,7 +410,97 @@ answer cmd_plan(const std::filesystem::path& cwd, const json& p) {
             text};
 }
 
+// `mtest list --static`: the cases the test files declare, read from their text (the static case
+// manifest, lib/src/manifest.cppm), with the attributes mtest.toml and the host state. Nothing is
+// built or run; a built program's own listing is the authority.
+answer cmd_list_static(const std::filesystem::path& cwd) {
+    auto ctx = open(cwd);
+    if (!ctx)
+        return ctx.error();
+    const auto& globs = ctx->cfg.static_globs;
+    if (globs.empty())
+        return usage(
+            "--static reads [static] globs in mtest.toml, or a host's tests; none is stated");
+    auto literal_prefix = [](std::string_view g) {
+        const auto wild = g.find_first_of("*?[");
+        const auto cut = g.substr(0, wild).rfind('/');
+        return cut == std::string_view::npos ? std::string{} : std::string(g.substr(0, cut + 1));
+    };
+    auto first_match = [&](const std::string& rel) -> std::optional<std::string> {
+        for (const auto& g : globs)
+            if (g.starts_with('!') && path_glob_match(std::string_view(g).substr(1), rel))
+                return std::nullopt;
+        for (const auto& g : globs)
+            if (!g.starts_with('!') && path_glob_match(g, rel))
+                return literal_prefix(g);
+        return std::nullopt;
+    };
+    json programs = json::array();
+    std::size_t total = 0;
+    std::string text;
+    std::error_code ec;
+    std::vector<std::filesystem::path> files;
+    for (std::filesystem::recursive_directory_iterator it(ctx->cfg.root, ec), end; it != end;
+         it.increment(ec)) {
+        const auto rel =
+            os::fs::generic_utf8(std::filesystem::relative(it->path(), ctx->cfg.root, ec));
+        const auto top = rel.substr(0, rel.find('/'));
+        if (top == ".git" || top == ".mtest" || top == "target") {
+            if (it->is_directory())
+                it.disable_recursion_pending();
+            continue;
+        }
+        if (it->is_regular_file(ec))
+            files.push_back(it->path());
+    }
+    std::ranges::sort(files);
+    for (const auto& file : files) {
+        const auto rel = os::fs::generic_utf8(std::filesystem::relative(file, ctx->cfg.root, ec));
+        const auto base = first_match(rel);
+        if (!base)
+            continue;
+        std::ifstream in(file, std::ios::binary);
+        const std::string source((std::istreambuf_iterator<char>(in)), {});
+        auto name = rel.substr(base->size());
+        if (const auto dot = name.rfind('.');
+            dot != std::string::npos && name.find('/', dot) == std::string::npos)
+            name.erase(dot);
+        json cases = json::array();
+        for (const auto& sc : manifest::scan(source)) {
+            case_info ci;
+            ci.id = sc.id;
+            ci.name = sc.name;
+            ci.file = rel;
+            ci.line = sc.line;
+            ci.kind = sc.kind;
+            ci.tags = sc.tags;
+            apply_attributes(ctx->cfg, name, ci);
+            cases.push_back({{"case", ci.id},
+                             {"name", ci.name},
+                             {"file", ci.file},
+                             {"line", ci.line},
+                             {"kind", ci.kind},
+                             {"tags", ci.tags},
+                             {"resources", ci.resources}});
+            text += std::format("{}::{}  {}:{}\n", name, ci.id, rel, ci.line);
+        }
+        total += cases.size();
+        programs.push_back({{"program", name}, {"file", rel}, {"cases", cases}});
+    }
+    return {0,
+            {{"programs", programs},
+             {"cases", total},
+             {"static", true},
+             {"conclusion",
+              std::format("{} case(s) declared in {} test file(s), read without building", total,
+                          programs.size())}},
+            text +
+                std::format("{} case(s) in {} file(s), read statically\n", total, programs.size())};
+}
+
 answer cmd_list(const std::filesystem::path& cwd, const json& p) {
+    if (p.value("static", false))
+        return cmd_list_static(cwd);
     json q = p;
     if (!q.contains("set"))
         q.erase("set");
@@ -1062,6 +1243,8 @@ answer dispatch(const std::filesystem::path& cwd, std::string_view command, cons
     }
     if (command == "plan" || command == "affected")
         return cmd_plan(cwd, p);
+    if (command == "coverage")
+        return cmd_coverage(cwd, p);
     if (command == "list")
         return cmd_list(cwd, p);
     if (command == "status")
@@ -1141,6 +1324,9 @@ json catalog() {
           {"description", "changed paths: only the cases they affect"}}},
         {"budget",
          {{"type", "string"}, {"description", "a duration: the most useful cases that fit"}}},
+        {"shard",
+         {{"type", "string"},
+          {"description", "I/N: the I-th of N parts by expected time, the same on every machine"}}},
         {"failed",
          {{"type", "boolean"}, {"description", "only the cases that failed in the last run"}}},
         {"argv",
@@ -1179,6 +1365,9 @@ json catalog() {
                 {"items", {{"type", "string"}}},
                 {"description", "a command the programs run under"}}},
               {"verbose", {{"type", "boolean"}, {"description", "every case, not only failures"}}},
+              {"coverage",
+               {{"type", "boolean"},
+                {"description", "measure the coverage map ([coverage] in mtest.toml)"}}},
               {"report",
                {{"type", "object"},
                 {"properties",
@@ -1192,7 +1381,12 @@ json catalog() {
         with({}), true);
     add("plan", "What a selection would run, and why each case is in it; nothing runs.", with({}));
     add("affected", "The cases a change affects (since or changed), as plan.", with({}));
-    add("list", "The programs and the cases each lists.", with({}));
+    add("list",
+        "The programs and the cases each lists; --static: the cases the test files declare, read "
+        "without building.",
+        with({{"static",
+               {{"type", "boolean"},
+                {"description", "read the test files' text; build and run nothing"}}}}));
     add("status", "The runs in progress, and the last run.", plain({}));
     add("cancel", "Stop a run in progress after the programs now running.", plain(run_id), true);
     add("report", "A stored run as text, JSON, JUnit XML or HTML.",
@@ -1239,6 +1433,11 @@ json catalog() {
                {"reason", {{"type", "string"}}},
                {"until", {{"type", "string"}}}}),
         true);
+    add("coverage",
+        "The coverage map affected selection reads: show it, or import one (a CI artifact).",
+        plain({{"action", {{"enum", {"show", "import"}}}},
+               {"from", {{"type", "string"}, {"description", "import: a coverage map file"}}},
+               {"case", {{"type", "array"}, {"items", {{"type", "string"}}}}}}));
     add("store", "The store: gc, verify, or import another store.",
         plain({{"action", {{"enum", {"gc", "verify", "import"}}}},
                {"from", {{"type", "string"}, {"description", "a store to import"}}},
@@ -1263,7 +1462,7 @@ json catalog() {
                {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
                {"run", run_id["run"]},
                {"from", {{"type", "string"}}}}));
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.1.0"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.2.0"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

@@ -186,6 +186,11 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
             req.seed = o.seed;
             req.env = o.env;
             req.run_under = o.run_under;
+            if (o.coverage_dir) {
+                req.env.emplace_back("GCOV_PREFIX",
+                                     os::fs::utf8(*o.coverage_dir / std::to_string(mine)));
+                req.env.emplace_back("GCOV_PREFIX_STRIP", std::to_string(o.coverage_strip));
+            }
             auto outcome = run_program(it.program, req);
             // Retries: a failing case the project marks unstable (tag `flaky`) or has quarantined
             // runs again, alone; one that then passes is `flaky`, which does not fail the run and
@@ -241,6 +246,11 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
                                 {"total", items.size()},
                                 {"failed", failed},
                                 {"started", rec.started}});
+                if (o.coverage_dir && o.coverage_cases) {
+                    auto& cases = (*o.coverage_cases)[*o.coverage_dir / std::to_string(mine)];
+                    for (const auto& cr : outcome.cases)
+                        cases.push_back(cr.program + "::" + cr.id);
+                }
                 outcomes.emplace_back(mine, std::move(outcome));
             }
             cv.notify_all();

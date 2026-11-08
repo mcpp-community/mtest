@@ -1,4 +1,5 @@
 /* The conformance fixture of the C ABI (spec/conformance.md), level 3. */
+#include <math.h>
 #include <stddef.h>
 
 #include "../include/mtest.h"
@@ -12,6 +13,10 @@ static void run(const char* id, const char* status, const char* reason, int fail
     if (id[0] == 'm' && id[1] == 'e') {
         const double samples[] = {0.4, 0.5, 0.6};
         mtest_metric(id, "elapsed", 0.5, "s", samples, 3);
+    }
+    if (id[0] == 'b') {
+        mtest_bound(id, "elapsed", NAN, 0.1);
+        mtest_metric(id, "elapsed", 0.5, "s", NULL, 0);
     }
     mtest_end(id, status, reason);
 }
@@ -32,6 +37,8 @@ int main(void) {
         mtest_case("holds", __FILE__, __LINE__, "unit");
         mtest_case_resource("serial:db");
         mtest_case_artifact("file:data/x.txt");
+        mtest_case("bounded", __FILE__, __LINE__, NULL);
+        mtest_bound("bounded", "elapsed", NAN, 0.1);
         return mtest_done();
     }
     run("passes", "pass", NULL, 0);
@@ -42,5 +49,6 @@ int main(void) {
     run("measures", "pass", NULL, 0);
     run("covers", "pass", NULL, 0);
     run("holds", "pass", NULL, 0);
+    run("bounded", "pass", NULL, 0); /* its bound fails it */
     return mtest_done();
 }

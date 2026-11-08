@@ -126,6 +126,8 @@ report_reading read_report(std::string_view text, std::string_view program) {
                 c.tags = strings_of(e, "tags");
             if (e.contains("clauses"))
                 c.clauses = strings_of(e, "clauses");
+            if (e.contains("bounds"))
+                c.bounds = bounds_from(e);
         } else if (kind == "failure") {
             at(id).failures.push_back({e.value("file", ""), e.value("message", ""),
                                        e.value("expected", ""), e.value("actual", ""),

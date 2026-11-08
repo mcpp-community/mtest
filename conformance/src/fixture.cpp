@@ -17,5 +17,6 @@ int main() {
     };
     "covers"_test[kind::cts][clause{"P3.1"}] = [] {};
     "holds"_test[resource{"serial:db"}][artifact{"file:data/x.txt"}] = [] {};
+    "bounded"_test[at_most{"elapsed", 0.1}] = [] { metric("elapsed", 0.5, "s"); };
     return report();
 }

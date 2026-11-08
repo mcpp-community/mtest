@@ -122,7 +122,7 @@ void write_coverage(const std::filesystem::path& file, const coverage_map& m) {
     const auto tmp = file.string() + ".tmp";
     {
         std::ofstream out(tmp, std::ios::binary);
-        out << j.dump() << '\n';
+        out << dumped(j) << '\n';
     }
     std::filesystem::rename(tmp, file, ec);
 }

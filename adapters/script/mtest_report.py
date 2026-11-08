@@ -102,21 +102,58 @@ def skip(reason):
 
 def metric(name, value, unit, samples=(), better="lower"):
     """A metric of the current case (P6)."""
+    if _current is not None:
+        _current["metrics"][name] = value
     fields = dict(e="metric", id=_current["id"] if _current else "", name=name, value=value, unit=unit, better=better)
     if samples:
         fields["samples"] = list(samples)
     _event(**fields)
 
 
-def case(id, tags=(), kind="unit", clauses=(), resources=(), artifacts=(), expect_fail=None, skip_reason=None):
-    """Declares a case: lists it, runs it, or passes over it, as the runner asks."""
+def _bounds_json(at_most, at_least):
+    out = [{"metric": m, "max": v} for m, v in at_most.items()]
+    out += [{"metric": m, "min": v} for m, v in at_least.items()]
+    return out
+
+
+def _check_bounds(at_most, at_least):
+    """P6.5: each bound on the metrics the case reported, as an expectation at its end."""
+    reported = _current["metrics"]
+    for name, limit, side in [(m, v, "max") for m, v in at_most.items()] + [(m, v, "min") for m, v in at_least.items()]:
+        if name not in reported:
+            _failure(f"the case reported no metric `{name}`, which it bounds", depth=3)
+        elif side == "max" and reported[name] > limit:
+            _failure(f"metric {name} = {reported[name]:g}, over its bound {limit:g} (at_most)", depth=3)
+        elif side == "min" and reported[name] < limit:
+            _failure(f"metric {name} = {reported[name]:g}, under its bound {limit:g} (at_least)", depth=3)
+
+
+def case(id, tags=(), kind=None, clauses=(), resources=(), artifacts=(), expect_fail=None, skip_reason=None,
+         timeout=None, isolate=False, retries=None, diagnose=None, at_most=None, at_least=None):
+    """Declares a case: lists it, runs it, or passes over it, as the runner asks. A case that states no
+    kind is of its program's (its directory's, docs/layout.md). `timeout` (seconds), `isolate`,
+    `retries` and `diagnose` ({"env": {...}, "timeout": seconds}) are how a runner runs it (P3.3);
+    `at_most` and `at_least` ({metric: value}) bound its metrics (P6.5)."""
+    at_most, at_least = dict(at_most or {}), dict(at_least or {})
     def declare(fn):
         global _failed, _current
         _seen.append(id)
         file, line = inspect.getsourcefile(fn) or "", inspect.getsourcelines(fn)[1]
         if _mode == "list":
-            fields = dict(e="case", id=id, name=id, file=file, line=line, kind=kind, tags=list(tags), clauses=list(clauses),
+            fields = dict(e="case", id=id, name=id, file=file, line=line, tags=list(tags), clauses=list(clauses),
                           resources=list(resources), artifacts=list(artifacts))
+            if kind:
+                fields["kind"] = kind
+            if timeout:
+                fields["timeout"] = timeout
+            if isolate:
+                fields["isolation"] = "case"
+            if retries:
+                fields["retries"] = retries
+            if diagnose:
+                fields["diagnose"] = diagnose
+            if at_most or at_least:
+                fields["bounds"] = _bounds_json(at_most, at_least)
             if skip_reason:
                 fields["expect"] = "skip"
             elif expect_fail:
@@ -131,9 +168,10 @@ def case(id, tags=(), kind="unit", clauses=(), resources=(), artifacts=(), expec
         if skip_reason:
             status, reason = "skip", skip_reason
         else:
-            _current = {"id": id, "failed": False}
+            _current = {"id": id, "failed": False, "metrics": {}}
             try:
                 fn()
+                _check_bounds(at_most, at_least)
             except _Fatal:
                 pass
             except _Skip as s:

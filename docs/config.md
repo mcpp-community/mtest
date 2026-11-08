@@ -58,6 +58,7 @@ retries     = 2                         # runs again, alone, after failing
 diagnose    = { env = { APP_LOG = "debug" }, timeout = "60s" }   # once more after a failure, kept
 skip        = "not on this host"        # recorded as skipped, not run
 expect_fail = "a defect upstream"       # a failure is xfail, a pass xpass
+at_most     = { ready = 15 }            # bounds on its metrics (P6.5); at_least likewise
 
 # The test files `mtest list --static` reads; with host.kind = "mcpp", mcpp.toml's [test] discover
 # (else tests/**/*.cpp).

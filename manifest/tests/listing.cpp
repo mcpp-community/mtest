@@ -26,8 +26,24 @@ Suite plain{"plain", tag{"fast"}, [] { "inner"_test[kind::e2e] = [] {}; }};
 UTest unit{"unit", resource{"serial:db"}, [] {}};
 CTS spec{"spec", clause{"P3.3"}, [] {}};
 E2E cli{"cli", resource{"serial:home"}, artifact{"file:data"}, [] {}};
-Bench measured{"measured", [] {}};
+Bench measured{"measured", at_most{"ready", 15}, at_least{"recall", 0.9}, [] {
+                   metric("ready", 1.5, "s");
+                   metric("recall", 0.95, "1");
+               }};
 Timed timed{"timed", [] {}};
+
+std::vector<mf::static_bound> bounds_of(const json& j) {
+    std::vector<mf::static_bound> out;
+    for (const auto& b : j.value("bounds", json::array())) {
+        mf::static_bound one{b.value("metric", ""), std::nullopt, std::nullopt};
+        if (b.contains("max"))
+            one.max = b["max"].get<double>();
+        if (b.contains("min"))
+            one.min = b["min"].get<double>();
+        out.push_back(one);
+    }
+    return out;
+}
 
 std::vector<std::string> strings(const json& j, const char* key) {
     std::vector<std::string> out;
@@ -79,6 +95,7 @@ int main(int argc, char** argv) {
             expect(eq(sc.clauses, strings(it->second, "clauses"))) << sc.id;
             expect(eq(sc.artifacts, strings(it->second, "artifacts"))) << sc.id;
             expect(eq(sc.line, it->second.value("line", 0))) << sc.id;
+            expect(sc.bounds == bounds_of(it->second)) << sc.id << ": the bounds";
         }
         expect(eq(compared, cases.size()));
     };
@@ -90,6 +107,11 @@ int main(int argc, char** argv) {
         expect(fatal(inner != cases.end()));
         expect(eq(inner->kind, std::string("e2e")));
         expect(eq(inner->tags, std::vector<std::string>{"fast"}));
+        auto bounded = std::ranges::find(cases, std::string("measured"), &mf::static_case::id);
+        expect(fatal(bounded != cases.end()));
+        expect(eq(bounded->bounds.size(), std::size_t(2)));
+        expect(bounded->bounds[0].max == std::optional<double>(15) &&
+               bounded->bounds[1].min == std::optional<double>(0.9));
     };
     return report();
 }

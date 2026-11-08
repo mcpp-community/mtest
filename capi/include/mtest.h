@@ -42,6 +42,10 @@ void mtest_case_retries(int count);
 /* After the case last listed fails, the runner runs it once more with NAME=VALUE added to its
    environment, within `seconds` (0: its own limit) (P3.3). Each call adds a variable. */
 void mtest_case_diagnose(const char* name, const char* value, double seconds);
+/* A bound on a metric of case `id` (P6.5), in the metric's unit; NAN for a side it does not bound.
+   Stated when the case is listed and when it runs: at mtest_end, a metric over `max` or under
+   `min`, or one it bounds and did not report, fails the case. */
+void mtest_bound(const char* id, const char* metric, double min, double max);
 /* The case last listed is expected to fail (level 3). */
 void mtest_case_expect_fail(void);
 /* Whether the case runs (MTEST_SELECT); every case runs when the runner selected none (P4). */

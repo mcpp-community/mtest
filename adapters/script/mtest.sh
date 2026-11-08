@@ -18,6 +18,7 @@ _mtest_select="${MTEST_SELECT:-}"
 _mtest_failed=0
 _mtest_seen=()
 _mtest_case=""
+_mtest_metrics=""  # `name=value` words of the case that runs, for its bounds
 _mtest_case_failed=0
 _mtest_started=$(date +%s%N 2>/dev/null || echo 0)
 _mtest_counts=""   # `status=n` words: Bash 3.2 (macOS) has no associative arrays
@@ -38,7 +39,7 @@ _mtest_list() {   # a JSON array of the arguments
 _mtest_event() { [ -n "$_mtest_report" ] && printf '{%s}\n' "$1" >> "$_mtest_report"; return 0; }
 _mtest_ms() { local now; now=$(date +%s%N 2>/dev/null || echo 0); echo $(( (now - _mtest_started) / 1000000 )); }
 
-_mtest_event '"e":"program","protocol":1,"level":3,"framework":"mtest.sh","version":"0.3.0","isolation":["process","case"]'
+_mtest_event '"e":"program","protocol":1,"level":3,"framework":"mtest.sh","version":"0.4.0","isolation":["process","case"]'
 
 _mtest_selected() {
     [ -z "$_mtest_select" ] && return 0
@@ -52,12 +53,13 @@ _mtest_selected() {
 
 # mtest_case ID FUNCTION [--tag T] [--kind K] [--clause C] [--resource R] [--artifact A] [--timeout SECONDS]
 #            [--isolate] [--retries N] [--diagnose-env NAME=VALUE] [--diagnose-timeout SECONDS]
+#            [--at-most METRIC=VALUE] [--at-least METRIC=VALUE]
 #            [--expect-fail REASON] [--skip REASON]
 # A case that states no kind is of the program's (its directory's, docs/layout.md).
 mtest_case() {
     local id="$1" fn="$2"; shift 2
     local tags=() clauses=() resources=() artifacts=() kind="" limit="" xfail="" skip=""
-    local isolate="" retries="" diagnose=() diagnose_limit=""
+    local isolate="" retries="" diagnose=() diagnose_limit="" bounds=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --tag) tags+=("$2"); shift 2 ;;
@@ -70,6 +72,8 @@ mtest_case() {
             --retries) retries="$2"; shift 2 ;;
             --diagnose-env) diagnose+=("$2"); shift 2 ;;
             --diagnose-timeout) diagnose_limit="$2"; shift 2 ;;
+            --at-most) bounds+=("max:$2"); shift 2 ;;
+            --at-least) bounds+=("min:$2"); shift 2 ;;
             --expect-fail) xfail="$2"; shift 2 ;;
             --skip) skip="$2"; shift 2 ;;
             *) echo "mtest_case: unknown option $1" >&2; shift ;;
@@ -91,6 +95,14 @@ mtest_case() {
             done
             ev+=",\"diagnose\":{\"env\":{$env_fields}${diagnose_limit:+,\"timeout\":$diagnose_limit}}"
         fi
+        if [ ${#bounds[@]} -gt 0 ]; then
+            local list="" b
+            for b in "${bounds[@]}"; do
+                local side="${b%%:*}" spec="${b#*:}"
+                list+="${list:+,}{\"metric\":$(_mtest_json "${spec%%=*}"),\"$side\":${spec#*=}}"
+            done
+            ev+=",\"bounds\":[$list]"
+        fi
         [ -n "$skip" ] && ev+=',"expect":"skip"'
         [ -n "$xfail" ] && [ -z "$skip" ] && ev+=',"expect":"fail"'
         _mtest_event "$ev"
@@ -103,9 +115,10 @@ mtest_case() {
     if [ -n "$skip" ]; then
         status=skip; reason="$skip"
     else
-        _mtest_case="$id"; _mtest_case_failed=0; _mtest_skip_reason=""
+        _mtest_case="$id"; _mtest_case_failed=0; _mtest_skip_reason=""; _mtest_metrics=""
         local rc=0
         "$fn" || rc=$?
+        [ -z "$_mtest_skip_reason" ] && [ ${#bounds[@]} -gt 0 ] && _mtest_check_bounds "${bounds[@]}"
         if [ -n "$_mtest_skip_reason" ]; then status=skip; reason="$_mtest_skip_reason"
         elif [ $_mtest_case_failed -ne 0 ] || [ $rc -ne 0 ]; then
             status=fail
@@ -161,9 +174,23 @@ mtest_check() {
 }
 # mtest_skip REASON: the case ends skipped (return after it).
 mtest_skip() { _mtest_skip_reason="$1"; }
+# P6.5: each bound (`max:NAME=V`, `min:NAME=V`) on the metrics the case reported.
+_mtest_check_bounds() {
+    local b side spec name limit value
+    for b in "$@"; do
+        side="${b%%:*}"; spec="${b#*:}"; name="${spec%%=*}"; limit="${spec#*=}"
+        value=$(printf '%s\n' $_mtest_metrics | awk -F= -v n="$name" '$1 == n { v = $2 } END { print v }')
+        if [ -z "$value" ]; then
+            _mtest_fail_at "the case reported no metric \`$name\`, which it bounds" "${BASH_SOURCE[2]:-$0}" "${BASH_LINENO[1]:-0}"
+        elif awk -v v="$value" -v l="$limit" -v s="$side" 'BEGIN { exit !((s == "max" && v > l) || (s == "min" && v < l)) }'; then
+            _mtest_fail_at "metric $name = $value, $([ "$side" = max ] && echo over || echo under) its bound $limit ($([ "$side" = max ] && echo at_most || echo at_least))" "${BASH_SOURCE[2]:-$0}" "${BASH_LINENO[1]:-0}"
+        fi
+    done
+}
 # mtest_metric NAME VALUE UNIT [SAMPLE...]: a metric of the case (P6).
 mtest_metric() {
     local name="$1" value="$2" unit="$3"; shift 3
+    _mtest_metrics+=" $name=$value"
     local samples="" x
     for x in "$@"; do samples+="${samples:+,}$x"; done
     _mtest_event "\"e\":\"metric\",\"id\":$(_mtest_json "$_mtest_case"),\"name\":$(_mtest_json "$name"),\"value\":$value,\"unit\":$(_mtest_json "$unit")${samples:+,\"samples\":[$samples]}"

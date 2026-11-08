@@ -98,7 +98,7 @@ const json* tool_named(const json& tools, std::string_view name) {
 
 cmdline::App application(const json& tools) {
     auto app = cmdline::App("mtest")
-                   .version("0.3.0")
+                   .version("0.4.0")
                    .description("run tests of any language, and ask about their runs")
                    .option(cmdline::Option("json").global().help("print the answer's data"));
     for (const auto& t : tools)
@@ -253,7 +253,7 @@ int main(int argc, char** argv) {
     const std::string name(parsed->subcommand_name());
     const auto& sub = parsed->subcommand()->get();
     if (name == "version") {
-        std::println("mtest 0.3.0");
+        std::println("mtest 0.4.0");
         return 0;
     }
     const auto cwd = std::filesystem::current_path();
@@ -278,7 +278,7 @@ int main(int argc, char** argv) {
         (*params)["argv"] = program;
     auto a = dispatch(cwd, name == "bisect-step" ? name : dispatched, *params, {});
     if (parsed->is_flag_set("json"))
-        std::println("{}", a.data.dump(2));
+        std::println("{}", dumped(a.data, 2));
     else if (a.status == 2)
         std::print(std::cerr, "{}", a.text);
     else

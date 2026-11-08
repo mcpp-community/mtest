@@ -185,7 +185,7 @@ std::string describe_selection(const json& p) {
     q.erase("programs");
     q.erase("argv");
     q.erase("report");
-    return q.dump();
+    return dumped(q);
 }
 
 answer finish_run(const context& ctx, const run_record& r, const json& p, const plan& pl) {
@@ -203,7 +203,7 @@ answer finish_run(const context& ctx, const run_record& r, const json& p, const 
             all["timeline"] = json::array();
             for (const auto& pr : r.programs)
                 all["timeline"].push_back(to_json(pr));
-            (void)os::fs::write(os::fs::from_utf8(f), all.dump(2) + "\n");
+            (void)os::fs::write(os::fs::from_utf8(f), dumped(all, 2) + "\n");
         }
     }
     json failing_cases = json::array();
@@ -598,7 +598,7 @@ answer cmd_report(const std::filesystem::path& cwd, const json& p) {
         data["cases"].push_back(to_json(c));
     data["conclusion"] = std::format("run {} {}", r->id, r->status);
     if (format == "json")
-        body = data.dump(2) + "\n";
+        body = dumped(data, 2) + "\n";
     if (auto out = text_of(p, "out"); !out.empty()) {
         (void)os::fs::write(os::fs::from_utf8(out), body);
         body = std::format("wrote {}\n", out);
@@ -763,6 +763,74 @@ answer cmd_query(const std::filesystem::path& cwd, const json& p) {
     return {0, {{"rows", rows}, {"conclusion", std::format("{} row(s)", rows.size())}}, text};
 }
 
+// `analyze trend`: each metric of each case over the last `count` stored runs, oldest first, beside
+// the bounds the case states (P6.5): its last value, its range and median, and how far the last is
+// from its bound.
+json trend(const store& s, std::size_t count, const std::vector<std::string>& cases) {
+    struct series {
+        std::string program, id, metric, unit;
+        std::vector<double> values;
+        std::vector<bound_info> bounds;
+    };
+    std::map<std::string, series> all;
+    const auto stored = runs(s);
+    const std::size_t from = stored.size() > count ? stored.size() - count : 0;
+    auto take = [&](const case_result& c) {
+        const bool wanted =
+            cases.empty() || std::ranges::any_of(cases, [&](const std::string& g) {
+                return glob_match(g, c.id) || glob_match(g, c.program + "::" + c.id);
+            });
+        if (!wanted)
+            return;
+        for (const auto& m : c.metrics) {
+            auto& one = all[c.program + "::" + c.id + "::" + m.name];
+            one.program = c.program;
+            one.id = c.id;
+            one.metric = m.name;
+            one.unit = m.unit;
+            one.values.push_back(m.value);
+            if (!c.bounds.empty())
+                one.bounds = c.bounds;
+        }
+    };
+    for (std::size_t i = from; i < stored.size(); ++i)
+        if (auto r = load_run(s, stored[i].id))
+            std::ranges::for_each(r->cases, take);
+    json items = json::array();
+    std::size_t over = 0;
+    for (auto& [key, one] : all) {
+        auto sorted = one.values;
+        std::ranges::sort(sorted);
+        const double last = one.values.back();
+        json item = {{"program", one.program},
+                     {"case", one.id},
+                     {"metric", one.metric},
+                     {"unit", one.unit},
+                     {"runs", one.values.size()},
+                     {"last", last},
+                     {"min", sorted.front()},
+                     {"max", sorted.back()},
+                     {"median", sorted[sorted.size() / 2]},
+                     {"values", one.values}};
+        const auto b = std::ranges::find(one.bounds, one.metric, &bound_info::metric);
+        if (b != one.bounds.end()) {
+            item["bound"] = to_json(std::vector<bound_info>{*b})[0];
+            over += (b->max && last > *b->max) || (b->min && last < *b->min);
+            // The share of the bound the last value leaves: 0.2 is 20% inside it.
+            if (b->max && *b->max != 0)
+                item["margin"] = (*b->max - last) / *b->max;
+            else if (b->min && *b->min != 0)
+                item["margin"] = (last - *b->min) / *b->min;
+        }
+        items.push_back(std::move(item));
+    }
+    return {{"items", items},
+            {"runs", stored.size() - from},
+            {"conclusion",
+             std::format("{} metric(s) over the last {} run(s); {} past its bound now",
+                         items.size(), stored.size() - from, over)}};
+}
+
 answer cmd_analyze(const std::filesystem::path& cwd, const json& p) {
     auto ctx = open(cwd);
     if (!ctx)
@@ -771,6 +839,8 @@ answer cmd_analyze(const std::filesystem::path& cwd, const json& p) {
     json data;
     if (metric == "flaky") {
         data = flaky(ctx->st, std::size_t(p.value("runs", 30)));
+    } else if (metric == "trend") {
+        data = trend(ctx->st, std::size_t(p.value("runs", 20)), strings(p, "case"));
     } else {
         auto r = run_named(*ctx, p);
         if (!r)
@@ -810,15 +880,15 @@ answer cmd_analyze(const std::filesystem::path& cwd, const json& p) {
                     {"conclusion", std::format("{:.1f} program-minutes over {:.1f} wall-minutes",
                                                cpu / 60000, r->ms / 60000)}};
         } else {
-            return usage(
-                std::format("no metric {}: hot, durations, path, failures, flaky, bench, cost",
-                            metric));
+            return usage(std::format("no metric {}: hot, durations, path, failures, flaky, bench, "
+                                     "trend, cost",
+                                     metric));
         }
     }
     std::string text = data["conclusion"].get<std::string>() + "\n";
     if (data.contains("items"))
         for (const auto& x : data["items"])
-            text += "  " + x.dump() + "\n";
+            text += "  " + dumped(x) + "\n";
     if (data.contains("groups"))
         for (const auto& g : data["groups"])
             text += std::format("  {} x {}\n", g["count"].get<std::size_t>(),
@@ -899,7 +969,7 @@ answer cmd_graph(const std::filesystem::path& cwd, const json& p) {
             text += std::format("  {} -->|{}| {}\n", ids[e["from"]], e["kind"].get<std::string>(),
                                 ids[e["to"]]);
     } else {
-        text = data.dump(2) + "\n";
+        text = dumped(data, 2) + "\n";
     }
     return {0, data, text};
 }
@@ -1437,12 +1507,16 @@ json catalog() {
                {"runs", {{"type", "integer"}}},
                {"limit", {{"type", "integer"}}}}));
     add("analyze",
-        "A metric of a run: hot, durations, path, failures, bench, cost; or flaky across runs.",
+        "A metric of a run: hot, durations, path, failures, bench, cost; or across runs: flaky, "
+        "and "
+        "trend (each case's metrics beside their bounds).",
         plain({{"metric",
-                {{"enum", {"hot", "durations", "path", "failures", "flaky", "bench", "cost"}}}},
+                {{"enum",
+                  {"hot", "durations", "path", "failures", "flaky", "bench", "trend", "cost"}}}},
                {"run", run_id["run"]},
                {"top", {{"type", "integer"}}},
-               {"runs", {{"type", "integer"}}}}));
+               {"runs", {{"type", "integer"}}},
+               {"case", {{"type", "array"}, {"items", {{"type", "string"}}}}}}));
     add("graph",
         "The topology: sources, programs, cases, resources and artifacts, as JSON, DOT or Mermaid.",
         with({{"format", {{"enum", {"json", "dot", "mermaid"}}}}}));
@@ -1485,7 +1559,7 @@ json catalog() {
                {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
                {"run", run_id["run"]},
                {"from", {{"type", "string"}}}}));
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.3.0"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.4.0"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

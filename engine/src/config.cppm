@@ -54,8 +54,9 @@ struct case_attributes {
     int retries = 0;
     std::optional<std::vector<std::pair<std::string, std::string>>> diagnose_env;
     double diagnose_timeout = 0;
-    std::string skip, expect_fail;  // reasons
-    std::string origin;             // where it is stated, for `mtest plan`
+    std::string skip, expect_fail;   // reasons
+    std::vector<bound_info> bounds;  // at_most / at_least of its metrics (P6.5)
+    std::string origin;              // where it is stated, for `mtest plan`
 };
 
 // `[coverage]`: the coverage map a run under `--coverage` writes (docs/coverage.md).

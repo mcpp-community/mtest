@@ -41,7 +41,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
 - A file declares objects and defines no `main` (with mcpp 2026.11.8.1 or later; an earlier mcpp
   needs `[test] main = { from = "mtest/main" }`). A file that defines `main` declares its cases in it
   and returns `report()`.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.3.0"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.4.0"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -75,9 +75,12 @@ isolation holds for everything inside; the others are the innermost one stated.
 | `isolate{}` | that it runs in a process of its own | starts one for it |
 | `retries{2}` | that a failure may be retried | runs it again, alone; one that then passes is `flaky` |
 | `diagnose{.env = {{"APP_LOG", "debug"}}}` | how to look at a failure | runs a failing case once more with that environment and keeps the output (`mtest explain`) |
+| `at_most{"ready", 15}`, `at_least{"recall", 0.9}` | the limits of a metric it reports | the case fails when its metric passes a limit or is not reported; `mtest analyze trend` shows each metric beside its limits |
 | `skip_if{cond, "why"}`, `expect_failure{"why"}`, `known_gap{"why", "YYYY-MM-DD"}` | its expected verdict | reports skip, xfail, xpass |
 
 `Bench` holds `machine`: a measurement means something only on a machine nothing else uses.
+How the tests of a project are laid out, from the directory to the line, is in
+[docs/layout.md](../../docs/layout.md).
 
 ## Fixtures
 

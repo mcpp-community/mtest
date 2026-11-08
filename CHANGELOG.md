@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0] - 2026-11-08
+
+The form of a project's tests, and what a case may state about its metrics.
+
+- **Bounds on metrics** (P6.5): `at_most{"ready", 15}` and `at_least{"recall", 0.9}` after a case's
+  name. The case fails when a metric it reports passes a limit, or when it reports a bounded metric
+  not at all; a case that declared cases is judged by them. The bounds are listed with the case
+  (`bounds`), read by the static manifest, stated by the Bash adapter (`--at-most`, `--at-least`), the
+  Python adapter (`at_most=`, `at_least=`) and the C ABI (`mtest_bound`), and by `mtest.toml`'s
+  `[cases."<glob>"] at_most = { ... }`, which the engine judges for a program that states none. The
+  conformance suite's `bounded` case and clause P6.5 hold every level-3 implementation to it.
+- `mtest analyze trend`: each case's metrics over the last `--runs N` stored runs, oldest first, with
+  their range, median and last value beside their bounds and the margin the last leaves.
+- The engine writes a program's output that is not UTF-8 (a Windows code page) with the
+  replacement character; 0.3.0 ended with an exception storing such a run.
+- The Python adapter states what 0.3.0 added: a time limit, isolation, retries, a diagnosis; a case
+  that names no kind is of its program's.
+- `docs/layout.md` is the form of a project's tests: the directory, the project, the code, the data
+  and the analysis; `docs/adapters.md` lists each attribute in every implementation's words.
+
 ## [0.3.0] - 2026-11-08
 
 A case states in code what it is and what it needs, and the runner acts on that statement and

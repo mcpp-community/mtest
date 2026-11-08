@@ -12,7 +12,7 @@ std::mutex out_lock;
 
 void send(const json& message) {
     std::lock_guard g(out_lock);
-    std::cout << message.dump() << '\n';
+    std::cout << dumped(message) << '\n';
     std::cout.flush();
 }
 
@@ -44,7 +44,7 @@ int serve(const std::filesystem::path& cwd) {
                   {"result",
                    {{"protocolVersion", params.value("protocolVersion", std::string("2025-06-18"))},
                     {"capabilities", {{"tools", {{"listChanged", false}}}}},
-                    {"serverInfo", {{"name", "mtest"}, {"version", "0.3.0"}}},
+                    {"serverInfo", {{"name", "mtest"}, {"version", "0.4.0"}}},
                     {"instructions",
                      "Run tests and ask about runs: run, plan, explain, history, analyze, graph, "
                      "gate, ci. "

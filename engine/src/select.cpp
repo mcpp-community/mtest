@@ -305,6 +305,8 @@ void apply_attributes(const config& c, const program_spec& program, case_info& c
         if (a.timeout && ci.timeout <= 0)
             ci.timeout = double(a.timeout->count());
         add_unique(ci.clauses, a.clauses);
+        ci.bounds.insert(ci.bounds.end(), a.bounds.begin(), a.bounds.end());
+        ci.stated_bounds.insert(ci.stated_bounds.end(), a.bounds.begin(), a.bounds.end());
         add_unique(ci.artifacts, a.artifacts);
         ci.isolated = ci.isolated || a.isolated;
         if (a.retries > 0 && ci.retries == 0)

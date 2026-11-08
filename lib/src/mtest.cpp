@@ -29,6 +29,8 @@ struct running_case {
     bool failed = false;       // an expectation of its own did not hold
     bool case_failed = false;  // a case it declared failed
     std::optional<std::filesystem::path> dir;
+    std::map<std::string, std::pair<double, std::string>> metrics;  // name -> value, unit
+    std::size_t declared = 0;  // the cases it declared that ran
 };
 
 struct declared_suite {
@@ -131,7 +133,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.3.0"},
+         {"version", "0.4.0"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
@@ -237,6 +239,48 @@ void record_failure(std::string_view message, const std::source_location& where,
     write_event(ev);
 }
 
+event bounds_json(const std::vector<metric_bound>& bounds) {
+    event out = event::array();
+    for (const auto& b : bounds) {
+        event one = {{"metric", b.metric}};
+        if (b.max)
+            one["max"] = *b.max;
+        if (b.min)
+            one["min"] = *b.min;
+        out.push_back(std::move(one));
+    }
+    return out;
+}
+
+// P6.5: each bound of the case on the metrics it reported, as an expectation at its end.
+void check_bounds(const std::vector<metric_bound>& bounds, const std::source_location& where) {
+    auto& s = the();
+    const auto& reported = s.stack.back().metrics;
+    for (const auto& b : bounds) {
+        const auto it = reported.find(b.metric);
+        if (it == reported.end()) {
+            record_failure(std::format("the case reported no metric `{}`, which it bounds",
+                                       b.metric),
+                           where, nullptr, false);
+            continue;
+        }
+        const auto [value, unit] = it->second;
+        // A unit of 1 (a ratio, a count) is not written.
+        const auto in = [&](double v) {
+            return unit.empty() || unit == "1" ? std::format("{:g}", v)
+                                               : std::format("{:g} {}", v, unit);
+        };
+        if (b.max && value > *b.max)
+            record_failure(std::format("metric {} = {}, over its bound {} (at_most)", b.metric,
+                                       in(value), in(*b.max)),
+                           where, nullptr, false);
+        if (b.min && value < *b.min)
+            record_failure(std::format("metric {} = {}, under its bound {} (at_least)", b.metric,
+                                       in(value), in(*b.min)),
+                           where, nullptr, false);
+    }
+}
+
 void run_suites() {
     auto& s = the();
     while (s.suites_run < s.suites.size()) {
@@ -337,6 +381,8 @@ void test::operator=(body b) {
         ev["artifacts"] = attrs.artifacts;
         if (attrs.limit)
             ev["timeout"] = std::chrono::duration<double>(*attrs.limit).count();
+        if (!attrs.bounds.empty())
+            ev["bounds"] = bounds_json(attrs.bounds);
         if (attrs.isolated)
             ev["isolation"] = "case";
         if (attrs.retries)
@@ -405,8 +451,12 @@ void test::operator=(body b) {
         begun["tags"] = attrs.tags;
     if (!attrs.clauses.empty())
         begun["clauses"] = attrs.clauses;
+    if (!attrs.bounds.empty())
+        begun["bounds"] = bounds_json(attrs.bounds);
     if (own)
         write_event(begun);
+    if (!s.stack.empty() && !s.stack.back().scope)
+        ++s.stack.back().declared;
     s.stack.push_back({id, false, attrs});
     const auto started = clock::now();
     std::string status = "pass";
@@ -426,6 +476,9 @@ void test::operator=(body b) {
                        nullptr, false);
     }
     g.lock();
+    // A case that declared cases is judged by them; one that declared none, by its own metrics.
+    if (status != "skip" && s.stack.back().declared == 0)
+        check_bounds(attrs.bounds, b.where);
     const double ms = std::chrono::duration<double, std::milli>(clock::now() - started).count();
     running_case done = std::move(s.stack.back());
     s.stack.pop_back();
@@ -560,6 +613,12 @@ void produced(const std::filesystem::path& file, std::string_view kind) {
 
 void metric(std::string_view name, double value, std::string_view unit,
             std::span<const double> samples, std::string_view better) {
+    {
+        auto& s = the();
+        std::lock_guard g(s.lock);
+        if (!s.stack.empty() && !s.stack.back().scope)
+            s.stack.back().metrics[std::string(name)] = {value, std::string(unit)};
+    }
     event ev = {{"e", "metric"},  {"id", current_case()}, {"name", name},
                 {"value", value}, {"unit", unit},         {"better", better}};
     if (!samples.empty())
@@ -609,6 +668,7 @@ attributes within(const attributes& outer, const attributes& inner) {
     if (inner.limit)
         a.limit = inner.limit;
     a.isolated = a.isolated || inner.isolated;
+    a.bounds.insert(a.bounds.end(), inner.bounds.begin(), inner.bounds.end());
     if (inner.retries)
         a.retries = inner.retries;
     if (inner.diagnosis)

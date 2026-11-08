@@ -1,6 +1,6 @@
 # The mtest test protocol, version 1
 
-**Status:** version 1, 2026-11-08; P3.3, P3.4 and the `fixture` event added 2026-11-08 (P9.2).
+**Status:** version 1, 2026-11-08; P3.3, P3.4, P6.5 and the `fixture` event added 2026-11-08 (P9.2).
 **Scope:** how a test program and a runner talk. A runner is anything that starts test programs and reads their results: the mtest engine, mcpp (`mcpp test`), an IDE, a CI step. A test program is any program, in any language.
 
 This document is normative. The words *must*, *must not* and *may* have their usual meaning. Each clause has a number; tests and conformance reports name clauses by number (`P3.2`).
@@ -95,6 +95,8 @@ P6.2 A bench case reports its samples. The runner, not the program, decides whet
 P6.3 A program may itself report `invalid` when it knows its measurement cannot be judged (for example, the machine was too noisy by its own test). A runner must not count an `invalid` case as passed or failed, and its policy decides whether it may be repeated.
 
 P6.4 A conformance case names in `clauses` the clauses of the specification it covers. A runner forms the matrix of clause × implementation × system from them.
+
+P6.5 A case may bound its metrics: `bounds`, a list of `{metric, max, min}` (either limit may be absent), in the metric's unit, in its `case` event and, for a case not listed, its `begin` (P3.4). The program judges them as expectations at the case's end: a metric over its `max` or under its `min`, or a bounded metric the case did not report, is a `failure` of the case. A case that declared cases is judged by them. A runner reads the bounds to show a metric beside its limit (mtest's `analyze trend`); a measurement against a baseline stays the runner's (P6.2).
 
 ## P7. Resources and artifacts (L3)
 

@@ -16,4 +16,6 @@ mtest_case "group/inner" nothing
 mtest_case "measures" measures --kind bench
 mtest_case "covers" nothing --kind cts --clause P3.1
 mtest_case "holds" nothing --resource serial:db --artifact file:data/x.txt
+slow() { mtest_metric elapsed 0.5 s; }
+mtest_case "bounded" slow --at-most elapsed=0.1
 mtest_report

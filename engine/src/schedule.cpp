@@ -89,6 +89,30 @@ void expected_to_fail(case_result& cr, const std::string& reason) {
     }
 }
 
+// P6.5 for a case that passed: a bound its metrics do not keep -- one mtest.toml states, which the
+// program never saw -- fails it. A bound the program states, it judged itself.
+void judge_bounds(case_result& cr, const std::vector<bound_info>& stated) {
+    if (cr.status != "pass" && cr.status != "flaky")
+        return;
+    for (const auto& b : stated) {
+        const auto m = std::ranges::find(cr.metrics, b.metric, &metric_info::name);
+        std::string why;
+        if (m == cr.metrics.end())
+            why = std::format("the case reported no metric `{}`, which it bounds", b.metric);
+        else if (b.max && m->value > *b.max)
+            why = std::format("metric {} = {:g} {}, over its bound {:g} (at_most)", b.metric,
+                              m->value, m->unit, *b.max);
+        else if (b.min && m->value < *b.min)
+            why = std::format("metric {} = {:g} {}, under its bound {:g} (at_least)", b.metric,
+                              m->value, m->unit, *b.min);
+        if (why.empty())
+            continue;
+        cr.failures.push_back({"", why, "", "", 0, false});
+        cr.status = "fail";
+        cr.reason = why;
+    }
+}
+
 bool unstable(const case_info& c) {
     return std::ranges::find(c.tags, "flaky") != c.tags.end();
 }
@@ -389,6 +413,8 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
                     cr.kind = ci->info.kind;
                     cr.tags = ci->info.tags;
                     cr.clauses = ci->info.clauses;
+                    cr.bounds = ci->info.bounds;
+                    judge_bounds(cr, ci->info.stated_bounds);
                     expected_to_fail(cr, ci->info.expect_fail);
                 } else if (cr.kind.empty()) {
                     // A case a listed case declared (P3.4) is of its program's kind unless its

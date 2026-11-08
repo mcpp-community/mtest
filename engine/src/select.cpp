@@ -3,15 +3,52 @@ module mcpplibs.mtest.engine.select;
 import std;
 import mcpplibs.os;
 import mcpplibs.mtest.engine.exec;
+import mcpplibs.mtest.engine.coverage;
 
 namespace mcpplibs::mtest::engine {
 
 namespace os = mcpplibs::os;
 
+namespace {
+
+// `[abc]`, `[a-z]` and `[!x]` at `p[pi]`: whether `c` is in the class, and where the class ends;
+// none when `p[pi]` opens no class.
+std::optional<std::pair<bool, std::size_t>> char_class(std::string_view p, std::size_t pi, char c) {
+    if (pi >= p.size() || p[pi] != '[')
+        return std::nullopt;
+    std::size_t i = pi + 1;
+    const bool negated = i < p.size() && (p[i] == '!' || p[i] == '^');
+    if (negated)
+        ++i;
+    bool in = false;
+    for (bool first = true; i < p.size() && (first || p[i] != ']'); first = false, ++i) {
+        if (i + 2 < p.size() && p[i + 1] == '-' && p[i + 2] != ']') {
+            in = in || (p[i] <= c && c <= p[i + 2]);
+            i += 2;
+        } else
+            in = in || p[i] == c;
+    }
+    if (i >= p.size())
+        return std::nullopt;  // no `]`: a literal `[`
+    return std::pair{in != negated, i + 1};
+}
+
+}  // namespace
+
 bool glob_match(std::string_view p, std::string_view t) {
     std::size_t pi = 0, ti = 0, star = std::string_view::npos, mark = 0;
     while (ti < t.size()) {
-        if (pi < p.size() && (p[pi] == '?' || p[pi] == t[ti])) {
+        if (auto cls = char_class(p, pi, t[ti])) {
+            if (cls->first) {
+                pi = cls->second;
+                ++ti;
+                continue;
+            }
+            if (star == std::string_view::npos)
+                return false;
+            pi = star + 1;
+            ti = ++mark;
+        } else if (pi < p.size() && (p[pi] == '?' || p[pi] == t[ti])) {
             ++pi;
             ++ti;
         } else if (pi < p.size() && p[pi] == '*') {
@@ -124,7 +161,159 @@ bool executable_file(const std::filesystem::path& p) {
     return (perms & std::filesystem::perms::owner_exec) != std::filesystem::perms::none;
 }
 
+// Each word after `prefix` on the file's first lines.
+std::vector<std::string> header_words(const std::filesystem::path& file, std::string_view prefix) {
+    std::vector<std::string> out;
+    std::ifstream in(file, std::ios::binary);
+    std::string line;
+    for (int n = 0; n < 64 && std::getline(in, line); ++n) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        if (!line.starts_with(prefix))
+            continue;
+        std::istringstream words(line.substr(prefix.size()));
+        for (std::string w; words >> w;)
+            out.push_back(w);
+    }
+    return out;
+}
+
+void add_unique(std::vector<std::string>& to, const std::vector<std::string>& from) {
+    for (const auto& x : from)
+        if (std::ranges::find(to, x) == to.end())
+            to.push_back(x);
+}
+
+std::string substitute(std::string word, std::string_view token, const std::string& value) {
+    for (auto at = word.find(token); at != std::string::npos;
+         at = word.find(token, at + value.size()))
+        word.replace(at, token.size(), value);
+    return word;
+}
+
+// The programs of a `[discover.<name>]` group: each file its globs match, by its command.
+void discover_group_programs(const config& c, const discover_group& g,
+                             std::vector<program_spec>& out) {
+    std::error_code ec;
+    std::vector<std::pair<std::string, std::filesystem::path>> files;
+    for (std::filesystem::recursive_directory_iterator it(c.root, ec), end; it != end;
+         it.increment(ec)) {
+        const auto rel = os::fs::generic_utf8(std::filesystem::relative(it->path(), c.root, ec));
+        const auto top = rel.substr(0, rel.find('/'));
+        if (top == ".git" || top == ".mtest" || top == "target") {
+            if (it->is_directory())
+                it.disable_recursion_pending();
+            continue;
+        }
+        if (it->is_regular_file(ec) &&
+            std::ranges::any_of(g.globs, [&](const std::string& p) { return glob_match(p, rel); }))
+            files.emplace_back(rel, it->path());
+    }
+    std::ranges::sort(files);
+    for (const auto& [rel, path] : files) {
+        program_spec s = g.base;
+        s.name = rel;
+        const auto absolute = os::fs::generic_utf8(std::filesystem::absolute(path, ec));
+        if (g.command.empty())
+            s.argv = {absolute};
+        for (const auto& word : g.command)
+            s.argv.push_back(substitute(substitute(word, "{path}", absolute), "{name}", rel));
+        for (const auto& [prefix, tag] : g.tags_from) {
+            std::vector<std::string> tags;
+            for (const auto& w : header_words(path, prefix))
+                tags.push_back(tag + w);
+            add_unique(s.tags, tags);
+        }
+        for (const auto& prefix : g.resources_from)
+            add_unique(s.resources, header_words(path, prefix));
+        s.origin = "discover." + g.name;
+        out.push_back(std::move(s));
+    }
+}
+
 }  // namespace
+
+bool path_glob_match(std::string_view pattern, std::string_view path) {
+    if (glob_match(pattern, path))
+        return true;
+    const auto dirs = pattern.find("**/");
+    if (dirs == std::string_view::npos)
+        return false;
+    std::string none(pattern.substr(0, dirs));
+    none += pattern.substr(dirs + 3);
+    return path_glob_match(none, path);
+}
+
+std::expected<std::pair<int, int>, std::string> parse_shard(std::string_view text) {
+    const auto slash = text.find('/');
+    int i = 0, n = 0;
+    if (slash != std::string_view::npos) {
+        std::from_chars(text.data(), text.data() + slash, i);
+        std::from_chars(text.data() + slash + 1, text.data() + text.size(), n);
+    }
+    if (n < 1 || i < 1 || i > n)
+        return std::unexpected(std::format("--shard {} is not I/N with 1 <= I <= N", text));
+    return std::pair{i, n};
+}
+
+namespace {
+
+// The units of one part: each unit, the longest first, goes to the part with the least expected
+// time (the lowest-numbered of equals), so the parts end close together.
+void keep_shard(plan& out, int index, int count) {
+    std::vector<std::size_t> order(out.units.size());
+    std::iota(order.begin(), order.end(), std::size_t{0});
+    std::ranges::stable_sort(order, [&](std::size_t a, std::size_t b) {
+        if (out.units[a].expected_ms != out.units[b].expected_ms)
+            return out.units[a].expected_ms > out.units[b].expected_ms;
+        return out.units[a].program.name < out.units[b].program.name;
+    });
+    std::vector<double> load(static_cast<std::size_t>(count), 0.0);
+    std::vector<bool> mine(out.units.size(), false);
+    for (auto u : order) {
+        const auto part = static_cast<std::size_t>(std::ranges::min_element(load) - load.begin());
+        load[part] += out.units[u].expected_ms;
+        mine[u] = part + 1 == static_cast<std::size_t>(index);
+    }
+    std::vector<unit> kept;
+    std::size_t cases = 0;
+    for (std::size_t u = 0; u < out.units.size(); ++u)
+        if (mine[u]) {
+            cases += out.units[u].cases.size();
+            kept.push_back(std::move(out.units[u]));
+        }
+    out.notes.push_back(std::format("shard {}/{}: {} of {} programs, {} case(s), about {:.0f} s",
+                                    index, count, kept.size(), out.units.size(), cases,
+                                    load[static_cast<std::size_t>(index - 1)] / 1000));
+    out.selected = cases;
+    out.units = std::move(kept);
+}
+
+}  // namespace
+
+void apply_attributes(const config& c, const std::string& program, case_info& ci) {
+    for (const auto& a : c.attributes) {
+        if (!glob_match(a.glob, ci.id) && !glob_match(a.glob, program + "::" + ci.id))
+            continue;
+        add_unique(ci.tags, a.tags);
+        add_unique(ci.resources, a.resources);
+        if (!a.kind.empty())
+            ci.kind = a.kind;
+    }
+}
+
+void apply_attributes(const config& c, program_spec& p) {
+    for (const auto& a : c.attributes) {
+        if (!glob_match(a.glob, p.name) && !glob_match(a.glob, p.name + "::" + p.name))
+            continue;
+        add_unique(p.tags, a.tags);
+        add_unique(p.resources, a.resources);
+        if (!a.kind.empty())
+            p.kind = a.kind;
+        if (a.timeout)
+            p.timeout = *a.timeout;
+    }
+}
 
 std::expected<std::vector<program_spec>, std::string> discover(const config& c,
                                                                const program_source& given) {
@@ -165,6 +354,8 @@ std::expected<std::vector<program_spec>, std::string> discover(const config& c,
             out.push_back(std::move(s));
         }
     }
+    for (const auto& g : c.groups)
+        discover_group_programs(c, g, out);
     if (given.host && c.host == "mcpp") {
         auto host = mcpp_programs(c);
         if (!host)
@@ -174,6 +365,8 @@ std::expected<std::vector<program_spec>, std::string> discover(const config& c,
         return std::unexpected(
             std::format("host.kind = \"{}\" is not a host this engine knows (mcpp)", c.host));
     }
+    for (auto& p : out)
+        apply_attributes(c, p);
     return out;
 }
 
@@ -223,12 +416,21 @@ bool has_any(const std::vector<std::string>& have, const std::vector<std::string
     });
 }
 
-// Whether a change of `paths` affects a case: a `file:` artifact under a changed path, or a source
-// of its program; a case whose program states nothing it reads is affected (nothing is known
-// against it).
+// Whether a change of `paths` affects a case: a file its last measured run executed (the coverage
+// map), a `file:` artifact under a changed path, or a source of its program; a case whose program
+// states nothing it reads, and the map does not know, is affected (nothing is known against it).
 std::optional<std::string> affected(const program_spec& p, const case_info& c,
-                                    const std::vector<std::string>& paths) {
+                                    const std::vector<std::string>& paths,
+                                    const std::optional<coverage_map>& coverage) {
     bool stated = !p.sources.empty();
+    if (coverage)
+        if (auto ran = coverage->cases.find(p.name + "::" + c.id); ran != coverage->cases.end()) {
+            stated = true;
+            for (const auto& path : paths)
+                if (std::ranges::binary_search(ran->second, path))
+                    return std::format("{} ran {} (coverage {})", c.id, path,
+                                       coverage->commit.substr(0, 12));
+        }
     for (const auto& a : c.artifacts) {
         if (!a.starts_with("file:"))
             continue;
@@ -255,6 +457,17 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                                            const selection_request& r) {
     plan out;
     const auto h = read_history(c, s);
+    const auto coverage = r.changed ? fresh_coverage(s, c.coverage.max_age) : std::nullopt;
+    // A case with no history is expected to take what the median known case takes.
+    const double unknown_ms = [&] {
+        std::vector<double> known;
+        for (const auto& [_, ms] : h.ms)
+            known.push_back(ms);
+        if (known.empty())
+            return 1000.0;
+        std::ranges::nth_element(known, known.begin() + known.size() / 2);
+        return known[known.size() / 2];
+    }();
     std::vector<set_spec> sets;
     std::function<std::expected<void, std::string>(const std::string&, int)> add_set =
         [&](const std::string& name, int depth) -> std::expected<void, std::string> {
@@ -275,7 +488,8 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
 
     std::vector<program_spec> pool;
     for (const auto& p : programs)
-        if (r.programs.empty() || any_glob(r.programs, p.name))
+        if ((r.programs.empty() || any_glob(r.programs, p.name)) &&
+            !any_glob(r.exclude_programs, p.name))
             pool.push_back(p);
     for (const auto& p : pool) {
         auto listed =
@@ -287,7 +501,8 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
         unit u;
         u.program = p;
         u.program.level = detect_level(p);
-        for (const auto& ci : *listed) {
+        for (auto ci : *listed) {
+            apply_attributes(c, p.name, ci);
             ++out.considered;
             const auto key = p.name + "::" + ci.id;
             auto pick = [&]() -> std::optional<std::string> {
@@ -304,7 +519,7 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                 if (has_any(ci.tags, r.exclude_tags))
                     return std::nullopt;
                 if (r.changed) {
-                    if (auto why = affected(p, ci, *r.changed))
+                    if (auto why = affected(p, ci, *r.changed, coverage))
                         return why;
                     if (sets.empty())
                         return std::nullopt;
@@ -328,9 +543,11 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                         continue;
                     }
                     if (st.affected) {
+                        if (!r.unknown_change.empty())
+                            return std::format("set {}: the change is not known", st.name);
                         if (!r.changed)
                             continue;
-                        if (auto why = affected(p, ci, *r.changed))
+                        if (auto why = affected(p, ci, *r.changed, coverage))
                             return std::format("set {}: {}", st.name, *why);
                         continue;
                     }
@@ -350,7 +567,7 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                 continue;
             u.cases.push_back({ci, *pick});
             auto ms = h.ms.find(key);
-            u.expected_ms += ms == h.ms.end() ? 1000.0 : ms->second;
+            u.expected_ms += ms == h.ms.end() ? unknown_ms : ms->second;
         }
         if (u.cases.empty())
             continue;
@@ -360,6 +577,9 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
     }
     if (r.changed && r.changed->empty())
         out.notes.push_back("the change touches no path: nothing is affected");
+    if (!r.unknown_change.empty())
+        out.notes.push_back(std::format("the change could not be read ({}): every case is affected",
+                                        r.unknown_change));
 
     // A budget keeps the most useful cases that fit: the ones that failed lately first, then the
     // quickest.
@@ -411,6 +631,8 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
             out.notes.push_back(
                 std::format("the budget of {} leaves out {} case(s)", *budget, dropped));
     }
+    if (r.shard)
+        keep_shard(out, r.shard->first, r.shard->second);
     return out;
 }
 

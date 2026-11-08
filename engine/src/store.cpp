@@ -255,6 +255,18 @@ std::size_t import_store(const store& s, const std::filesystem::path& other) {
         (void)os::fs::append(s.dir / "index.ndjson", to_json(r).dump() + "\n");
         ++taken;
     }
+    // The coverage map, when the other store's was measured later (docs/coverage.md).
+    auto epoch_of = [](const std::filesystem::path& f) {
+        std::ifstream in(f, std::ios::binary);
+        auto j = json::parse(in, nullptr, false);
+        return j.is_object() ? j.value("epoch", std::int64_t{-1}) : std::int64_t{-1};
+    };
+    if (const auto theirs = epoch_of(from.dir / "coverage.json");
+        theirs > epoch_of(s.dir / "coverage.json")) {
+        std::error_code ec;
+        std::filesystem::copy_file(from.dir / "coverage.json", s.dir / "coverage.json",
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+    }
     return taken;
 }
 

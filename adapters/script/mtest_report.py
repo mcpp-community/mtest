@@ -50,7 +50,7 @@ def _event(**fields):
             f.write(json.dumps(fields, ensure_ascii=False) + "\n")
 
 
-_event(e="program", protocol=1, level=3, framework="mtest_report.py", version="0.1.0", isolation=["process", "case"])
+_event(e="program", protocol=1, level=3, framework="mtest_report.py", version="0.2.0", isolation=["process", "case"])
 
 
 def _where(depth=2):

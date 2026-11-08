@@ -42,6 +42,85 @@ void known(const toml::table& t, std::string_view where,
     }
 }
 
+// The keys a program states, in `[programs.*]` and `[discover.*]` alike.
+constexpr std::initializer_list<std::string_view> kProgramKeys = {"command",   "cwd",
+                                                                  "env",       "level",
+                                                                  "resources", "sources",
+                                                                  "tags",      "timeout",
+                                                                  "isolation", "kind"};
+
+void read_program(const toml::table& t, program_spec& s) {
+    if (auto v = t["cwd"].value<std::string>())
+        s.cwd = *v;
+    if (auto e = t["env"].as_table())
+        for (const auto& [k, v] : *e)
+            if (auto sv = v.value<std::string>())
+                s.env.emplace_back(std::string(k.str()), *sv);
+    if (auto l = t["level"].value<std::int64_t>())
+        s.level = static_cast<int>(*l);
+    if (t.contains("resources"))
+        s.resources = strings(t["resources"]);
+    if (t.contains("sources"))
+        s.sources = strings(t["sources"]);
+    if (t.contains("tags"))
+        s.tags = strings(t["tags"]);
+    if (auto d = duration_of(t["timeout"]))
+        s.timeout = std::chrono::duration_cast<std::chrono::seconds>(*d);
+    if (auto v = t["isolation"].value<std::string>())
+        s.isolation = *v;
+    if (auto v = t["kind"].value<std::string>())
+        s.kind = *v;
+}
+
+// `[cases."<glob>"]`: the attributes of the cases a glob matches.
+std::expected<void, std::string> read_attributes(const toml::table& cases, std::string_view where,
+                                                 config& c) {
+    for (const auto& [glob, node] : cases) {
+        auto t = node.as_table();
+        if (!t)
+            return std::unexpected(std::format("{}.\"{}\" must be a table", where, glob.str()));
+        known(*t, std::format("{}.\"{}\"", where, glob.str()),
+              {"tags", "resources", "kind", "timeout"}, c);
+        case_attributes a;
+        a.glob = std::string(glob.str());
+        a.tags = strings((*t)["tags"]);
+        a.resources = strings((*t)["resources"]);
+        a.kind = (*t)["kind"].value_or(std::string{});
+        if (auto d = duration_of((*t)["timeout"]))
+            a.timeout = std::chrono::duration_cast<std::chrono::seconds>(*d);
+        a.origin = std::format("{}.\"{}\"", where, a.glob);
+        c.attributes.push_back(std::move(a));
+    }
+    return {};
+}
+
+// A host's own statement of its cases: `[package.metadata.mtest]` of mcpp.toml (mcpp keeps the
+// table for the tool it names).
+std::expected<void, std::string> read_host_metadata(config& c) {
+    const auto file = c.root / "mcpp.toml";
+    std::error_code ec;
+    if (!std::filesystem::exists(file, ec))
+        return {};
+    toml::table t;
+    try {
+        t = toml::parse_file(os::fs::utf8(file));
+    } catch (const toml::parse_error& e) {
+        return std::unexpected(std::format("{}: {}", os::fs::utf8(file), e.description()));
+    }
+    if (c.static_globs.empty()) {
+        c.static_globs = strings(t["test"]["discover"]);
+        if (c.static_globs.empty() && !t["test"]["discover"].as_array())
+            c.static_globs = {"tests/**/*.cpp"};
+    }
+    auto meta = t["package"]["metadata"]["mtest"].as_table();
+    if (!meta)
+        return {};
+    known(*meta, "mcpp.toml [package.metadata.mtest]", {"cases"}, c);
+    if (auto cases = (*meta)["cases"].as_table())
+        return read_attributes(*cases, "[package.metadata.mtest.cases]", c);
+    return {};
+}
+
 }  // namespace
 
 std::optional<std::chrono::milliseconds> parse_duration(std::string_view text) {
@@ -107,7 +186,7 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
     }
     known(t, "mtest.toml",
           {"project", "programs", "discover", "host", "sets", "policy", "retry", "regression",
-           "store", "trace"},
+           "store", "trace", "cases", "coverage", "static"},
           c);
     if (auto p = t["project"].as_table()) {
         known(*p, "project", {"store", "jobs"}, c);
@@ -121,35 +200,64 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
             auto pt = node.as_table();
             if (!pt)
                 return std::unexpected(std::format("programs.{} must be a table", name.str()));
-            known(*pt, std::format("programs.{}", name.str()),
-                  {"command", "cwd", "env", "level", "resources", "sources", "tags", "timeout",
-                   "isolation"},
-                  c);
+            known(*pt, std::format("programs.{}", name.str()), kProgramKeys, c);
             program_spec s;
             s.name = std::string(name.str());
             s.argv = strings((*pt)["command"]);
             if (s.argv.empty())
                 return std::unexpected(
                     std::format("programs.{}.command names no program", name.str()));
-            s.cwd = (*pt)["cwd"].value_or(std::string{});
-            if (auto e = (*pt)["env"].as_table())
-                for (const auto& [k, v] : *e)
-                    if (auto sv = v.value<std::string>())
-                        s.env.emplace_back(std::string(k.str()), *sv);
-            if (auto l = (*pt)["level"].value<std::int64_t>())
-                s.level = static_cast<int>(*l);
-            s.resources = strings((*pt)["resources"]);
-            s.sources = strings((*pt)["sources"]);
-            s.tags = strings((*pt)["tags"]);
-            if (auto d = duration_of((*pt)["timeout"]))
-                s.timeout = std::chrono::duration_cast<std::chrono::seconds>(*d);
-            s.isolation = (*pt)["isolation"].value_or(std::string("process"));
+            read_program(*pt, s);
             c.programs.push_back(std::move(s));
         }
     }
     if (auto d = t["discover"].as_table()) {
-        known(*d, "discover", {"globs"}, c);
         c.discover = strings((*d)["globs"]);
+        for (const auto& [name, node] : *d) {
+            if (name.str() == "globs")
+                continue;
+            auto gt = node.as_table();
+            if (!gt) {
+                c.warnings.push_back(
+                    std::format("discover.{} is not a key this engine knows (ignored)",
+                                name.str()));
+                continue;
+            }
+            std::vector<std::string_view> keys(kProgramKeys);
+            keys.insert(keys.end(), {"globs", "tags_from", "resources_from"});
+            for (const auto& [k, v] : *gt)
+                if (std::ranges::find(keys, k.str()) == keys.end())
+                    c.warnings.push_back(
+                        std::format("discover.{}.{} is not a key this engine knows (ignored)",
+                                    name.str(), k.str()));
+            discover_group g;
+            g.name = std::string(name.str());
+            g.globs = strings((*gt)["globs"]);
+            g.command = strings((*gt)["command"]);
+            read_program(*gt, g.base);
+            if (auto tf = (*gt)["tags_from"].as_table())
+                for (const auto& [prefix, tag] : *tf)
+                    g.tags_from.emplace_back(std::string(prefix.str()),
+                                             tag.value_or(std::string{}));
+            g.resources_from = strings((*gt)["resources_from"]);
+            if (g.globs.empty())
+                return std::unexpected(std::format("discover.{}.globs names no file", g.name));
+            c.groups.push_back(std::move(g));
+        }
+    }
+    if (auto cs = t["cases"].as_table())
+        if (auto e = read_attributes(*cs, "cases", c); !e)
+            return std::unexpected(e.error());
+    if (auto st = t["static"].as_table()) {
+        known(*st, "static", {"globs"}, c);
+        c.static_globs = strings((*st)["globs"]);
+    }
+    if (auto cv = t["coverage"].as_table()) {
+        known(*cv, "coverage", {"objects", "database", "max_age"}, c);
+        c.coverage.objects = (*cv)["objects"].value_or(std::string{});
+        c.coverage.database = (*cv)["database"].value_or(std::string{});
+        if (auto d = duration_of((*cv)["max_age"]))
+            c.coverage.max_age = *d;
     }
     if (auto h = t["host"].as_table()) {
         known(*h, "host", {"kind", "args"}, c);
@@ -220,6 +328,9 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
             c.tools[tool.name] = std::move(tool);
         }
     }
+    if (c.host == "mcpp")
+        if (auto e = read_host_metadata(c); !e)
+            return std::unexpected(e.error());
     add_builtin_sets(c);
     return c;
 }

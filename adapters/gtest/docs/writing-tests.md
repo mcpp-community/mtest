@@ -15,7 +15,7 @@ TEST(Parsing, Fields) {
 }
 ```
 
-- The manifest: `[dev-dependencies] mcpplibs.mtest.gtest = "0.1.0"`. A file defines no `main` (mcpp
+- The manifest: `[dev-dependencies] mcpplibs.mtest.gtest = "0.2.0"`. A file defines no `main` (mcpp
   2026.11.8.1 or later). An earlier mcpp needs `[test] main = { from = "mcpplibs.mtest.gtest/main" }`
   and `compat.gtest = "1.18.0"` beside it, so that GoogleTest's own `gtest_main.cc` stays out of the
   program.

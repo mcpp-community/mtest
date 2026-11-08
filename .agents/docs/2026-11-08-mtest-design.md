@@ -1,7 +1,7 @@
 # mtest：面向 Agent 时代的通用测试系统
 
 **日期：** 2026-11-08
-**状态：** 第二版，M1–M5 已决定；0.1.0（PR #1）实现协议 v1、C++ 库、引擎与服务、适配与一致性套件
+**状态：** 第二版，M1–M5 已决定；0.1.0（PR #1）实现协议 v1、C++ 库、引擎与服务、适配与一致性套件；0.2.0 实现 mcpp 顶层方案 W8 的 mtest 部分：`[discover.<name>]` 组、`[cases]` 与宿主清单中的用例属性、`--shard`、覆盖映射（`docs/coverage.md`）、静态用例清单（`mcpplibs.mtest.manifest`、`mtest list --static`）。构建插件形式的静态清单不采用：mcpp 以 `[package.metadata.mtest]` 保存工具的表，引擎直接读取清单与测试源，无须每次构建运行构建程序，IDE 与引擎读同一份
 **仓库：** `mcpp-community/mtest`；包的命名空间 `mcpplibs.mtest`
 **上游：** [mcpp 2026-11-08-ecosystem-885-supplement-design.md](https://github.com/mcpp-community/mcpp/blob/main/.agents/docs/2026-11-08-ecosystem-885-supplement-design.md) S7（mcpp 的测试协议）
 

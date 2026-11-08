@@ -15,9 +15,10 @@ namespace {
 
 // The parameter a command's first word gives; the words after it are programs (a selection's)
 // or, for `ci`, pull requests.
-constexpr std::array<std::pair<std::string_view, std::string_view>, 6> first_word = {{
+constexpr std::array<std::pair<std::string_view, std::string_view>, 7> first_word = {{
     {"quarantine", "action"},
     {"store", "action"},
+    {"coverage", "action"},
     {"analyze", "metric"},
     {"ci", "action"},
     {"explain", "case"},
@@ -97,7 +98,7 @@ const json* tool_named(const json& tools, std::string_view name) {
 
 cmdline::App application(const json& tools) {
     auto app = cmdline::App("mtest")
-                   .version("0.1.0")
+                   .version("0.2.0")
                    .description("run tests of any language, and ask about their runs")
                    .option(cmdline::Option("json").global().help("print the answer's data"));
     for (const auto& t : tools)
@@ -252,7 +253,7 @@ int main(int argc, char** argv) {
     const std::string name(parsed->subcommand_name());
     const auto& sub = parsed->subcommand()->get();
     if (name == "version") {
-        std::println("mtest 0.1.0");
+        std::println("mtest 0.2.0");
         return 0;
     }
     const auto cwd = std::filesystem::current_path();

@@ -673,6 +673,8 @@ printf ')" + header +
     "a program that does not speak the protocol is measured from outside"_test[kind::e2e] = [] {
         if (mcpplibs::os::host() == mcpplibs::os::platform::windows)
             skip("Windows does not account a program's children");
+        if (!mcpplibs::os::process::resources(mcpplibs::os::process::of::children))
+            skip("this system tells no program its children's use of resources");
         auto root = project({{"big.sh", "head -c 40000000 /dev/zero | tail -c 1 >/dev/null\n"}});
         expect(fatal(
             eq(mtest(root, {"run", "--json", "--report-json", "r.json", "bash big.sh"}).status,

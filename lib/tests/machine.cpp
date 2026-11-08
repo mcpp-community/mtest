@@ -74,6 +74,8 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "--declared")
         return run(argc, argv);
     "basic: a case's processor time, and the program's own use"_test = [] {
+        if (!mcpplibs::os::process::resources())
+            skip("this system tells no program its use of its resources");
         auto events =
             events_of("run", {{"MTEST_MONITOR", "basic"}, {"MTEST_FIXTURE_INDEX", "from-runner"}});
         auto cpu = metric(events, "worker/spins", "cpu.user");
@@ -87,7 +89,8 @@ int main(int argc, char** argv) {
         expect(usage) << "the program reports its own use at its end";
     };
     "detailed: a case's largest resident set"_test = [] {
-        if (mcpplibs::os::host() != mcpplibs::os::platform::linux)
+        if (mcpplibs::os::host() != mcpplibs::os::platform::linux ||
+            !mcpplibs::os::process::resources())
             skip("the per-case resident set is reset where the kernel allows (Linux)");
         auto events =
             events_of("run", {{"MTEST_MONITOR", "basic"}, {"MTEST_FIXTURE_INDEX", "from-runner"}});
@@ -97,6 +100,8 @@ int main(int argc, char** argv) {
         expect(eq((*peak)["precision"].get<std::string>(), std::string("exact")));
     };
     "trace: the load and the resident set over time"_test = [] {
+        if (!mcpplibs::os::process::resources())
+            skip("this system tells no program its use of its resources");
         auto events = events_of("run", {{"MTEST_MONITOR", "trace"},
                                         {"MTEST_MONITOR_SAMPLE", "10"},
                                         {"MTEST_FIXTURE_INDEX", "from-runner"}});

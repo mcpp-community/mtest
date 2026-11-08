@@ -1314,11 +1314,28 @@ answer ci_timeline(const json& p) {
     auto j = json::parse(r->out, nullptr, false);
     if (j.is_discarded() || !j.contains("jobs"))
         return machine("gh gave no jobs: " + r->err);
+    // `YYYY-MM-DDTHH:MM:SSZ`, read field by field: not every standard library
+    // has `std::chrono::parse`.
     auto epoch = [](const std::string& iso) -> double {
-        std::istringstream in(iso);
-        std::chrono::sys_seconds t{};
-        in >> std::chrono::parse("%Y-%m-%dT%H:%M:%SZ", t);
-        return in.fail() ? -1.0 : double(t.time_since_epoch().count()) * 1000;
+        int f[6]{};
+        constexpr std::size_t at[6] = {0, 5, 8, 11, 14, 17}, width[6] = {4, 2, 2, 2, 2, 2};
+        if (iso.size() < 20 || iso[19] != 'Z')
+            return -1.0;
+        for (int i = 0; i < 6; ++i) {
+            const char* b = iso.data() + at[i];
+            if (std::from_chars(b, b + width[i], f[i]).ptr != b + width[i])
+                return -1.0;
+        }
+        const std::chrono::year_month_day day{std::chrono::year{f[0]},
+                                              std::chrono::month(unsigned(f[1])),
+                                              std::chrono::day(unsigned(f[2]))};
+        if (!day.ok())
+            return -1.0;
+        const auto t = std::chrono::sys_days{day} + std::chrono::hours{f[3]} +
+                       std::chrono::minutes{f[4]} + std::chrono::seconds{f[5]};
+        return double(
+                   std::chrono::duration_cast<std::chrono::seconds>(t.time_since_epoch()).count()) *
+               1000;
     };
     const double t0 = epoch(j.value("createdAt", ""));
     run_record run;

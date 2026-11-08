@@ -2,7 +2,7 @@ name: Release
 
 # A tag vX.Y.Z: CI on the commit, then a GitHub release of the engine's package for every
 # system and its okb, with their checksums and the version's notes from CHANGELOG.md. The
-# source archive of the tag is what mcpp-index's packages (mcpplibs.mtest, .gtest, .capi)
+# source archive of the tag is what mcpp-index's packages (mcpplibs.mtest, .manifest, .gtest, .capi)
 # name; xim's `mtest` takes the package.
 
 on:

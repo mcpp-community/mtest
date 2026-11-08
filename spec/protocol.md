@@ -38,6 +38,8 @@ P2.3 A program states that it implements the protocol in two ways:
 - by a host declaration: a build system's manifest names the protocol for the program (mcpp: the test entry's package declares `test-protocol = 1`; mcpp docs/08);
 - by a marker: the bytes `mtest-protocol=1` appear in the program's file, followed by a byte that is not a digit. A runner may read the file to find it. A program built from mtest's libraries carries the marker.
 
+Either statement is a claim the program's report confirms: a program that writes no `program` event is L0 (P2.4), as a file of plain `main` linked with a library that carries the marker is.
+
 P2.4 A runner that knows neither may still set `MTEST_MODE=list` and `MTEST_REPORT`. The first event (P5.2) tells it the level. When no `program` event arrives, the program is L0, and in `list` mode it has run all of its tests once.
 
 P2.5 A framework may state where its guide to writing tests is: a file of its package that a writer of a test, a person or an agent, reads before writing one or after one failed. A host declaration names it (mcpp: the entry's `test-guide = "<file>"`; `mcpp test --guide` lists each framework with its guide), and the `program` event may carry `guide`, a URL, for a runner that learns of the framework only when it runs the program. A runner that names a failure may name the guide beside it. The guide states how a file of cases is written, how an expectation is stated and what its failure reports, and how one case is run.

@@ -37,20 +37,23 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.2.0"
+mcpplibs.mtest = "0.3.0"
 ```
 
 失败时给出位置与两侧的值（`expected 2, actual 3`）。在运行器之下，同一程序按协议报告；单独运行时每个用例输出一行。
 
-文件可以只声明 suite 而不写 `main`，由 mtest 的入口作为起点（mcpp 2026.11.8.1 及以后；更早的 mcpp 需写
-`[test] main = { from = "mtest/main" }`）：
+文件可以只以对象声明用例而不写 `main`，由 mtest 的入口作为起点（mcpp 2026.11.8.1 及以后；更早的 mcpp 需写
+`[test] main = { from = "mtest/main" }`）。每个对象是一个用例，运行器按它声明的属性（类型即类别，以及资源、时限、隔离、重试、诊断）列举、选择与调度；其函数体声明的用例可在其中单独选择（[lib/docs/writing-tests.md](lib/docs/writing-tests.md)）：
 
 ```cpp
 import mcpplibs.mtest;
 using namespace mcpplibs::mtest;
 
-suite parsing{"parsing", [] {
-    "an empty line"_test = [] { expect(eq(parse(""), 0)); };
+UTest empty{"an empty line", [] { expect(eq(parse(""), 0)); }};
+
+E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] {
+    "prints its version"_test = [] { /* ... */ };
+    "reads its configuration"_test[retries{1}] = [] { /* ... */ };
 }};
 ```
 

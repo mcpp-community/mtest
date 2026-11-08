@@ -30,7 +30,7 @@ touches; a case that states nothing it reads, and that the map does not know, is
 `plan` says why each case is in the selection, and runs nothing. `list --static` reads the test
 files `[static] globs` names (a host's own tests by default) and gives the cases each declares with
 this library, their places, kinds and tags and the attributes of `[cases]`, building and running
-nothing; a built program's own listing is the authority (`lib/src/manifest.cppm`).
+nothing; a built program's own listing is the authority (`manifest/src/manifest.cppm`, the package `mcpplibs.mtest.manifest`).
 
 ## Running
 

@@ -110,6 +110,36 @@
      "items": {
       "type": "string"
      }
+    },
+    "timeout": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "description": "P3.3: seconds the case may run"
+    },
+    "isolation": {
+     "const": "case",
+     "description": "P3.3: the case runs in a process of its own"
+    },
+    "retries": {
+     "type": "integer",
+     "minimum": 0,
+     "description": "P3.3: how many times a failing case runs again, alone"
+    },
+    "diagnose": {
+     "type": "object",
+     "description": "P3.3: what a runner does after the case fails",
+     "properties": {
+      "env": {
+       "type": "object",
+       "additionalProperties": {
+        "type": "string"
+       }
+      },
+      "timeout": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      }
+     }
     }
    },
    "required": [
@@ -129,6 +159,26 @@
     "t": {
      "type": "number",
      "minimum": 0
+    },
+    "kind": {
+     "enum": [
+      "unit",
+      "e2e",
+      "cts",
+      "bench"
+     ]
+    },
+    "tags": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "clauses": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
     }
    },
    "required": [
@@ -334,6 +384,29 @@
   {
    "properties": {
     "e": {
+     "const": "fixture"
+    },
+    "id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "ms": {
+     "type": "number",
+     "minimum": 0
+    }
+   },
+   "required": [
+    "e",
+    "id",
+    "ms"
+   ],
+   "description": "P5.2: a shared object a case caused to be made, and how long making it took"
+  },
+  {
+   "properties": {
+    "e": {
      "not": {
       "enum": [
        "program",
@@ -345,7 +418,8 @@
        "artifact",
        "end",
        "missing",
-       "done"
+       "done",
+       "fixture"
       ]
      }
     }

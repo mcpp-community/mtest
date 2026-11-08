@@ -406,15 +406,134 @@ printf ')" + header +
               "[package.metadata.mtest.cases.\"parsing/fields*\"]\nresources = [\"serial:db\"]\n"},
              {"mtest.toml", "[host]\nkind = \"mcpp\"\n"}});
         auto j = json_of(mtest(root, {"list", "--static", "--json"}));
-        expect(eq(j["cases"].get<int>(), 3)) << j.dump();
+        expect(fatal(eq(j["cases"].get<int>(), 4))) << j.dump();
         const auto& cases = j["programs"][0]["cases"];
         expect(eq(j["programs"][0]["program"].get<std::string>(), std::string("unit/parse")));
-        expect(eq(cases[0]["case"].get<std::string>(), std::string("parsing/an empty line")));
-        expect(eq(cases[0]["tags"][0].get<std::string>(), std::string("fast")));
-        expect(eq(cases[0]["line"].get<int>(), 4));
-        expect(eq(cases[1]["kind"].get<std::string>(), std::string("e2e")));
-        expect(eq(cases[2]["case"].get<std::string>(), std::string("parsing/fields/one")));
-        expect(eq(cases[1]["resources"][0].get<std::string>(), std::string("serial:db")));
+        expect(eq(cases[0]["case"].get<std::string>(), std::string("parsing")));
+        expect(eq(cases[0]["kind"].get<std::string>(), std::string("unit")));
+        expect(eq(cases[1]["case"].get<std::string>(), std::string("parsing/an empty line")));
+        expect(eq(cases[1]["tags"][0].get<std::string>(), std::string("fast")));
+        expect(eq(cases[1]["line"].get<int>(), 4));
+        expect(eq(cases[2]["kind"].get<std::string>(), std::string("e2e")));
+        expect(eq(cases[3]["case"].get<std::string>(), std::string("parsing/fields/one")));
+        expect(eq(cases[2]["resources"][0].get<std::string>(), std::string("serial:db")));
+    };
+    "a case that states no kind is of its program's directory"_test[kind::e2e] = [] {
+        const std::string head =
+            "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\nok() { :; }\n";
+        auto root = project(
+            {{"tests/e2e/t.sh",
+              head + "mtest_case plain ok\nmtest_case stated ok --kind unit\nmtest_report\n"},
+             {"tests/l0.sh", "exit 0\n"},
+             {"tests/cts/l0.sh", "exit 0\n"},
+             {"mtest.toml",
+              "[discover.all]\nglobs = [\"tests/**/*.sh\"]\ncommand = [\"bash\", \"{path}\"]\n"}});
+        auto plan = json_of(mtest(root, {"plan", "--json"}));
+        std::map<std::string, std::string> kinds;
+        for (const auto& u : plan["units"])
+            for (const auto& c : u["cases"])
+                kinds[u.value("program", "") + "::" + c.value("case", "")] = c.value("kind", "");
+        expect(eq(kinds["tests/e2e/t.sh::plain"], std::string("e2e"))) << plan.dump();
+        expect(eq(kinds["tests/e2e/t.sh::stated"], std::string("unit")));
+        expect(eq(kinds["tests/l0.sh::tests/l0.sh"], std::string("unit")));
+        expect(eq(kinds["tests/cts/l0.sh::tests/cts/l0.sh"], std::string("cts")));
+    };
+    "a case's time limit ends the process that runs it alone"_test[kind::e2e][tag{"slow"}] = [] {
+        const std::string head = "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
+        auto root = project(
+            {{"t.sh",
+              head + "ok() { :; }\nhang() { sleep 30; }\n"
+                     "mtest_case quick ok\nmtest_case hangs hang --timeout 1\nmtest_report\n"}});
+        const auto began = std::chrono::steady_clock::now();
+        auto j = json_of(mtest(root, {"run", "--json", "--isolate", "bash t.sh"}));
+        expect(eq(j["counts"].value("pass", 0), 1)) << j.dump();
+        expect(eq(j["counts"].value("timeout", 0), 1));
+        expect(lt(std::chrono::steady_clock::now() - began, std::chrono::seconds{20}));
+    };
+    "a suite's kind and attributes, read without building"_test[kind::e2e] = [] {
+        auto root = project({{"tests/cts/spec.cpp",
+                              "import mcpplibs.mtest;\nusing namespace mcpplibs::mtest;\n"
+                              "CTS spec{\"spec\", clause{\"S1\"}, resource{\"machine\"}, [] {\n"
+                              "    \"answers\"_test[clause{\"S2\"}] = [] {};\n}};\n"
+                              "Suite plain{\"plain\", [] { \"by place\"_test = [] {}; }};\n"},
+                             {"mcpp.toml", "[package]\nname = \"p\"\nversion = \"0.1.0\"\n"},
+                             {"mtest.toml", "[host]\nkind = \"mcpp\"\n"}});
+        auto j = json_of(mtest(root, {"list", "--static", "--json"}));
+        const auto& cases = j["programs"][0]["cases"];
+        expect(fatal(eq(cases.size(), std::size_t(4)))) << j.dump();
+        expect(eq(cases[0]["case"].get<std::string>(), std::string("spec")));
+        expect(eq(cases[0]["kind"].get<std::string>(), std::string("cts")));
+        expect(eq(cases[0]["clauses"], json{"S1"}));
+        expect(eq(cases[1]["clauses"], json{"S1", "S2"}));
+        expect(eq(cases[1]["resources"], json{"machine"}));
+        expect(eq(cases[3]["case"].get<std::string>(), std::string("plain/by place")));
+        expect(eq(cases[3]["kind"].get<std::string>(), std::string("cts"))) << "by its directory";
+    };
+    "a case's isolation, retries and diagnosis, as the program states them"_test[kind::e2e] = [] {
+        const std::string head = "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
+        auto root = project(
+            {{"t.sh", head + "pid() { echo $$ >> pids.txt; }\n"
+                             "second() { [ -e tried ] || { touch tried; mtest_eq 1 2; }; }\n"
+                             "diag() { echo \"diagnosing ${DIAG:-no}\"; mtest_eq 1 2; }\n"
+                             "mtest_case alone pid --isolate\nmtest_case with pid\n"
+                             "mtest_case again second --retries 2\n"
+                             "mtest_case diag diag --diagnose-env DIAG=yes\nmtest_report\n"}});
+        auto j = json_of(mtest(root, {"run", "--json", "bash t.sh"}));
+        std::ifstream pids(root / "pids.txt");
+        std::set<std::string> distinct;
+        for (std::string line; std::getline(pids, line);)
+            distinct.insert(line);
+        expect(eq(distinct.size(), std::size_t(2))) << "the isolated case shared a process";
+        expect(eq(j["counts"].value("flaky", 0), 1)) << j.dump();
+        expect(fatal(eq(j["failing"].size(), std::size_t(1))));
+        const auto dir = j["failing"][0]["diagnosis"].get<std::string>();
+        auto out = mcpplibs::os::fs::read(mcpplibs::os::fs::from_utf8(dir) / "out.txt");
+        expect(fatal(out.has_value())) << dir;
+        expect(contains(*out, "diagnosing yes"));
+        auto explained = mtest(root, {"explain"});
+        expect(contains(explained.out, "diagnosis: "));
+    };
+    "mtest.toml states what a program cannot: the same attributes, after the program's"_test
+        [kind::e2e] = [] {
+            const std::string head =
+                "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
+            auto root = project(
+                {{"t.sh", head + "ok() { :; }\nbad() { mtest_eq 1 2; }\n"
+                                 "mtest_case known bad\nmtest_case off bad\nmtest_case own ok "
+                                 "--kind e2e\nmtest_report\n"},
+                 {"l0.sh", "exit 1\n"},
+                 {"mtest.toml", "[cases.\"known\"]\nexpect_fail = \"a defect upstream\"\n"
+                                "[cases.\"off\"]\nskip = \"not on this host\"\n"
+                                "[cases.\"own\"]\nkind = \"bench\"\nclauses = [\"S1\"]\n"
+                                "[cases.\"bash l0.sh\"]\nexpect_fail = \"exits 1 by design\"\n"}});
+            auto j = json_of(mtest(root, {"run", "--json", "--report-json", "r.json", "bash t.sh",
+                                          "bash l0.sh"}));
+            expect(eq(j["status"].get<std::string>(), std::string("pass"))) << j.dump();
+            expect(eq(j["counts"].value("xfail", 0), 2));
+            expect(eq(j["counts"].value("skip", 0), 1));
+            auto record = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
+            for (const auto& c : record["cases"])
+                if (c.value("id", "") == "own")
+                    expect(eq(c.value("kind", ""), std::string("e2e")))
+                        << "the program's kind comes first";
+        };
+    "a run's timeline: when each program started and what it held"_test[kind::e2e] = [] {
+        auto root =
+            project({{"a.sh", "sleep 0.3\n"},
+                     {"b.sh", "sleep 0.3\n"},
+                     {"mtest.toml", "[cases.\"bash a.sh\"]\nresources = [\"serial:x\"]\n"
+                                    "[cases.\"bash b.sh\"]\nresources = [\"serial:x\"]\n"}});
+        json_of(mtest(root, {"run", "--json", "--jobs", "2", "--report-json", "r.json", "bash a.sh",
+                             "bash b.sh"}));
+        auto record = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
+        std::vector<double> starts;
+        for (const auto& p : record["timeline"]) {
+            expect(eq(p["resources"], json{"serial:x"}));
+            starts.push_back(p.value("started_ms", 0.0));
+        }
+        expect(fatal(eq(starts.size(), std::size_t(2))));
+        expect(ge(std::abs(starts[0] - starts[1]), 250.0))
+            << "two holders of one serial group overlapped";
     };
     return report();
 }

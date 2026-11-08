@@ -156,8 +156,18 @@ int main() {
         std::set<std::string> listed;
         for (const auto& c : of(r, "case"))
             listed.insert(c.value("id", ""));
+        // P3.4: a case declared inside a case may be listed through the case that declares it.
+        auto listed_or_declared = [&](const std::string& want) {
+            for (auto at = want.size(); at != std::string::npos; at = want.rfind('/', at - 1)) {
+                if (listed.contains(want.substr(0, at)))
+                    return true;
+                if (at == 0)
+                    break;
+            }
+            return false;
+        };
         for (const auto& want : fixture_ids(level(r)))
-            expect(listed.contains(want)) << "not listed: " << want;
+            expect(listed_or_declared(want)) << "not listed: " << want;
     };
     "P3.2 identifiers are distinct and stable"_test[kind::cts][clause{"P3.2"}] = [] {
         const auto a = run("list");

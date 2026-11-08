@@ -15,6 +15,14 @@ export namespace mcpplibs::mtest {
 
 enum class kind { unit, e2e, cts, bench };
 
+// What a runner does when a case fails: it runs the case once more, alone, with `env` added to its
+// environment (a verbose log, a tracer's switch) and within `limit` (zero: the case's own), and
+// keeps that run's output beside the result. The second run is a record, never a verdict.
+struct diagnose {
+    std::vector<std::pair<std::string, std::string>> env;
+    std::chrono::milliseconds limit{0};
+};
+
 struct attributes {
     std::optional<mtest::kind> kind;
     std::vector<std::string> tags;
@@ -25,9 +33,15 @@ struct attributes {
     std::optional<std::string> expected_failure;  // the reason the case is expected to fail
     std::optional<std::string> skip;              // the reason the case does not run
     std::optional<std::string> gap_due;           // a known gap's date (YYYY-MM-DD); see known_gap
+    std::optional<std::chrono::milliseconds> limit;  // how long the case may run (timeout)
+    bool isolated = false;                           // runs in a process of its own (isolate)
+    std::optional<int> retries;                      // runs again after failing (retries)
+    std::optional<mtest::diagnose> diagnosis;        // what a runner does after it fails (diagnose)
 };
 
-// Each is written in brackets after the case's name: "x"_test[tag("slow")][kind::e2e] = ...
+// Each is written in brackets after the case's name, "x"_test[tag{"slow"}][resource{"machine"}],
+// or after a suite's name, E2E cli{"cli", resource{"serial:home"}, [] { ... }}, where every case
+// of the suite has it.
 struct tag {
     std::string name;
 };
@@ -54,6 +68,63 @@ struct known_gap {
     std::string reason;
     std::string due;
 };
+// How long the case may run; a runner that starts a process per case ends it then (P3.3).
+struct timeout {
+    std::chrono::milliseconds limit;
+};
+// The case runs in a process of its own: what it leaves in its process reaches no other case.
+struct isolate {};
+// A failing case runs again, alone, up to `count` times; one that then passes is flaky, which the
+// runner records and does not count as failed.
+struct retries {
+    int count;
+};
+
+// Each attribute applied to a set of them. Tags, clauses, resources and artifacts add up, and a
+// case within an isolated suite is isolated; a kind, a skip, an expected failure, a known gap, a
+// time limit, retries and a diagnosis are the innermost one stated.
+inline void apply(attributes& a, mtest::kind k) {
+    a.kind = k;
+}
+inline void apply(attributes& a, tag t) {
+    a.tags.push_back(std::move(t.name));
+}
+inline void apply(attributes& a, clause c) {
+    a.clauses.push_back(std::move(c.id));
+}
+inline void apply(attributes& a, resource r) {
+    a.resources.push_back(std::move(r.name));
+}
+inline void apply(attributes& a, artifact x) {
+    a.artifacts.push_back(std::move(x.name));
+}
+inline void apply(attributes& a, expect_failure x) {
+    a.expected_failure = std::move(x.reason);
+}
+inline void apply(attributes& a, skip_if s) {
+    if (s.condition)
+        a.skip = std::move(s.reason);
+}
+inline void apply(attributes& a, timeout t) {
+    a.limit = t.limit;
+}
+inline void apply(attributes& a, isolate) {
+    a.isolated = true;
+}
+inline void apply(attributes& a, retries r) {
+    a.retries = r.count;
+}
+inline void apply(attributes& a, diagnose d) {
+    a.diagnosis = std::move(d);
+}
+void apply(attributes& a, known_gap g);
+
+template <class A>
+concept attribute = requires(attributes& set, A a) { apply(set, std::move(a)); };
+
+// `inner` stated within `outer`: a case's own within its suite's, a nested case's within its
+// case's.
+attributes within(const attributes& outer, const attributes& inner);
 
 // ---- expectations ----------------------------------------------------------
 
@@ -248,36 +319,12 @@ parameterized<T, F> operator|(values<T> v, F f) {
 class test {
 public:
     explicit test(std::string_view name) : name_(name) {}
-    test& operator[](tag t) {
-        attrs_.tags.push_back(std::move(t.name));
+    test(std::string_view name, attributes attrs) : name_(name), attrs_(std::move(attrs)) {}
+    template <attribute A>
+    test& operator[](A a) {
+        apply(attrs_, std::move(a));
         return *this;
     }
-    test& operator[](mtest::kind k) {
-        attrs_.kind = k;
-        return *this;
-    }
-    test& operator[](clause c) {
-        attrs_.clauses.push_back(std::move(c.id));
-        return *this;
-    }
-    test& operator[](resource r) {
-        attrs_.resources.push_back(std::move(r.name));
-        return *this;
-    }
-    test& operator[](artifact a) {
-        attrs_.artifacts.push_back(std::move(a.name));
-        return *this;
-    }
-    test& operator[](expect_failure x) {
-        attrs_.expected_failure = std::move(x.reason);
-        return *this;
-    }
-    test& operator[](skip_if s) {
-        if (s.condition)
-            attrs_.skip = std::move(s.reason);
-        return *this;
-    }
-    test& operator[](known_gap g);
 
     // Declares the case: lists it, runs it, or passes over it, as the runner asks.
     void operator=(body b);
@@ -306,22 +353,109 @@ inline test operator""_test(const char* name, std::size_t size) {
     return test(std::string_view(name, size));
 }
 
-// A group of cases declared when the program runs its suites: at namespace scope,
-//   suite parsing = [] { "an empty line"_test = [] { ... }; };
-// The suite's name prefixes its cases' identifiers ("parsing/an empty line").
-class suite {
-public:
-    template <class F>
-    requires std::invocable<F&>
-    suite(F f, std::source_location where = std::source_location::current())
-        : suite(std::string{}, std::function<void()>(std::move(f)), where) {}
-    template <class F>
-    requires std::invocable<F&>
-    suite(std::string_view name, F f, std::source_location where = std::source_location::current())
-        : suite(std::string(name), std::function<void()>(std::move(f)), where) {}
-private:
-    suite(std::string name, std::function<void()> f, std::source_location where);
+// A name and the place it is written: the first argument of a suite, converted where the suite is
+// declared, so that the suite's case is reported at its declaration.
+struct name_here {
+    std::string_view name;
+    std::source_location where;
+    template <class S>
+    requires std::convertible_to<const S&, std::string_view>
+    name_here(const S& n, std::source_location w = std::source_location::current())
+        : name(n), where(w) {}
 };
+
+// A case declared by an object at namespace scope:
+//
+//   UTest parsing{"parsing", [] { expect(eq(parse(""), 0)); }};
+//   E2E   cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] {
+//       "prints its version"_test = [] { ... };
+//       "reads its configuration"_test = [] { ... };
+//   }};
+//
+// Making the object records its name, its attributes and its body; nothing runs. A runner lists it
+// as one case with those attributes, selects it, and schedules it by them (resources, isolation,
+// time limit, retries, diagnosis); its body runs when it is selected. Cases the body declares are
+// its own: their identifiers are under its name ("cli/prints its version"), they have its
+// attributes and add their own, each can be selected alone, and the body's other statements --
+// what its cases share -- run only when one of them is. So one object is a single test, or a group
+// of tests, or both.
+//
+// A `Suite` states no kind: its case is of the kind its attributes state, else of the program's (a
+// program under `tests/e2e/` is e2e, mtest docs/layout.md). UTest, CTS, E2E and Bench are of one
+// kind each. A suite without a name is no case: its body runs when the program does, and declares
+// cases of its own scope:
+//   Suite all = [] { "a"_test = [] { ... }; };
+class Suite {
+public:
+    template <class... A>
+    requires(sizeof...(A) >= 1)
+    Suite(name_here name, A&&... args) {
+        declare(name, attributes{}, std::forward<A>(args)...);
+    }
+    template <class F>
+    requires std::invocable<F&>
+    Suite(F f, std::source_location where = std::source_location::current()) {
+        add({}, where, attributes{}, std::function<void()>(std::move(f)));
+    }
+protected:
+    template <class... A>
+    Suite(mtest::kind k, name_here name, A&&... args) {
+        attributes base;
+        base.kind = k;
+        declare(name, std::move(base), std::forward<A>(args)...);
+    }
+private:
+    template <class... A>
+    void declare(name_here name, attributes attrs, A&&... args) {
+        constexpr std::size_t n = sizeof...(A);
+        auto all = std::forward_as_tuple(std::forward<A>(args)...);
+        using body_type = std::remove_cvref_t<std::tuple_element_t<n - 1, std::tuple<A...>>>;
+        static_assert(std::invocable<body_type&>, "a suite ends with its body: [] { ... }");
+        [&]<std::size_t... I>(std::index_sequence<I...>) {
+            (apply(attrs, std::remove_cvref_t<std::tuple_element_t<I, std::tuple<A...>>>(
+                              std::get<I>(all))),
+             ...);
+        }(std::make_index_sequence<n - 1>{});
+        add(std::string(name.name), name.where, std::move(attrs),
+            std::function<void()>(std::get<n - 1>(all)));
+    }
+    static void add(std::string name, std::source_location where, attributes attrs,
+                    std::function<void()> f);
+};
+
+// Unit tests: a part of a program on its own.
+class UTest : public Suite {
+public:
+    template <class... A>
+    requires(sizeof...(A) >= 1)
+    UTest(name_here name, A&&... args) : Suite(kind::unit, name, std::forward<A>(args)...) {}
+};
+// Conformance to a specification (P6.4): cases that name the clauses they cover.
+class CTS : public Suite {
+public:
+    template <class... A>
+    requires(sizeof...(A) >= 1)
+    CTS(name_here name, A&&... args) : Suite(kind::cts, name, std::forward<A>(args)...) {}
+};
+// End-to-end tests: programs under test, run as their users run them (mcpplibs.mtest.e2e).
+class E2E : public Suite {
+public:
+    template <class... A>
+    requires(sizeof...(A) >= 1)
+    E2E(name_here name, A&&... args) : Suite(kind::e2e, name, std::forward<A>(args)...) {}
+};
+// Measurements (mcpplibs.mtest.bench). A measurement means something only on a machine nothing
+// else uses, so a Bench holds `machine` (P7.1).
+class Bench : public Suite {
+public:
+    template <class... A>
+    requires(sizeof...(A) >= 1)
+    Bench(name_here name, A&&... args)
+        : Suite(kind::bench, name, resource{"machine"}, std::forward<A>(args)...) {}
+};
+
+// The spelling of 0.1 and 0.2.
+using suite = Suite;
 
 // Runs every suite not yet run, writes the summary (the `done` event under a
 // runner), and returns the program's exit status (P5.5).
@@ -335,6 +469,59 @@ int run(int argc, char** argv);
 // A directory of the current case, removed when the case ends (MTEST_TMPDIR when a runner gives
 // one).
 std::filesystem::path temp_dir();
+// A suite's object that cases share, made when the first case that runs uses it and destroyed when
+// the suite's body returns: nothing is made when the program lists its cases or runs none of them.
+//
+//   CTS lsp{"lsp", [] {
+//       shared<server> s{[] { return server{payload()}; }};
+//       "status"_test = [&] { expect(s->ready()); };
+//   }};
+//
+// Its making is reported with the case that caused it (P5.2 `fixture`: the name, how long it took),
+// so that a runner sees what a suite's cases share and what sharing saves.
+namespace detail {
+void made_shared(std::string_view name, double ms);
+}
+template <class T>
+class shared {
+public:
+    explicit shared(std::string_view name = {})
+    requires std::default_initializable<T>
+        : name_(name), make_([] { return std::make_unique<T>(); }) {}
+    template <class F>
+    requires std::invocable<F&> && std::constructible_from<T, std::invoke_result_t<F&>>
+    explicit shared(F make) : shared(std::string_view{}, std::move(make)) {}
+    template <class F>
+    requires std::invocable<F&> && std::constructible_from<T, std::invoke_result_t<F&>>
+    shared(std::string_view name, F make)
+        : name_(name),
+          make_([make = std::move(make)]() mutable { return std::make_unique<T>(make()); }) {}
+    shared(const shared&) = delete;
+    shared& operator=(const shared&) = delete;
+
+    T& operator*() {
+        if (!value_) {
+            const auto began = std::chrono::steady_clock::now();
+            value_ = make_();
+            detail::made_shared(name_, std::chrono::duration<double, std::milli>(
+                                           std::chrono::steady_clock::now() - began)
+                                           .count());
+        }
+        return *value_;
+    }
+    T* operator->() {
+        return &**this;
+    }
+    // Whether a case has used it.
+    bool made() const noexcept {
+        return value_ != nullptr;
+    }
+private:
+    std::string name_;
+    std::function<std::unique_ptr<T>()> make_;
+    std::unique_ptr<T> value_;
+};
+
 // The seed of anything random: MTEST_SEED, else one chosen at start and printed with a failure.
 std::uint64_t seed();
 // The identifier of the case that runs now; empty outside a case.

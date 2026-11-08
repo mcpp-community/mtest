@@ -24,7 +24,8 @@ json to_json(const case_info& c) {
     return {{"id", c.id},           {"name", c.name},           {"file", c.file},
             {"line", c.line},       {"kind", c.kind},           {"tags", c.tags},
             {"clauses", c.clauses}, {"resources", c.resources}, {"artifacts", c.artifacts},
-            {"expect", c.expect}};
+            {"expect", c.expect},   {"timeout", c.timeout},     {"isolated", c.isolated},
+            {"retries", c.retries}};
 }
 json to_json(const failure_info& f) {
     json j = {{"file", f.file}, {"line", f.line}, {"message", f.message}};
@@ -69,6 +70,13 @@ json to_json(const case_result& c) {
         j["clauses"] = c.clauses;
     if (c.quarantined)
         j["quarantined"] = true;
+    if (!c.fixtures.empty()) {
+        j["fixtures"] = json::array();
+        for (const auto& f : c.fixtures)
+            j["fixtures"].push_back({{"name", f.name}, {"ms", f.ms}});
+    }
+    if (!c.diagnosis.empty())
+        j["diagnosis"] = c.diagnosis;
     if (c.attempts > 1)
         j["attempts"] = c.attempts;
     return j;
@@ -85,6 +93,9 @@ json to_json(const program_result& p) {
     if (!p.error.empty())
         j["error"] = p.error;
     j["origin"] = p.origin;
+    j["started_ms"] = p.started_ms;
+    if (!p.resources.empty())
+        j["resources"] = p.resources;
     return j;
 }
 json to_json(const run_record& r) {
@@ -111,8 +122,20 @@ case_info case_info_from(const json& j) {
     c.id = str(j, "id");
     c.name = str(j, "name");
     c.file = str(j, "file");
-    c.kind = j.value("kind", std::string("unit"));
+    c.kind = j.value("kind", std::string{});
     c.expect = str(j, "expect");
+    c.timeout = j.value("timeout", 0.0);
+    c.isolated = j.value("isolation", std::string{}) == "case" || j.value("isolated", false);
+    c.retries = j.value("retries", 0);
+    if (auto d = j.find("diagnose"); d != j.end() && d->is_object()) {
+        std::vector<std::pair<std::string, std::string>> env;
+        if (auto e = d->find("env"); e != d->end() && e->is_object())
+            for (auto it = e->begin(); it != e->end(); ++it)
+                if (it.value().is_string())
+                    env.emplace_back(it.key(), it.value().get<std::string>());
+        c.diagnose_env = std::move(env);
+        c.diagnose_timeout = d->value("timeout", 0.0);
+    }
     c.line = j.value("line", 0);
     c.tags = strings<std::string>(j, "tags");
     c.clauses = strings<std::string>(j, "clauses");
@@ -150,6 +173,10 @@ case_result case_result_from(const json& j) {
     c.clauses = strings<std::string>(j, "clauses");
     c.quarantined = j.value("quarantined", false);
     c.attempts = j.value("attempts", 1);
+    if (auto it = j.find("fixtures"); it != j.end() && it->is_array())
+        for (const auto& f : *it)
+            c.fixtures.push_back({str(f, "name"), f.value("ms", 0.0)});
+    c.diagnosis = str(j, "diagnosis");
     return c;
 }
 program_result program_result_from(const json& j) {
@@ -166,6 +193,8 @@ program_result program_result_from(const json& j) {
     p.err_tail = str(j, "err_tail");
     p.error = str(j, "error");
     p.origin = j.value("origin", std::string("config"));
+    p.started_ms = j.value("started_ms", 0.0);
+    p.resources = strings<std::string>(j, "resources");
     return p;
 }
 run_record run_record_from(const json& j) {

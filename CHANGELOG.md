@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.3.0] - 2026-11-08
+
+A case states in code what it is and what it needs, and the runner acts on that statement and
+records what it did.
+
+- An object is a case: `UTest`, `E2E`, `CTS` and `Bench` (and `Suite`, of no kind) take a name, any
+  attributes and a body. Making the object records them; a runner lists the object as one case,
+  schedules it by its attributes and runs its body when it is selected. Cases the body declares are
+  under its name, have its attributes and add their own, and can be selected alone; the body's other
+  statements run only when one of them does. A case that runs only as the scope of a selected one is
+  reported only when a statement of its own fails (P3.4). `suite` remains as the spelling of 0.2.
+- Attributes for how a case is run: `timeout{}`, `isolate{}`, `retries{n}` and `diagnose{.env, .limit}`
+  (a failing case runs once more with that environment; its output is kept and named by
+  `mtest explain`). P3.3 gains `timeout`, `isolation`, `retries` and `diagnose`; the Bash adapter
+  (`--timeout`, `--isolate`, `--retries`, `--diagnose-env`, `--diagnose-timeout`) and the C ABI
+  (`mtest_case_timeout`, `mtest_case_isolate`, `mtest_case_retries`, `mtest_case_diagnose`) state
+  them too.
+- `shared<T>`: an object the cases of a body share, made when one first uses it; the `fixture` event
+  reports which case made it and how long that took.
+- A case that states no kind is of its program's: `mtest.toml`'s, else its directory's
+  (`tests/unit`, `tests/e2e`, `tests/cts`, `tests/bench`; `docs/layout.md`), else unit. The library,
+  the Bash adapter and the C ABI no longer state `unit` for a case that names no kind.
+- `[cases."<glob>"]` takes the library's attributes in the same words (`clauses`, `artifacts`,
+  `isolation`, `retries`, `diagnose`, `skip`, `expect_fail` beside `kind`, `tags`, `resources`,
+  `timeout`); what the program states comes first (in 0.2 the file took precedence).
+- The engine runs a case that states isolation in a process of its own, ends a process that runs one
+  case at that case's time limit and gives a process of several at least the sum of theirs, retries
+  a case as often as it states, records each program's start and what it held (`timeline` of
+  `--report-json`), and records skips and expected failures `mtest.toml` states.
+- The static manifest is a package of its own, `mcpplibs.mtest.manifest`, which a tool that reads
+  tests (the engine, an editor) depends on without linking the library a test program links. It
+  reads the suite types, a suite type the file derives from one
+  (`class Fixture : public CTS`), a suite's attributes, `resource`, `clause` and `artifact`;
+  `mtest list --static` gives a case the kind and attributes `mtest list` gives it.
+- Discovery globs match `**/` as no directory too (`tests/**/*.sh` matches `tests/a.sh`).
+
 ## [0.2.0] - 2026-11-08
 
 - `[discover.<name>]`: every file a glob matches is a program run by a command (`{path}`,

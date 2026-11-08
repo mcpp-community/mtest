@@ -22,13 +22,29 @@ struct program_spec {
     std::chrono::seconds timeout{300};
     std::string isolation = "process";  // "process" or "case"
     std::string origin = "config";      // "given" (the command line), "config", "discover", "host"
-    std::string kind = "unit";          // the kind of an L0 program's one case
+    // The kind of an L0 program's one case and of a case that states none: stated in mtest.toml,
+    // else by the program's directory (docs/layout.md), else unit. Empty until `discover` gives it.
+    std::string kind;
 };
 
 struct case_info {
-    std::string id, name, file, kind = "unit", expect;
+    std::string id, name, file, kind, expect;  // kind: empty when the case states none
     int line = 0;
     std::vector<std::string> tags, clauses, resources, artifacts;
+    double timeout = 0;     // seconds the case may run; 0: the program's (P3.3)
+    bool isolated = false;  // runs in a process of its own
+    int retries = 0;        // runs again, alone, after failing
+    // After it fails: run once more with this environment, within this limit (0: its own).
+    std::optional<std::vector<std::pair<std::string, std::string>>> diagnose_env;
+    double diagnose_timeout = 0;
+    // mtest.toml's skip and expected failure, for a case whose program states neither (reasons).
+    std::string skip, expect_fail;
+};
+
+// A shared object a case caused to be made (P5.2 `fixture`), and how long making it took.
+struct fixture_info {
+    std::string name;
+    double ms = 0;
 };
 
 struct failure_info {
@@ -52,8 +68,10 @@ struct case_result {
     std::vector<failure_info> failures;
     std::vector<metric_info> metrics;
     std::vector<std::string> artifacts, tags, clauses;
+    std::vector<fixture_info> fixtures;
     bool quarantined = false;
     int attempts = 1;
+    std::string diagnosis;  // the store's file of its diagnostic run's output, when it had one
 };
 
 struct program_result {
@@ -68,6 +86,9 @@ struct program_result {
     std::string out_tail, err_tail;  // the last part of each output
     std::string error;               // why it did not run, for an infra status
     std::string origin = "config";   // as program_spec's: how the program is named again
+    // When it started, in milliseconds after the run began, and what it held: the run's timeline.
+    double started_ms = 0;
+    std::vector<std::string> resources;
 };
 
 struct run_record {

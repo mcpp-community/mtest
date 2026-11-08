@@ -10,7 +10,7 @@
 [package]
 namespace   = "mtest"
 name        = "mtest"
-version     = "0.2.0"
+version     = "0.3.0"
 description = "The mtest engine: run, schedule, store, explain and analyse tests of any language"
 license     = "Apache-2.0"
 authors     = ["mcpp-community"]
@@ -29,9 +29,13 @@ kind = "bin"
 main = "src/main.cpp"
 
 [dependencies]
-mcpplibs.mtest      = { path = "../lib" }   # the static case manifest (mcpplibs.mtest.manifest)
+mcpplibs.mtest.manifest = { path = "../manifest" }   # the static case manifest
 mcpplibs.os         = "0.4.0"
 mcpplibs.cmdline    = "0.0.2"
 nlohmann.json       = "3.12.0"
 marzer.tomlplusplus = "3.4.0"
+
+# The engine's own tests are written with the library.
+[dev-dependencies]
+mcpplibs.mtest = { path = "../lib" }
 

@@ -6,6 +6,7 @@
 [workspace]
 members = [
     "lib",
+    "manifest",
     "conformance",
     "engine",
     "adapters/gtest",

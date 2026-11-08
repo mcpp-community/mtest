@@ -9,6 +9,15 @@ namespace os = mcpplibs::os;
 
 namespace {
 
+std::vector<std::string> strings_of(const json& e, const char* key) {
+    std::vector<std::string> out;
+    if (auto it = e.find(key); it != e.end() && it->is_array())
+        for (const auto& v : *it)
+            if (v.is_string())
+                out.push_back(v.get<std::string>());
+    return out;
+}
+
 std::string tail(std::string_view text, std::size_t keep = 4096) {
     return std::string(text.size() > keep ? text.substr(text.size() - keep) : text);
 }
@@ -85,6 +94,7 @@ report_reading read_report(std::string_view text, std::string_view program) {
         case_result c;
         c.program = std::string(program);
         c.id = id;
+        c.kind.clear();  // the listing's, else its begin's, else the program's
         c.status = "";
         index[id] = r.cases.size();
         r.cases.push_back(std::move(c));
@@ -108,7 +118,14 @@ report_reading read_report(std::string_view text, std::string_view program) {
         } else if (kind == "case") {
             r.listed.push_back(case_info_from(e));
         } else if (kind == "begin") {
-            at(id);
+            // A case not listed (P3.4) states what it is when it begins.
+            auto& c = at(id);
+            if (auto k = e.value("kind", std::string{}); !k.empty())
+                c.kind = k;
+            if (e.contains("tags"))
+                c.tags = strings_of(e, "tags");
+            if (e.contains("clauses"))
+                c.clauses = strings_of(e, "clauses");
         } else if (kind == "failure") {
             at(id).failures.push_back({e.value("file", ""), e.value("message", ""),
                                        e.value("expected", ""), e.value("actual", ""),
@@ -126,6 +143,8 @@ report_reading read_report(std::string_view text, std::string_view program) {
             at(id).metrics.push_back(std::move(m));
         } else if (kind == "artifact") {
             at(id).artifacts.push_back(e.value("path", ""));
+        } else if (kind == "fixture") {
+            at(id).fixtures.push_back({e.value("name", ""), e.value("ms", 0.0)});
         } else if (kind == "end") {
             auto& c = at(id);
             c.status = e.value("status", "fail");

@@ -145,6 +145,8 @@ std::expected<selection_request, answer> selection_of(const context& ctx, const 
         auto paths = changed_since(ctx.cfg.root, base.empty() ? "origin/main" : "origin/" + base);
         if (paths)
             r.changed = *paths;
+        else
+            r.unknown_change = paths.error();
     }
     return r;
 }

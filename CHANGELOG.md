@@ -18,6 +18,8 @@
 - The static case manifest: `mcpplibs.mtest.manifest` reads the cases a source file declares
   (`"name"_test`, their attributes, named suites, nested cases) from its text, and
   `mtest list --static` lists a project's test files with it, building and running nothing.
+- A set that selects by change (`pr`) selects every case when the change cannot be read (a shallow clone
+  without its base), and says so; before, it selected none of the affected cases.
 - A failing case's entry in a run's answer names its kind.
 
 ## [0.1.0] - 2026-11-08

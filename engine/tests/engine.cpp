@@ -141,6 +141,19 @@ int main() {
         expect(eq(src["selected"].get<int>(), 2));
         expect(contains(src["units"][0]["cases"][0]["why"].get<std::string>(), "src/a.cpp"));
     };
+    "the pr set runs every case when the change cannot be read"_test[kind::e2e] = [] {
+        // A repository of its own, with no `origin/main`: `git diff` cannot say what changed.
+        auto root =
+            project({{"t.sh", script({"a:pass", "b:pass"})},
+                     {"mtest.toml",
+                      "[programs.t]\ncommand = [\"bash\", \"t.sh\"]\nsources = [\"src/*\"]\n"}});
+        if (!mcpplibs::os::env::find_executable("git"))
+            return;
+        (void)e2e::run({.argv = {"git", "init", "-q", "."}, .cwd = root});
+        auto plan = json_of(mtest(root, {"plan", "--json", "--set", "pr"}));
+        expect(eq(plan["selected"].get<int>(), 2)) << plan.dump();
+        expect(contains(plan["notes"].dump(), "every case is affected"));
+    };
     "a quarantined case fails without failing the run"_test[kind::e2e] = [] {
         auto root = project({{"t.sh", script({"flaky:fail", "ok:pass"})}});
         (void)mtest(root, {"quarantine", "add", "--case", "bash t.sh::flaky", "--reason", "known"});

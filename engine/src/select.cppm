@@ -29,6 +29,9 @@ struct selection_request {
     // `--shard I/N`: the I-th (1-based) of N parts, the longest units first, each to the part
     // with the least expected time; every machine with the same store computes the same parts.
     std::optional<std::pair<int, int>> shard;
+    // The change could not be read (a shallow clone without the base): a set that selects by
+    // change selects every case, and says why. Empty: nothing went wrong.
+    std::string unknown_change;
 };
 
 struct unit_case {

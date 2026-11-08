@@ -543,6 +543,8 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                         continue;
                     }
                     if (st.affected) {
+                        if (!r.unknown_change.empty())
+                            return std::format("set {}: the change is not known", st.name);
                         if (!r.changed)
                             continue;
                         if (auto why = affected(p, ci, *r.changed, coverage))
@@ -575,6 +577,9 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
     }
     if (r.changed && r.changed->empty())
         out.notes.push_back("the change touches no path: nothing is affected");
+    if (!r.unknown_change.empty())
+        out.notes.push_back(std::format("the change could not be read ({}): every case is affected",
+                                        r.unknown_change));
 
     // A budget keeps the most useful cases that fit: the ones that failed lately first, then the
     // quickest.

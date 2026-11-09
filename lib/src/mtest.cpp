@@ -299,13 +299,14 @@ void write_program() {
         return;
     s.program_written = true;
     // Keeps the marker in a link that discards what nothing reaches.
-    [[maybe_unused]] volatile char keep = protocol_marker[0];
+    const char* volatile keep = protocol_marker;
+    (void)keep;
     write_event(
         {{"e", "program"},
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.5.0"},
+         {"version", "0.5.1"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }

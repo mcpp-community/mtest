@@ -8,7 +8,7 @@
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "conformance"
-version     = "0.5.0"
+version     = "0.5.1"
 description = "The conformance suite of the mtest protocol, for every implementation of its program side"
 license     = "Apache-2.0"
 
@@ -19,6 +19,12 @@ import_std = true
 
 [build]
 sources = ["src/*.cppm", "src/*.cpp"]
+
+# The fixture is linked keeping only what it reaches, as `mcpp test` links a
+# test program: the marker (P2.3) survives that link.
+[target.linux.build]
+cxxflags = ["-ffunction-sections", "-fdata-sections"]
+ldflags  = ["-Wl,--gc-sections"]
 
 # The fixture: the same cases every implementation provides (spec/conformance.md).
 [targets.fixture]

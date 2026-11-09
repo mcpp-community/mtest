@@ -46,5 +46,8 @@ test-main     = true
 test-guide    = "docs/writing-tests.md"
 
 [dependencies]
-mcpplibs.os   = "0.4.1"
+# A range, not one release: the library is in the test graph of every package
+# that uses it, mcpplibs.os among them, whose tests build it against the os under
+# test (mcpp 2026.11.9.1), and a package pins its own os.
+mcpplibs.os   = "^0.4.1"
 nlohmann.json = "3.12.0"

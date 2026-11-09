@@ -8,6 +8,8 @@
   the copy's arguments before any case, and the copy runs no case and reports nothing. Such a file
   defines no `main`, so the files of one directory are one program however many of them start
   copies (mcpp `[test] programs = "directory"`).
+- The library asks for mcpplibs.os `^0.4.1` rather than 0.4.1 itself: it is in the test graph of every
+  package that uses it, and such a package --- mcpplibs.os's own checks among them --- pins its os.
 
 ## [0.5.1] - 2026-11-09
 

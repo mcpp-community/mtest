@@ -606,7 +606,8 @@ public:
     child(std::string_view name, std::function<int(std::vector<std::string> args)> body);
 };
 // This program again, as the child `name`, given `args`.
-std::vector<std::string> child_command(std::string_view name, std::span<const std::string> args = {});
+std::vector<std::string> child_command(std::string_view name,
+                                       std::span<const std::string> args = {});
 
 // ---- components (P11) ---------------------------------------------------------
 

@@ -54,8 +54,9 @@ Bench startup{"startup", at_most{"ready", 15}, resource{"machine"}, [] {
 - **The type is the kind; what a case needs follows its name**: resources, a time limit, isolation,
   retries, a diagnosis, bounds on its metrics, tags, clauses. Scopes pass them down.
 - **What cases share is a local of the body**, or `shared<T>` when only some cases use it.
-- **No `main`**: mtest's entry begins the program. A file that starts copies of itself writes `main`
-  and ends it with `return run(argc, argv)`.
+- **No `main`**: mtest's entry begins the program. A file that starts copies of itself declares what
+  a copy does (`child`) and starts one with `child_command`, so the files of a directory remain one
+  program.
 - **A project's own kind of case is a type of its own** (`class Fixture : public CTS { ... }`): it adds
   what every case of that kind has, and the static manifest reads it as its base's kind, in the file
   or in a module or header the project's tests share.

@@ -8,7 +8,7 @@
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "manifest"
-version     = "0.5.1"
+version     = "0.5.2"
 description = "The static case manifest of mtest: the cases a source file declares, read without building it"
 license     = "Apache-2.0"
 authors     = ["mcpp-community"]

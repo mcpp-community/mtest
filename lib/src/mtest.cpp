@@ -63,6 +63,8 @@ struct state {
     mtest::monitor_level monitor = mtest::monitor_level::off;
     // P11: the run fixtures and components this program declares.
     std::map<std::string, std::function<void(serving&)>> run_fixtures;
+    // The children this program's files declare, by name.
+    std::map<std::string, std::function<int(std::vector<std::string>)>, std::less<>> children;
     struct component_decl {
         std::string name;
         std::vector<resource_pool> pools;
@@ -306,7 +308,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.5.1"},
+         {"version", "0.5.2"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
@@ -822,6 +824,16 @@ int report() {
 
 int run(int argc, char** argv) {
     auto& s = the();
+    // A copy started as a child does what its file declares, and nothing else.
+    if (argc >= 3 && std::string_view(argv[1]) == "--mtest-child") {
+        auto it = s.children.find(std::string_view(argv[2]));
+        if (it == s.children.end()) {
+            std::println(std::cerr, "mtest: this program declares no child named {}", argv[2]);
+            return 2;
+        }
+        s.done = true;
+        return it->second(std::vector<std::string>(argv + 3, argv + argc));
+    }
     std::vector<std::string> prefixes;
     bool list = false;
     for (int i = 1; i < argc; ++i) {
@@ -960,6 +972,21 @@ void detail::made_shared(std::string_view name, double ms) {
 
 std::vector<std::string> self_command() {
     return os::env::self_command();
+}
+
+child::child(std::string_view name, std::function<int(std::vector<std::string> args)> body) {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    if (!s.children.emplace(std::string(name), std::move(body)).second)
+        throw std::logic_error(std::format("mtest: two children are named {}", name));
+}
+
+std::vector<std::string> child_command(std::string_view name, std::span<const std::string> args) {
+    auto argv = self_command();
+    argv.emplace_back("--mtest-child");
+    argv.emplace_back(name);
+    argv.insert(argv.end(), args.begin(), args.end());
+    return argv;
 }
 
 }  // namespace mcpplibs::mtest

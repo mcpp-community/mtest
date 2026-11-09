@@ -121,13 +121,14 @@ int mcpplibs_mtest_gtest_main(int argc, char** argv) {
     const std::string report_path = env("MTEST_REPORT");
     if (env("MTEST_PROTOCOL").empty() || report_path.empty())
         return RUN_ALL_TESTS();
-    [[maybe_unused]] volatile char keep = mcpplibs_mtest_gtest_marker[0];
+    const char* volatile keep = mcpplibs_mtest_gtest_marker;
+    (void)keep;
     Report report(report_path);
     report.write({{"e", "program"},
                   {"protocol", 1},
                   {"level", 1},
                   {"framework", "googletest"},
-                  {"version", "0.5.0"},
+                  {"version", "0.5.1"},
                   {"isolation", {"process", "case"}},
                   {"guide", "https://github.com/mcpp-community/mtest/blob/main/adapters/gtest/docs/"
                             "writing-tests.md"}});

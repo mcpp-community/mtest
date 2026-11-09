@@ -110,12 +110,13 @@ extern "C" {
 void mtest_init(const char* framework, int level) {
     auto& s = the();
     std::lock_guard g(s.lock);
-    [[maybe_unused]] volatile char keep = mtest_protocol_marker[0];
+    const char* volatile keep = mtest_protocol_marker;
+    (void)keep;
     s.write({{"e", "program"},
              {"protocol", 1},
              {"level", std::clamp(level, 1, 3)},
              {"framework", text(framework)},
-             {"version", "0.5.0"},
+             {"version", "0.5.1"},
              {"isolation", {"process", "case"}}});
 }
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1] - 2026-11-09
+
+- **The protocol marker survives a link that keeps only what it reaches** (P2.3). The library, the
+  GoogleTest adapter and the C ABI read the marker's address through a volatile pointer where they
+  read one byte of it before, which the compiler folded to a constant: a link with
+  `--gc-sections` over per-object sections (`mcpp test` 2026.11.9.1) then discarded the marker,
+  and the runner treated the program as one that speaks no protocol. The conformance fixture is
+  linked so on Linux.
+
 ## [0.5.0] - 2026-11-09
 
 A run is a graph of work, and mtest reports it: what ran, what each part waited for, what it used.

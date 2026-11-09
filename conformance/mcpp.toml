@@ -8,7 +8,7 @@
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "conformance"
-version     = "0.5.1"
+version     = "0.5.2"
 description = "The conformance suite of the mtest protocol, for every implementation of its program side"
 license     = "Apache-2.0"
 

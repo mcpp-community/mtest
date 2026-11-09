@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.2] - 2026-11-09
+
+- **A copy of a test program that does something else is an object** (`child`). A test that starts
+  copies of itself -- the child process under test, a producer its cases talk to -- declares what a
+  copy does, and starts one with `child_command(name, args)`; the entry enters the child named by
+  the copy's arguments before any case, and the copy runs no case and reports nothing. Such a file
+  defines no `main`, so the files of one directory are one program however many of them start
+  copies (mcpp `[test] programs = "directory"`).
+- The library asks for mcpplibs.os `^0.4.1` rather than 0.4.1 itself: it is in the test graph of every
+  package that uses it, and such a package --- mcpplibs.os's own checks among them --- pins its os.
+
 ## [0.5.1] - 2026-11-09
 
 - **The protocol marker survives a link that keeps only what it reaches** (P2.3). The library, the

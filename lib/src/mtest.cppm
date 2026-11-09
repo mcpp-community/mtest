@@ -595,6 +595,20 @@ std::set<std::string> declared_clauses();
 // This program again, as the system names it, for a test that starts copies of itself.
 std::vector<std::string> self_command();
 
+// A COPY OF THIS PROGRAM THAT DOES SOMETHING ELSE. A test that starts copies of itself -- the
+// child process under test, a producer its cases talk to -- declares what a copy does as a
+// `child`, and starts one with `child_command`. The entry enters the child named by the copy's
+// arguments before any case, so a program of many files keeps mtest's one `main` however many of
+// them start copies. The body receives the arguments after the name and returns the copy's exit
+// status; the copy runs no case and reports nothing.
+class child {
+public:
+    child(std::string_view name, std::function<int(std::vector<std::string> args)> body);
+};
+// This program again, as the child `name`, given `args`.
+std::vector<std::string> child_command(std::string_view name,
+                                       std::span<const std::string> args = {});
+
 // ---- components (P11) ---------------------------------------------------------
 
 // What a run fixture's serving is given: `ready` publishes the endpoint the cases that use it

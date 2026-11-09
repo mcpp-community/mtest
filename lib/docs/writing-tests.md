@@ -41,7 +41,19 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
 - A file declares objects and defines no `main` (with mcpp 2026.11.8.1 or later; an earlier mcpp
   needs `[test] main = { from = "mtest/main" }`). A file that defines `main` declares its cases in it
   and returns `report()`.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.5.0"`.
+- **A test that starts copies of itself declares what a copy does**, and defines no `main` either
+  (0.5.2):
+
+  ```cpp
+  child producer{"producer", [](std::vector<std::string> args) { return produce(args); }};
+  // in a case: the program again, as the child, given its arguments
+  auto o = e2e::run({.argv = child_command("producer", {"--fast"})});
+  ```
+
+  The entry enters the child before any case; the copy runs no case and reports nothing. The files of
+  one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
+  copies.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.5.2"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations

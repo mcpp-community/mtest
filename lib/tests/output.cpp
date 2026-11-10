@@ -6,6 +6,7 @@ import std;
 import mcpplibs.mtest;
 import mcpplibs.mtest.e2e;
 import nlohmann.json;
+import mcpplibs.os;
 
 using namespace mcpplibs::mtest;
 
@@ -25,6 +26,16 @@ child talker{"talker", [](std::vector<std::string>) {
              }};
 
 namespace {
+// Where the streams cannot be rearranged (an ok image), a case's output is not kept and the
+// program's output is the program's (spec O8's fallback).
+bool streams_kept() {
+    auto c = mcpplibs::os::stdio::capture::begin(mcpplibs::os::stdio::stream::error);
+    if (!c)
+        return false;
+    (void)c->text();
+    return true;
+}
+
 std::vector<nlohmann::json> run_talker(std::string& out) {
     const auto report = temp_dir() / "report.ndjson";
     auto o = e2e::run({.argv = child_command("talker", {}),
@@ -54,6 +65,8 @@ std::string output_of(const std::vector<nlohmann::json>& events, std::string_vie
 
 UTest output{"output", [] {
                  "a case states what it wrote, on each stream"_test = [] {
+                     if (!streams_kept())
+                         skip("this system's streams cannot be kept for a case");
                      std::string out;
                      const auto events = run_talker(out);
                      expect(
@@ -65,6 +78,8 @@ UTest output{"output", [] {
                  };
                  "a declared case's output is its own, and the declaring case keeps the rest"_test =
                      [] {
+                         if (!streams_kept())
+                             skip("this system's streams cannot be kept for a case");
                          std::string out;
                          const auto events = run_talker(out);
                          expect(eq(output_of(events, "outer/inner", "out"),

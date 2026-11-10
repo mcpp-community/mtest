@@ -37,7 +37,7 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.5.2"
+mcpplibs.mtest = "0.5.3"
 ```
 
 失败时给出位置与两侧的值（`expected 2, actual 3`）。在运行器之下，同一程序按协议报告；单独运行时每个用例输出一行。

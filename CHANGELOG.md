@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.3] - 2026-11-10
+
+- **A program only a runner starts is listed through that runner.** The listing pass (P3) starts a
+  program as its run does: under `--run-under` (and a `[trace.*]` tool's `run_under`), with the
+  run's `--env` variables. A program of another system -- started on a virtual machine of its system
+  or under an emulator -- was started directly to list its cases and failed with "did not start";
+  its cases could not be run through mtest from the host that built it.
+
 ## [0.5.2] - 2026-11-09
 
 - **A copy of a test program that does something else is an object** (`child`). A test that starts

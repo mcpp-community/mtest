@@ -189,7 +189,9 @@ report_reading read_report(std::string_view text, std::string_view program) {
 
 std::expected<std::vector<case_info>, std::string>
 list_program(const program_spec& spec, const std::filesystem::path& work,
-             const std::filesystem::path& root, std::vector<component_info>* components) {
+             const std::filesystem::path& root, std::vector<component_info>* components,
+             const std::vector<std::string>& run_under,
+             const std::vector<std::pair<std::string, std::string>>& env) {
     if (detect_level(spec) < 1) {
         case_info c;
         c.id = spec.name;
@@ -203,13 +205,18 @@ list_program(const program_spec& spec, const std::filesystem::path& work,
     const auto report = work / "list.ndjson";
     std::error_code ec;
     std::filesystem::remove(report, ec);
-    const auto argv = with_loader(spec.argv);
+    // Started as its run starts it: under the run's prefix, with the run's variables.
+    auto argv = run_under;
+    for (auto& a : with_loader(spec.argv))
+        argv.push_back(std::move(a));
     os::process::spawn_options o;
     o.program = resolve_program(argv.front());
     o.args.assign(argv.begin() + 1, argv.end());
     o.cwd = spec.cwd.empty() ? root : (root / os::fs::from_utf8(spec.cwd));
     o.in = os::process::stdio::null;
     for (const auto& [k, v] : spec.env)
+        o.env.emplace_back(k, v);
+    for (const auto& [k, v] : env)
         o.env.emplace_back(k, v);
     o.env.emplace_back("MTEST_PROTOCOL", "1");
     o.env.emplace_back("MTEST_MODE", "list");
@@ -220,7 +227,7 @@ list_program(const program_spec& spec, const std::filesystem::path& work,
     auto done = os::process::run(std::move(o), limits);
     if (!done)
         return std::unexpected(
-            std::format("{} did not start: {}", spec.argv.front(), done.error().message()));
+            std::format("{} did not start: {}", argv.front(), done.error().message()));
     auto text = os::fs::read(report);
     auto r = read_report(text ? std::string_view(*text) : std::string_view{}, spec.name);
     if (r.level == 0) {

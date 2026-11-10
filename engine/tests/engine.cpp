@@ -93,6 +93,14 @@ int main() {
         expect(eq(only["cases"].get<int>(), 1));
         expect(eq(only["status"].get<std::string>(), std::string("pass")));
     };
+    "a program only a runner starts is listed and run through it (--run-under)"_test[kind::e2e] = [] {
+        // Not executable by itself, as a program of another system is not on this one: both the
+        // listing (P3) and the run start it under the runner.
+        auto root = project({{"t.cross", script({"a:pass", "b:pass"})}});
+        auto j = json_of(mtest(root, {"run", "--json", "--run-under", "bash", "./t.cross"}));
+        expect(eq(j["cases"].get<int>(), 2));
+        expect(eq(j["status"].get<std::string>(), std::string("pass")));
+    };
     "a case a crash ended fails with the program's status (P5.4)"_test[kind::e2e] = [] {
         auto root = project({{"t.sh", script({"dies:crash"}, "crash() { exit 9; }\n")}});
         auto j = json_of(mtest(root, {"run", "--json", "bash t.sh"}));

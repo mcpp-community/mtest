@@ -21,7 +21,7 @@ on the spec; this list says which of its clauses mtest's parts answer, and since
 | O5 `scheduling` | `resources` and `artifacts` (P7); `timeout`, `isolation`, `retries`, `diagnose` (P3.3) in the `case` events | 0.1.0; P3.3's 0.3.0 |
 | O6 `fixtures` | `shared<T>` and the `fixture` event; components and run fixtures (P11), served under `MTEST_SERVE` | 0.3.0; P11 0.5.0 |
 | O7 `usage` | the program's `usage` at its end, and the cases' use at `MTEST_MONITOR` (P10) | 0.5.0 |
-| O8 `output` | each case's output, kept while it runs under a runner and stated as `output` events; a case declared inside another keeps its own | 0.6.0 |
+| O8 `output` | each case's output, kept while it runs under a runner and stated as `output` events; a case declared inside another keeps its own. Where the system cannot rearrange the program's streams (an ok image), no output is kept for a case, the spec's fallback | 0.6.0 |
 
 ## The engine (`mtest`)
 

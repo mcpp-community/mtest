@@ -30,8 +30,22 @@ struct running_case {
     bool case_failed = false;  // a case it declared failed
     std::optional<std::filesystem::path> dir;
     std::map<std::string, std::pair<double, std::string>> metrics;  // name -> value, unit
-    std::size_t declared = 0;  // the cases it declared that ran
+    std::size_t declared = 0;         // the cases it declared that ran
+    std::size_t declared_failed = 0;  // of those, the ones that failed
+    // Its failures as a person reads them, printed under its line when it ends.
+    std::vector<std::string> failures;
+    std::uint64_t held_before = 0;  // the checks held in the program when it began
+    bool stopped = false;           // a fatal expectation ended it
+    // SPEC-017 O8: what it writes, kept while it runs under a runner and stated as `output`
+    // events when it ends; a case it declares keeps its own, and this one's resumes after it.
+    std::optional<os::stdio::capture> out_capture, err_capture;
+    std::string out_text, err_text;
+    bool capturing = false;
 };
+
+// The expectations that held, in the whole program: a case's share is the difference over its
+// run. Counted without the lock, as a passing check is the common one.
+std::atomic<std::uint64_t> g_held{0};
 
 struct declared_suite {
     std::string name;
@@ -55,6 +69,8 @@ struct state {
     std::vector<declared_suite> suites;
     std::size_t suites_run = 0;
     std::map<std::string, int> counts;
+    // Of `counts`, the cases that declared cases: the console's tally is of the cases that check.
+    std::map<std::string, int> container_counts;
     std::set<std::string> clauses;
     bool any_failed = false;
     bool program_written = false;
@@ -308,7 +324,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.5.2"},
+         {"version", "0.6.0"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
@@ -378,9 +394,90 @@ std::string sanitized(std::string_view id) {
     return out;
 }
 
+// SPEC-017 O8: a case's own output. What the streams hold is written first, so that what the
+// case writes is all that the capture keeps.
+void flush_streams() {
+    std::cout.flush();
+    std::cerr.flush();
+    std::fflush(nullptr);
+}
+
+void begin_capture(running_case& c) {
+    flush_streams();
+    if (auto o = os::stdio::capture::begin(os::stdio::stream::output))
+        c.out_capture.emplace(std::move(*o));
+    if (auto e = os::stdio::capture::begin(os::stdio::stream::error))
+        c.err_capture.emplace(std::move(*e));
+}
+
+// The capture ended and its text kept; the text is written to the stream it was taken from, so
+// a person at the terminal reads what the case wrote where it wrote it.
+void end_capture(running_case& c) {
+    flush_streams();
+    if (c.err_capture) {
+        auto t = c.err_capture->text();
+        c.err_capture.reset();
+        if (!t.empty()) {
+            (void)os::stdio::write_error(t);
+            c.err_text += t;
+        }
+    }
+    if (c.out_capture) {
+        auto t = c.out_capture->text();
+        c.out_capture.reset();
+        if (!t.empty()) {
+            (void)os::stdio::write_output(t);
+            (void)os::stdio::flush_output();
+            c.out_text += t;
+        }
+    }
+}
+
 void say(std::string_view line) {
     std::println("{}", line);
     std::cout.flush();
+}
+
+// The statement at `line` of `file` and the lines it continues on, as one line: what a check
+// without operands states. Empty when the source is not readable here.
+std::string statement_at(const std::string& file, std::uint_least32_t line) {
+    std::ifstream in(os::fs::from_utf8(file), std::ios::binary);
+    if (!in || line == 0)
+        return {};
+    std::string text, one;
+    for (std::uint_least32_t n = 1; n < line && std::getline(in, one); ++n) {}
+    int depth = 0;
+    for (int taken = 0; taken < 8 && std::getline(in, one); ++taken) {
+        if (one.ends_with('\r'))
+            one.pop_back();
+        const auto first = one.find_first_not_of(" \t");
+        if (first == std::string::npos)
+            continue;
+        if (!text.empty())
+            text += ' ';
+        text += one.substr(first);
+        for (char c : one)
+            depth += c == '(' ? 1 : c == ')' ? -1 : 0;
+        if (depth <= 0 && text.find(';') != std::string::npos)
+            break;
+    }
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t'))
+        text.pop_back();
+    if (text.size() > 240)
+        text = text.substr(0, 237) + "...";
+    return text;
+}
+
+// A file under the working directory by its name there; any other by its own.
+std::string shown_path(const std::string& file) {
+    std::error_code ec;
+    const auto p = os::fs::from_utf8(file);
+    if (!p.is_absolute())
+        return file;
+    const auto rel = std::filesystem::proximate(p, std::filesystem::current_path(ec), ec);
+    if (ec || rel.empty() || rel.begin()->string() == "..")
+        return file;
+    return os::fs::generic_utf8(rel);
 }
 
 void record_failure(std::string_view message, const std::source_location& where,
@@ -394,18 +491,55 @@ void record_failure(std::string_view message, const std::source_location& where,
     else
         s.any_failed = true;
     const std::string file = where.file_name();
+    const bool compared = value && !value->expected.empty();
     std::string text = std::string(message);
     if (value && !value->expression.empty())
         text = text.empty() ? value->expression : value->expression + ": " + text;
     if (text.empty())
         text = "the expectation did not hold";
-    say(std::format("    {}:{}: {}", file, where.line(), text));
+    // As a person reads it: where, the statement, the two sides or that it did not hold, the
+    // message the check added, and whether the case went on.
+    const std::string source = value ? statement_at(file, where.line()) : std::string{};
+    std::string block = std::format("{}:{}", shown_path(file), where.line());
+    if (!source.empty())
+        block += "\n    " + source;
+    if (compared) {
+        block +=
+            std::format("\n    expected  {}\n    actual    {}", value->expected, value->actual);
+        if (!message.empty())
+            block += std::format("\n    note      {}", message);
+    } else if (value) {
+        block += source.empty() || !message.empty() || !value->expression.empty()
+                     ? "\n    " + text
+                     : std::string("\n    did not hold");
+    } else {
+        block += "\n    " + text;
+    }
+    if (is_fatal) {
+        block += "\n    fatal: the rest of the case did not run";
+        if (in_case)
+            s.stack.back().stopped = true;
+    }
+    if (in_case)
+        s.stack.back().failures.push_back(std::move(block));
+    else {
+        std::string shown;
+        for (std::string_view rest = block; !rest.empty();) {
+            const auto nl = rest.find('\n');
+            shown += "    " + std::string(rest.substr(0, nl)) + "\n";
+            rest = nl == std::string_view::npos ? std::string_view{} : rest.substr(nl + 1);
+        }
+        shown.pop_back();
+        say(shown);
+    }
     event ev = {{"e", "failure"},
                 {"id", id},
                 {"file", file},
                 {"line", where.line()},
                 {"message", text}};
-    if (value && !value->expected.empty()) {
+    if (!source.empty())
+        ev["source"] = source;
+    if (compared) {
         ev["expected"] = value->expected;
         ev["actual"] = value->actual;
     }
@@ -502,8 +636,10 @@ expectation::expectation(comparison value, bool is_fatal, std::source_location w
     : held_(value.held), fatal_(is_fatal), value_(std::move(value)), where_(where) {}
 
 expectation::~expectation() noexcept(false) {
-    if (held_)
+    if (held_) {
+        g_held.fetch_add(1, std::memory_order_relaxed);
         return;
+    }
     record_failure(message_, where_, &value_, fatal_);
     if (fatal_ && std::uncaught_exceptions() == 0)
         throw fatal_signal{};
@@ -581,19 +717,55 @@ void test::operator=(body b) {
     }
     if (!selected(id))
         return;
-    auto finish = [&](std::string_view status, double ms, std::string_view reason) {
+    auto finish = [&](std::string_view status, double ms, std::string_view reason,
+                      const running_case* done = nullptr) {
         s.counts[std::string(status)]++;
+        const bool container = done && done->declared > 0;
+        if (container)
+            s.container_counts[std::string(status)]++;
         if (status == "fail" || status == "xpass")
             s.any_failed = true;
         event ev = {{"e", "end"}, {"id", id}, {"status", status}, {"ms", ms}};
         if (!reason.empty())
             ev["reason"] = reason;
+        // SPEC-017 O3: of the checks the case ran, those that held and those that did not.
+        if (done && status != "skip")
+            ev["checks"] = {{"held", g_held.load(std::memory_order_relaxed) - done->held_before},
+                            {"failed", done->failures.size()}};
         write_event(ev);
         const char* mark = status == "pass"    ? "  ok  "
                            : status == "skip"  ? "  skip"
                            : status == "xfail" ? "  xfail"
                                                : "  FAIL";
-        say(std::format("{} {}{}{}", mark, id, reason.empty() ? "" : " -- ", reason));
+        // What it amounts to: of a case that declared cases, how many of them failed; of one that
+        // checks, how many of its checks failed, and whether a fatal one ended it.
+        std::string tally;
+        if (done && status != "skip") {
+            if (container && done->declared_failed > 0)
+                tally = std::format("{} of {} cases failed", done->declared_failed, done->declared);
+            const std::size_t failed = done->failures.size();
+            if (failed > 0) {
+                const auto held = g_held.load(std::memory_order_relaxed) - done->held_before;
+                if (!tally.empty())
+                    tally += "; ";
+                tally += std::format("{} of {} checks failed", failed, failed + held);
+                if (done->stopped)
+                    tally += ", stopped";
+            }
+        }
+        say(std::format("{} {}{}{}{}", mark, id, reason.empty() ? "" : " -- ", reason,
+                        tally.empty() ? "" : "  (" + tally + ")"));
+        if (done)
+            for (const auto& block : done->failures) {
+                std::string shown;
+                for (std::string_view rest = block; !rest.empty();) {
+                    const auto nl = rest.find('\n');
+                    shown += "       " + std::string(rest.substr(0, nl)) + "\n";
+                    rest = nl == std::string_view::npos ? std::string_view{} : rest.substr(nl + 1);
+                }
+                shown.pop_back();
+                say(shown);
+            }
     };
     const bool own = reported(id);
     if (attrs.skip) {
@@ -634,7 +806,15 @@ void test::operator=(body b) {
         write_event(begun);
     if (!s.stack.empty() && !s.stack.back().scope)
         ++s.stack.back().declared;
+    const bool capturing = s.protocol && !s.listing && own;
+    if (capturing && !s.stack.empty() && s.stack.back().capturing)
+        end_capture(s.stack.back());  // the declaring case's output so far is its own
     s.stack.push_back({id, false, attrs});
+    s.stack.back().held_before = g_held.load(std::memory_order_relaxed);
+    if (capturing) {
+        s.stack.back().capturing = true;
+        begin_capture(s.stack.back());
+    }
     const auto started = clock::now();
     std::string status = "pass";
     std::string reason;
@@ -661,8 +841,16 @@ void test::operator=(body b) {
     const double ms = std::chrono::duration<double, std::milli>(clock::now() - started).count();
     if (own)
         report_use(id, use, level);
+    if (capturing)
+        end_capture(s.stack.back());
     running_case done = std::move(s.stack.back());
     s.stack.pop_back();
+    if (capturing) {
+        if (!done.out_text.empty())
+            write_event({{"e", "output"}, {"id", id}, {"stream", "out"}, {"text", done.out_text}});
+        if (!done.err_text.empty())
+            write_event({{"e", "output"}, {"id", id}, {"stream", "err"}, {"text", done.err_text}});
+    }
     if (done.dir) {
         std::error_code ec;
         std::filesystem::remove_all(*done.dir, ec);
@@ -684,9 +872,14 @@ void test::operator=(body b) {
             reason = "expected to fail: " + *attrs.expected_failure;
         }
     }
-    if (status == "fail" && !s.stack.empty() && !s.stack.back().scope)
+    if (status == "fail" && !s.stack.empty() && !s.stack.back().scope) {
         s.stack.back().case_failed = true;
-    finish(status, ms, reason);
+        ++s.stack.back().declared_failed;
+    }
+    finish(status, ms, reason, &done);
+    // The declaring case's capture resumes, after this case's own lines.
+    if (capturing && !s.stack.empty() && s.stack.back().capturing)
+        begin_capture(s.stack.back());
 }
 
 void Suite::add(std::string name, std::source_location where, attributes attrs,
@@ -810,9 +1003,12 @@ int report() {
     const bool failed = s.any_failed || missing;
     write_event({{"e", "done"}, {"status", failed ? "fail" : "pass"}, {"counts", s.counts}});
     if (!s.listing) {
+        // The cases that check; a case that declared cases is told by them.
         auto n = [&](const char* k) {
             auto it = s.counts.find(k);
-            return it == s.counts.end() ? 0 : it->second;
+            auto c = s.container_counts.find(k);
+            return (it == s.counts.end() ? 0 : it->second) -
+                   (c == s.container_counts.end() ? 0 : c->second);
         };
         say(std::format("{} passed, {} failed, {} skipped{}{}", n("pass") + n("xfail"),
                         n("fail") + n("xpass"), n("skip"),

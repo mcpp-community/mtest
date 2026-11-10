@@ -17,7 +17,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "mtest"
-version     = "0.5.2"
+version     = "0.6.0"
 description = "The C++ test library of mtest: cases, expectations, fixtures, bench, conformance and end-to-end helpers, with no macro and no header, speaking the mtest protocol"
 license     = "Apache-2.0"
 authors     = ["mcpp-community"]
@@ -44,6 +44,10 @@ main          = "src/entry/main.cpp"
 test-protocol = 1
 test-main     = true
 test-guide    = "docs/writing-tests.md"
+# What the library implements of the mcpp test spec's optional capabilities (mcpp
+# docs/specs/test.md, B6), and the session a client starts (O9, `mtest serve`).
+test-capabilities = ["check-details", "metrics", "scheduling", "fixtures", "usage", "output", "session"]
+test-session      = ["mtest", "serve"]
 
 [dependencies]
 # A range, not one release: the library is in the test graph of every package

@@ -3,6 +3,7 @@ module mcpplibs.mtest.engine.service;
 import std;
 import mcpplibs.mtest.engine.model;
 import mcpplibs.mtest.engine.commands;
+import mcpplibs.mtest.engine.session;
 
 namespace mcpplibs::mtest::engine {
 
@@ -25,6 +26,17 @@ json error_reply(const json& id, int code, std::string message) {
 }  // namespace
 
 int serve(const std::filesystem::path& cwd) {
+    // The test session (mcpp test spec O9), made on its first method.
+    std::unique_ptr<session> tests;
+    std::mutex tests_lock;
+    auto the_session = [&]() -> session& {
+        std::lock_guard g(tests_lock);
+        if (!tests)
+            tests = std::make_unique<session>([](std::string_view method, const json& params) {
+                send({{"jsonrpc", "2.0"}, {"method", std::string(method)}, {"params", params}});
+            });
+        return *tests;
+    };
     std::vector<std::jthread> requests;
     for (std::string line; std::getline(std::cin, line);) {
         if (line.empty() || line == "\r")
@@ -44,17 +56,43 @@ int serve(const std::filesystem::path& cwd) {
                   {"result",
                    {{"protocolVersion", params.value("protocolVersion", std::string("2025-06-18"))},
                     {"capabilities", {{"tools", {{"listChanged", false}}}}},
-                    {"serverInfo", {{"name", "mtest"}, {"version", "0.5.2"}}},
+                    {"serverInfo", {{"name", "mtest"}, {"version", "0.6.0"}}},
                     {"instructions",
                      "Run tests and ask about runs: run, plan, explain, history, analyze, graph, "
-                     "gate, ci. "
+                     "gate, ci. A test session (test/plan, test/run, test/add, test/cancel, "
+                     "test/status) runs an mcpp project's cases as they are asked for. "
                      "Each result carries a `conclusion`; a failure's `again` repeats it."}}}});
             continue;
         }
         if (method == "notifications/initialized" || method == "initialized")
             continue;
         if (method == "shutdown") {
+            {
+                std::lock_guard g(tests_lock);
+                if (tests)
+                    tests->shutdown();
+            }
             send({{"jsonrpc", "2.0"}, {"id", id}, {"result", nullptr}});
+            continue;
+        }
+        if (method.starts_with("test/")) {
+            const auto verb = method.substr(5);
+            requests.emplace_back([&, id, verb, params, notification] {
+                auto& t = the_session();
+                json r = verb == "plan"     ? t.plan(params)
+                         : verb == "run"    ? t.run(params)
+                         : verb == "add"    ? t.add(params)
+                         : verb == "cancel" ? t.cancel(params)
+                         : verb == "status"
+                             ? t.status(params)
+                             : json{{"error", std::format("no method test/{}", verb)}};
+                if (notification)
+                    return;
+                if (r.contains("error"))
+                    send(error_reply(id, -32602, r["error"].get<std::string>()));
+                else
+                    send({{"jsonrpc", "2.0"}, {"id", id}, {"result", r}});
+            });
             continue;
         }
         if (method == "exit")
@@ -95,6 +133,15 @@ int serve(const std::filesystem::path& cwd) {
                       {"result", {{"status", a.status}, {"data", a.data}}}});
             }
         });
+    }
+    // The input ended: what was asked for runs to its end (`shutdown` is how a client cancels).
+    requests.clear();
+    {
+        std::lock_guard g(tests_lock);
+        if (tests) {
+            tests->drain();
+            tests->shutdown();
+        }
     }
     return 0;
 }

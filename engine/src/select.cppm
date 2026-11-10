@@ -32,6 +32,11 @@ struct selection_request {
     // The change could not be read (a shallow clone without the base): a set that selects by
     // change selects every case, and says why. Empty: nothing went wrong.
     std::string unknown_change;
+    // How a program is started (`--run-under`, `--env`): its listing (P3) starts it as its run
+    // does, so that a program only a runner can start (an emulator, a machine of its system) is
+    // listed through that runner.
+    std::vector<std::string> run_under;
+    std::vector<std::pair<std::string, std::string>> env;
 };
 
 struct unit_case {

@@ -121,6 +121,11 @@ std::expected<selection_request, answer> selection_of(const context& ctx, const 
     r.exclude_tags = strings(p, "exclude_tag");
     r.exclude_programs = strings(p, "exclude_program");
     r.failed_only = p.value("failed", false);
+    r.run_under = strings(p, "run_under");
+    if (auto e = p.find("env"); e != p.end() && e->is_object())
+        for (auto& item_ : e->items())
+            if (item_.value().is_string())
+                r.env.emplace_back(item_.key(), item_.value().get<std::string>());
     if (auto since = text_of(p, "since"); !since.empty()) {
         auto paths = changed_since(ctx.cfg.root, since);
         if (!paths)
@@ -1829,7 +1834,7 @@ json catalog() {
         plain({{"out", {{"type", "string"}}},
                {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),
         true);
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.5.2"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.6.0"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

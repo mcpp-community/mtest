@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.6.0] - 2026-11-10
+
+The mtest protocol's normative text is the mcpp test spec (mcpp `docs/specs/test.md`, SPEC-017 v2.0),
+which keeps its clause numbers; `spec/protocol.md` lists what each part of mtest implements of it.
+
+- **A test session** (spec O9): `mtest serve` answers `test/plan`, `test/run`, `test/add`,
+  `test/cancel` and `test/status`, and states `test/build`, `test/case`, `test/program` and
+  `test/run` as they happen. A run is answered at once and its programs run on the session's
+  workers beside other runs; a case added joins the run in progress; cancelling ends the process and
+  everything it started, and the cases that had not begun run in another process. The session builds
+  nothing: it starts each program from the launch mcpp gives (`mcpp test --no-run`, spec B5).
+- **A case's own output** (spec O8). Under a runner the library keeps what each case writes, on each
+  stream, states it as `output` events and writes it on to the terminal; a case declared inside
+  another keeps its own.
+- **A case's checks** (spec O3): its `end` states the checks that held and failed (`checks`); a
+  failure states its statement (`source`) and whether it ended the case (`fatal`).
+- **A failing case reads as a person reads it.** Under its line, each failure: its place, the
+  statement, the two sides or that it did not hold, the message the check added, and whether the case
+  went on; the line counts the checks that failed, and a case that declared cases counts them.
+- The library's entry states the capabilities it implements and its session (`test-capabilities`,
+  `test-session`; mcpp 2026.11.10.1 reads them, an earlier mcpp ignores them).
+- The engine and the conformance suite ask for mcpplibs.os `^0.4.1`, as the library does, and build
+  `<arch>-openkal` over openkal-platform 0.25.0.
+- **A program only a runner starts is listed through that runner.** The listing pass (P3) starts a
+  program as its run does: under `--run-under` (and a `[trace.*]` tool's `run_under`), with the
+  run's `--env` variables. A program of another system -- started on a virtual machine of its system
+  or under an emulator -- was started directly to list its cases and failed with "did not start";
+  its cases could not be run through mtest from the host that built it.
+
 ## [0.5.2] - 2026-11-09
 
 - **A copy of a test program that does something else is an object** (`child`). A test that starts

@@ -561,7 +561,7 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
         auto listed =
             list_program(p,
                          s.dir / "work" / "list" / std::to_string(std::hash<std::string>{}(p.name)),
-                         c.root, &components);
+                         c.root, &components, r.run_under, r.env);
         if (!listed)
             return std::unexpected(listed.error());
         for (const auto& ci : components) {

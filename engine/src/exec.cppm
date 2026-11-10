@@ -34,7 +34,9 @@ struct run_outcome {
 // Lists the cases of a program at level 1 or more (P3); an L0 program has one case, its own name.
 std::expected<std::vector<case_info>, std::string>
 list_program(const program_spec& spec, const std::filesystem::path& work,
-             const std::filesystem::path& root, std::vector<component_info>* components = nullptr);
+             const std::filesystem::path& root, std::vector<component_info>* components = nullptr,
+             const std::vector<std::string>& run_under = {},
+             const std::vector<std::pair<std::string, std::string>>& env = {});
 
 // `mtest measure --out FILE -- ARGV`: runs ARGV with this process's streams, writes what it used
 // (its children's account) to FILE as JSON, and ends with its status.

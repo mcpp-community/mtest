@@ -36,7 +36,7 @@ nothing; a built program's own listing is the authority (`manifest/src/manifest.
 
 | Command | Does |
 |---|---|
-| `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--env K=V`, `--run-under CMD`, `--monitor LEVEL` (P10), `--group G` (runs reported together); `--junit`, `--html`, `--report-json FILE`, `--md FILE`; `--coverage` measures the coverage map. A program's cases are divided among workers that would otherwise idle (`[run] split`), and programs run together within the machine's memory (`[run] memory`) |
+| `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--env K=V`, `--run-under CMD` (every start of a program, its listing included: a runner such as an emulator or a machine of the program's system), `--monitor LEVEL` (P10), `--group G` (runs reported together); `--junit`, `--html`, `--report-json FILE`, `--md FILE`; `--coverage` measures the coverage map. A program's cases are divided among workers that would otherwise idle (`[run] split`), and programs run together within the machine's memory (`[run] memory`) |
 | `rerun` | the cases that failed in the last run |
 | `smoke` | the `smoke` set |
 | `golden` | a run with `MTEST_GOLDEN=update`: golden files are written, not compared |

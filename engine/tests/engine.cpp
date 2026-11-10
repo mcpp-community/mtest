@@ -93,14 +93,15 @@ int main() {
         expect(eq(only["cases"].get<int>(), 1));
         expect(eq(only["status"].get<std::string>(), std::string("pass")));
     };
-    "a program only a runner starts is listed and run through it (--run-under)"_test[kind::e2e] = [] {
-        // Not executable by itself, as a program of another system is not on this one: both the
-        // listing (P3) and the run start it under the runner.
-        auto root = project({{"t.cross", script({"a:pass", "b:pass"})}});
-        auto j = json_of(mtest(root, {"run", "--json", "--run-under", "bash", "./t.cross"}));
-        expect(eq(j["cases"].get<int>(), 2));
-        expect(eq(j["status"].get<std::string>(), std::string("pass")));
-    };
+    "a program only a runner starts is listed and run through it (--run-under)"_test[kind::e2e] =
+        [] {
+            // Not executable by itself, as a program of another system is not on this one: both the
+            // listing (P3) and the run start it under the runner.
+            auto root = project({{"t.cross", script({"a:pass", "b:pass"})}});
+            auto j = json_of(mtest(root, {"run", "--json", "--run-under", "bash", "./t.cross"}));
+            expect(eq(j["cases"].get<int>(), 2));
+            expect(eq(j["status"].get<std::string>(), std::string("pass")));
+        };
     "a case a crash ended fails with the program's status (P5.4)"_test[kind::e2e] = [] {
         auto root = project({{"t.sh", script({"dies:crash"}, "crash() { exit 9; }\n")}});
         auto j = json_of(mtest(root, {"run", "--json", "bash t.sh"}));
@@ -244,6 +245,58 @@ int main() {
         expect(!replies[3]["result"]["isError"].get<bool>());
         expect(replies[4]["result"]["data"].contains("conclusion"));
     };
+    "a test session runs the cases asked for, from the launches mcpp gives (spec O9)"_test
+        [kind::e2e] = [] {
+            // mcpp's part, B5: the program built, and how it starts.
+            auto root =
+                project({{"t.sh", script({"a:pass", "b:fail"})},
+                         {"mcpp.sh", "echo '{\"test\":\"t\",\"status\":\"built\",\"protocol\":1,"
+                                     "\"launch\":{\"argv\":[\"bash\",\"t.sh\"],\"env\":{},\"cwd\":"
+                                     "\"\",\"via\":\"\"}}'\n"}});
+            const json run = {{"jsonrpc", "2.0"},
+                              {"id", 1},
+                              {"method", "test/run"},
+                              {"params",
+                               {{"project", root.generic_string()},
+                                {"options", {{"mcpp", {"bash", "mcpp.sh"}}, {"isolation", "case"}}},
+                                {"selection", {{{"program", "t"}, {"cases", {"a", "b"}}}}}}}};
+            auto r = mtest(root, {"serve"}, run.dump() + "\n");
+            std::vector<json> notes;
+            json reply;
+            std::string_view rest = r.out;
+            while (!rest.empty()) {
+                auto nl = rest.find('\n');
+                auto j = json::parse(rest.substr(0, nl), nullptr, false);
+                rest = nl == std::string_view::npos ? std::string_view{} : rest.substr(nl + 1);
+                if (j.is_discarded())
+                    continue;
+                if (j.contains("id"))
+                    reply = j;
+                else
+                    notes.push_back(j);
+            }
+            expect(fatal(reply.contains("result"))) << r.out << r.err;
+            const auto id = reply["result"]["run"].get<std::string>();
+            auto count = [&](std::string_view method, std::string_view key,
+                             std::string_view value) {
+                return std::ranges::count_if(notes, [&](const json& n) {
+                    return n.value("method", "") == method &&
+                           n["params"].value(std::string(key), "") == value;
+                });
+            };
+            expect(eq(count("test/build", "event", "end"), 1)) << r.out;
+            // A process per case: two programs, each case's end.
+            expect(eq(count("test/program", "program", "t"), 2)) << r.out;
+            expect(eq(count("test/case", "event", "end"), 2)) << r.out;
+            const auto end = std::ranges::find_if(notes, [](const json& n) {
+                return n.value("method", "") == "test/run";
+            });
+            expect(fatal(end != notes.end())) << r.out;
+            expect(eq((*end)["params"]["run"].get<std::string>(), id));
+            expect(eq((*end)["params"]["status"].get<std::string>(), std::string("fail")));
+            expect(eq((*end)["params"]["counts"].value("pass", 0), 1));
+            expect(eq((*end)["params"]["counts"].value("fail", 0), 1));
+        };
     "every answer carries a conclusion"_test[kind::e2e] = [] {
         auto root = project({{"t.sh", script({"a:pass"})}});
         (void)mtest(root, {"run", "bash t.sh"});

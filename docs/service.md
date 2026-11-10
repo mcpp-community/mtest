@@ -12,3 +12,35 @@
 
 Each request runs on its own thread, so `status` and `cancel` are answered while a run runs. An MCP
 client is configured with the command `mtest serve` in the project's directory.
+
+## The test session (0.6.0)
+
+`mtest serve` is also the test session of the mcpp test spec (mcpp `docs/specs/test.md`, O9): a client
+that holds it runs an mcpp project's cases as a person asks for them, adds cases to a run in progress
+and cancels a run, a program or a case. The library's entry states it (`test-session = ["mtest",
+"serve"]`), and `mcpp test --guide` reports it.
+
+| Method | Params | Result |
+|---|---|---|
+| `test/plan` | `project`, optional `filter`, `options` | `programs`: the records of `mcpp test --cases` |
+| `test/run` | `project`, `selection` (`[{program, cases}]`; empty: every program), `options` | `run`, at once |
+| `test/add` | `run`, `selection` | `run`: the cases join the run in progress |
+| `test/cancel` | `run`, optional `program` and `case` | what was cancelled |
+| `test/status` | optional `run` | each run's status, counts and cases |
+| `shutdown` | | every run cancelled |
+
+`options`: `mcpp` (a program, or a program and its first arguments; else `MTEST_MCPP`, else `mcpp`),
+`args` (more arguments of `mcpp test`: `--profile`, `--target`), `isolation` (`case`: a process per
+case).
+
+- **Notifications.** `test/build` (`begin`, then `end` with the programs built), `test/case` (`begin`,
+  `output`, `failure`, `end`, with the fields of the program's events), `test/program` (a process's
+  status, exit and time) and `test/run` (the run's status and counts).
+- **Builds are mcpp's.** The session asks mcpp for the programs it runs (`mcpp test --no-run
+  --message-format json`, mcpp 2026.11.10.1 or later), which builds them when they need it, and starts
+  each from the launch the record carries. One build runs at a time; the processes share the
+  session's workers.
+- **Cancelling** ends the process and everything it started. A case that had begun ends `cancelled`;
+  the cases its process was to run and that had not begun run in another process, unless the run or
+  the program was cancelled. A run of cancelled cases and no failure ends `cancelled`.
+- **The end of the input** lets the runs in progress end; `shutdown` cancels them.

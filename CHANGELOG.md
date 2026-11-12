@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.3] - 2026-11-12
+
+- **A conformance suite is run against a subject, which may lack what a specification leaves
+  optional** (`mcpplibs.mtest.cts`: `against`, `subject`, `needs`). `cts::against({.name, .has,
+  .required}, declare)` runs the cases `declare` declares as the parts of a case named after the
+  implementation, tagged `subject:<name>`, so one program runs a suite against several. A case that
+  states `cts::needs{"capability"}` and whose subject lacks it is not run: `skip`, with the reason
+  `unsupported: <capability>` -- from what the subject states it can do, never a pass. A capability
+  the run requires and the subject lacks fails once, as the case `requires <capability>`. Before, a
+  suite wrote this in each body (`if (!has(x)) skip(...)`), where a missing capability and a
+  machine's reason read alike, and a required one could only be skipped. The protocol is unchanged:
+  the statuses and events are the ones it has.
+
 ## [0.6.2] - 2026-11-12
 
 - **The engine and the libraries write the version they are.** 0.6.1's manifests said 0.6.1 and its

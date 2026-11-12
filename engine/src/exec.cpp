@@ -280,6 +280,38 @@ int measure(const std::filesystem::path& out, std::vector<std::string> argv) {
     return st ? st->shell_code() : 1;
 }
 
+// The verdict of a program judged by its exit status (P1.1): its timeout, else 0 passes, the
+// status it states for "did not apply here" (`skip_exit`) skips, and every other status fails.
+static std::string level0_status(const program_spec& spec, const program_result& p) {
+    if (p.timed_out)
+        return "timeout";
+    if (p.exit == 0)
+        return "pass";
+    return spec.skip_exit >= 0 && p.exit == spec.skip_exit ? "skip" : "fail";
+}
+
+// Why it did not apply: the last line of its output that begins with `SKIP`, without the word,
+// else the status it left with.
+static std::string skip_reason(std::string_view out, std::string_view err, int exit) {
+    for (auto text : {out, err}) {
+        std::string found;
+        for (auto part : std::views::split(text, '\n')) {
+            std::string_view line(part.begin(), part.end());
+            if (!line.empty() && line.back() == '\r')
+                line.remove_suffix(1);
+            if (!line.starts_with("SKIP"))
+                continue;
+            line.remove_prefix(4);
+            while (!line.empty() && (line.front() == ':' || line.front() == ' '))
+                line.remove_prefix(1);
+            found = std::string(line);
+        }
+        if (!found.empty())
+            return found;
+    }
+    return std::format("exit {}", exit);
+}
+
 run_outcome run_program(const program_spec& spec, const run_request& request) {
     run_outcome out;
     auto& p = out.program;
@@ -394,8 +426,10 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
         c.id = spec.name;
         c.ms = p.ms;
         c.tags = spec.tags;
-        c.status = p.timed_out ? "timeout" : p.exit == 0 ? "pass" : "fail";
-        if (c.status != "pass")
+        c.status = level0_status(spec, p);
+        if (c.status == "skip")
+            c.reason = skip_reason(out.out, out.err, p.exit);
+        else if (c.status != "pass")
             c.reason = p.timed_out ? std::format("still running after {}", spec.timeout)
                                    : std::format("exit {}", p.exit);
         out.cases.push_back(std::move(c));
@@ -410,8 +444,10 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
             c.program = spec.name;
             c.id = spec.name;
             c.ms = p.ms;
-            c.status = p.timed_out ? "timeout" : p.exit == 0 ? "pass" : "fail";
-            if (c.status != "pass")
+            c.status = level0_status(spec, p);
+            if (c.status == "skip")
+                c.reason = skip_reason(out.out, out.err, p.exit);
+            else if (c.status != "pass")
                 c.reason = std::format("exit {}", p.exit);
             out.cases.push_back(std::move(c));
         } else {

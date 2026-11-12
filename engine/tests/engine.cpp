@@ -313,6 +313,27 @@ int main() {
             expect(j.contains("conclusion")) << args.front();
         }
     };
+    "a program judged by its exit status says it did not apply: skip_exit"_test[kind::e2e] = [] {
+        auto root = project(
+            {{"suite/01_holds.sh", "exit 0\n"},
+             {"suite/02_absent.sh", "echo 'SKIP: no emulator on this machine'\nexit 77\n"},
+             {"suite/03_broken.sh", "exit 3\n"},
+             {"mtest.toml", "[discover.e2e]\nglobs = [\"suite/[0-9]*.sh\"]\ncommand = [\"bash\", "
+                            "\"{path}\"]\nskip_exit = 77\n"}});
+        auto j = json_of(mtest(root, {"run", "--json"}));
+        expect(eq(j["counts"].value("pass", 0), 1)) << j.dump();
+        expect(eq(j["counts"].value("skip", 0), 1)) << j.dump();
+        expect(eq(j["counts"].value("fail", 0), 1)) << j.dump();
+        // The reason is the script's own `SKIP` line, kept with the case.
+        auto skipped = json_of(mtest(root, {"query", "--status", "skip", "--json"}));
+        expect(contains(skipped.dump(), "02_absent")) << skipped.dump();
+        expect(contains(skipped.dump(), "no emulator on this machine")) << skipped.dump();
+        // Without the key the same status is a failure, as it always was.
+        auto plain = project({{"a.sh", "exit 77\n"}});
+        auto k = json_of(mtest(plain, {"run", "--json", "bash a.sh"}));
+        expect(eq(k["counts"].value("fail", 0), 1)) << k.dump();
+        expect(eq(k["counts"].value("skip", 0), 0)) << k.dump();
+    };
     "a discovered group: a command per file, tags and resources from its first lines"_test
         [kind::e2e] = [] {
             auto root = project(

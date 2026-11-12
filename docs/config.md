@@ -23,6 +23,9 @@ timeout   = "10m"
 isolation = "process"                   # or "case": a process per case
 kind      = "e2e"                       # the kind of its cases that state none (default: its directory's, else unit)
 split     = true                        # whether [run] split may divide its cases among processes
+skip_exit = 77                          # a program judged by its exit status: the status that says its case did not
+                                        # apply here (skip, with the last `SKIP...` line of its output as the reason);
+                                        # unset: every status but 0 fails
 
 [discover]
 globs = ["build/tests/*"]               # every executable that matches is a program

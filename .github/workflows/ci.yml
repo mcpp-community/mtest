@@ -31,6 +31,25 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           clang-format --version
           clang-format --dry-run --Werror $files
+      # A release states its version in each package's manifest and in what each part
+      # writes about itself (`mtest version`, a catalog, a session, a program's hello).
+      # 0.6.1 was released with the sources still writing 0.6.0, and a CI that pinned
+      # 0.6.1 refused it.
+      - name: One version in the manifests and in what the sources write
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' engine/mcpp.toml | head -1)
+          bad=0
+          for m in $(git ls-files '*/mcpp.toml'); do
+            v=$(sed -n '/^\[package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' "$m" | head -1)
+            [ -z "$v" ] || [ "$v" = "$version" ] || { echo "::error file=$m::version $v, the engine is $version"; bad=1; }
+          done
+          stated=$(git grep -nE '"version", "[0-9]+\.[0-9]+\.[0-9]+"|\.version\("[0-9.]+"\)|"mtest [0-9]+\.[0-9]+\.[0-9]+"' -- '*.cpp' '*.cppm')
+          [ -n "$stated" ] || { echo "::error::no source states the version; this check reads nothing"; exit 1; }
+          while IFS= read -r line; do
+            case "$line" in *"\"$version\""*|*"mtest $version\""*) ;; *) echo "::error::$line: not $version"; bad=1 ;; esac
+          done <<< "$stated"
+          exit $bad
       - name: No local path in what is tracked
         run: |
           set -euo pipefail
@@ -142,7 +161,8 @@ jobs:
           mkdir -p dist unpacked
           cp "target/dist/$package.tar.gz" "target/dist/mtest-$version.okb" dist/
           tar -xzf "dist/$package.tar.gz" -C unpacked
-          "unpacked/$package/bin/mtest" version
+          said=$("unpacked/$package/bin/mtest" version)
+          [ "$said" = "mtest $version" ] || { echo "::error::the packaged engine says '$said', the manifest $version"; exit 1; }
           python3 - "unpacked/$package/mcpp-package.json" <<'PY'
           import json, sys
           d = json.load(open(sys.argv[1]))

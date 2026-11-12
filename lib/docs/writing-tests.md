@@ -53,7 +53,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
   The entry enters the child before any case; the copy runs no case and reports nothing. The files of
   one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
   copies.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.6.2"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.6.3"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -107,6 +107,37 @@ How the tests of a project are laid out, from the directory to the line, is in
 - Parameters: `"is even"_test = values{2, 4, 6} | [](int v) { expect(eq(v % 2, 0)); };`
 - Measurements: `import mcpplibs.mtest.bench;`, then `bench::measure("name", [] { ... });` in a
   `Bench`.
+
+## Conformance to a specification
+
+`import mcpplibs.mtest.cts;` A conformance case is of kind `cts` (a `CTS` object, or `kind::cts`) and
+names the clauses it covers; `cts::coverage({...})` fails while a clause has no case.
+
+A suite is written once and run against each implementation, which may lack what the specification
+leaves optional:
+
+```cpp
+void device_suite(Device& device) {
+    "copies are exact"_test[clause{"R2.1"}] = [&] { ... };
+    "indirect draws"_test[clause{"R4.3"}][cts::needs{"indirect"}] = [&] { ... };
+}
+
+cts::against({.name = "lavapipe",
+              .has = [&](std::string_view capability) { return device.has(capability); },
+              .required = {"compute"}},
+             [&] { device_suite(device); });
+```
+
+- The cases are the parts of a case named after the **subject** (`lavapipe/copies are exact`), which
+  carries the tag `subject:lavapipe`: one program runs the suite against several implementations, and
+  each is selected and reported.
+- A case that **needs** what the subject lacks is not run. Its status is `skip`, its reason
+  `unsupported: indirect`. That is said from what the subject states it can do, never from a run that
+  went wrong, and it is never a pass.
+- What the run **requires** of the subject and it lacks fails, once: the case
+  `lavapipe/requires compute`. A capability only some cases need leaves those unsupported.
+- A subject that states no `has` is taken to have every capability; outside `against` a case that
+  states needs runs. `cts::current_subject()` is the subject of the case that runs.
 
 ## Components and run fixtures
 

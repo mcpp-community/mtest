@@ -27,6 +27,9 @@ struct program_spec {
     std::string kind;
     // Whether the engine may divide its cases among several processes of it (`[run] split`).
     bool split = true;
+    // The exit status by which a program that does not speak the protocol says its one case did
+    // not apply here (`skip_exit`, P1.1); negative: it states none, and every status but 0 fails.
+    int skip_exit = -1;
     // When a host built it, in milliseconds after the run began, and for how long (a build edge of
     // the run's graph); negative: not built by this run.
     double build_started_ms = -1, build_ms = 0;

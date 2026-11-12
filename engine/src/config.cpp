@@ -48,7 +48,7 @@ constexpr std::initializer_list<std::string_view> kProgramKeys = {"command",   "
                                                                   "resources", "sources",
                                                                   "tags",      "timeout",
                                                                   "isolation", "kind",
-                                                                  "split"};
+                                                                  "split",     "skip_exit"};
 
 void read_program(const toml::table& t, program_spec& s) {
     if (auto v = t["cwd"].value<std::string>())
@@ -71,6 +71,9 @@ void read_program(const toml::table& t, program_spec& s) {
         s.isolation = *v;
     if (auto v = t["split"].value<bool>())
         s.split = *v;
+    // 1..255: 0 is the status of a pass, and a status outside a byte is none a program exits with.
+    if (auto v = t["skip_exit"].value<std::int64_t>(); v && *v >= 1 && *v <= 255)
+        s.skip_exit = static_cast<int>(*v);
     if (auto v = t["kind"].value<std::string>())
         s.kind = *v;
 }

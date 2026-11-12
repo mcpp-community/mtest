@@ -27,7 +27,7 @@ on the spec; this list says which of its clauses mtest's parts answer, and since
 
 | Clause | What the engine does | Since |
 |---|---|---|
-| B2, runner side | starts programs of any language, by the protocol or by their exit status (P1.1) | 0.1.0 |
+| B2, runner side | starts programs of any language, by the protocol or by their exit status (P1.1); a program judged by its exit status states the status that skips (`skip_exit`) | 0.1.0; `skip_exit` 0.6.1 |
 | B4 | keeps every run in the store (P12), and reads the runs a host (`mcpp test`) keeps | 0.1.0; the store's form specified 0.5.0 |
 | O5 | schedules cases by their resources and history, by pools since 0.5.0; ends a case at its `timeout`, runs `retries` and `diagnose` since 0.3.0 | 0.1.0 |
 | O6 | serves run fixtures once per run (P11.2, P11.3) | 0.5.0 |

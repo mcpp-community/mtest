@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.1] - 2026-11-12
+
+- **A program judged by its exit status can say that it did not apply** (`skip_exit`, in
+  `[programs.<name>]` and `[discover.<group>]`): the status that means its one case was not run
+  here, for a reason of the machine. The case is then `skip`, not `pass`, and its reason is the last
+  line of the program's output that begins with `SKIP`. Before, such a program had two words, and a
+  script that could hold nothing on a machine exited 0 and was counted among the passes. Without
+  the key every status but 0 fails, as before.
+
 ## [0.6.0] - 2026-11-10
 
 The mtest protocol's normative text is the mcpp test spec (mcpp `docs/specs/test.md`, SPEC-017 v2.0),

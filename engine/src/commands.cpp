@@ -1834,7 +1834,7 @@ json catalog() {
         plain({{"out", {{"type", "string"}}},
                {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),
         true);
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.6.0"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.6.2"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

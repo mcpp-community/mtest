@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2] - 2026-11-12
+
+- **The engine and the libraries write the version they are.** 0.6.1's manifests said 0.6.1 and its
+  sources still wrote 0.6.0: `mtest version`, the catalog, a session's `serverInfo` and a test
+  program's hello. A CI that asks the installed engine for its version refused it. They write 0.6.2,
+  CI compares every source's statement with the manifests, and the packaged engine is asked.
+
 ## [0.6.1] - 2026-11-12
 
 - **A program judged by its exit status can say that it did not apply** (`skip_exit`, in

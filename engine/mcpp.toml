@@ -10,7 +10,7 @@
 [package]
 namespace   = "mtest"
 name        = "mtest"
-version     = "0.8.1"
+version     = "0.8.2"
 description = "The mtest engine: run, schedule, store, explain and analyse tests of any language"
 license     = "Apache-2.0"
 authors     = ["mcpp-community"]

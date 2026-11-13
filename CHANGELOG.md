@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.8.1] - 2026-11-14
+
+- **A measured call says what it was made of** (`bench::each`, `mcpplibs.mtest.bench`). The body's
+  `bench::lap` takes `part(name, spent)` -- a part of the call the body timed, or `auto t =
+  l.time(name);` to the end of `t` -- reported over the calls as `name.<part>` (the median) with
+  `.p95`, `.p99`, `.max` and `.mean`, metrics a bound can name (`at_most{"draw.encode.p99",
+  0.004}`); `value(name, v)`, a quantity of the call, reported as `name.<quantity>` (the mean)
+  and `.max`; and `say(text)`, words about the call.
+- **The slowest calls are stated one by one** (`each_options::slowest`): each with its time, its
+  parts, its quantities and its words, a line in the case's output (`draw: call 412 took 9.100 ms:
+  encode 7.900 ms, glyphs 24570 -- zoom 0.43`) and in `distribution::slowest` -- why the slow
+  calls were slow, from the run that measured them, with no second run under a tool.
+- **A limit a call, and a run the body ends** (`each_options::limit`, `lap::last`). With a limit (a
+  frame's 8.33 ms) `name.over` is how many calls took more and `name.over.share` their part of
+  all -- `at_most{"frame.over", 0}` is no late frame -- and the calls over it are the ones stated
+  one by one. `l.last()` makes this call the last: what is measured has run out (a recorded
+  session's last frame), whatever the options still ask.
+- **Heap allocations a call** (`bench::allocated`). The library replaces no `operator new`; a
+  program that counts says so from its own (`bench::allocated(n)`), and `each` then reports
+  `name.allocations` (the mean a call), `name.allocations.max` and `name.allocated` (bytes), less
+  what a call paused for: `at_most{"draw.allocations.max", 0}` is a frame that allocates nothing.
+- Additive: a body that says none of these is measured and reported as it was; no event and no
+  clause changed.
+
 ## [0.8.0] - 2026-11-14
 
 - **Where a case runs is stated by the case** (`only{}`, `except{}`). A case or a suite names the

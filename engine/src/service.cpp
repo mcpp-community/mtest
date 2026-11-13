@@ -56,7 +56,7 @@ int serve(const std::filesystem::path& cwd) {
                   {"result",
                    {{"protocolVersion", params.value("protocolVersion", std::string("2025-06-18"))},
                     {"capabilities", {{"tools", {{"listChanged", false}}}}},
-                    {"serverInfo", {{"name", "mtest"}, {"version", "0.8.0"}}},
+                    {"serverInfo", {{"name", "mtest"}, {"version", "0.8.1"}}},
                     {"instructions",
                      "Run tests and ask about runs: run, plan, explain, history, analyze, graph, "
                      "gate, ci. A test session (test/plan, test/run, test/add, test/cancel, "

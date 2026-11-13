@@ -53,7 +53,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
   The entry enters the child before any case; the copy runs no case and reports nothing. The files of
   one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
   copies.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.8.0"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.8.1"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -149,6 +149,16 @@ How the tests of a project are laid out, from the directory to the line, is in
   reports `draw` (the median), `draw.p95`, `draw.p99`, `draw.max`, `draw.mean`; `l.pause()` and
   `l.resume()` leave out what is not the call's, `l.items(n)` adds `draw.per_item`. A bound names
   any of them: `at_most{"draw.p95", 0.016}`.
+  A call may say what it was made of: `l.part("encode", spent)` (or `auto t = l.time("encode");`,
+  to the end of `t`) is a part of it, reported as `draw.encode` with the same `.p95`, `.p99`,
+  `.max`, `.mean`; `l.value("glyphs", n)` a quantity of it, `draw.glyphs` (the mean) and
+  `draw.glyphs.max`; `l.say("zoom 0.43")` words about it. With `{.slowest = 3}` the three slowest
+  calls are stated one by one in the case's output, each with its parts, quantities and words:
+  why the slow calls were slow, from the run that measured them. A program that replaces
+  `operator new` and calls `bench::allocated(n)` from it gets each call's allocations too:
+  `draw.allocations`, `draw.allocations.max`, `draw.allocated` (bytes). With `{.limit = 8333us}`,
+  `draw.over` counts the calls that took more (and they are the ones stated one by one);
+  `l.last()` ends the run at this call.
 
 ## Programs under test
 

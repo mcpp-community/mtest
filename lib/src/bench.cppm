@@ -78,12 +78,40 @@ summary measure(std::string_view name, F&& f, options o = {}) {
 //           l.items(scene.nodes());                   // what this call worked through
 //       });
 //   }};
+// A call may also say what it was made of, so a slow call explains itself:
+//   l.part("encode", spent)   a part of the call the body timed (or `auto t = l.time("encode");`,
+//   to
+//                             the end of `t`): `draw.encode`, with `.p95`, `.p99`, `.max`, `.mean`
+//   l.value("glyphs", n)      a quantity of this call: `draw.glyphs` its mean, `draw.glyphs.max`
+//   l.say("zoom 0.43")        words about this call
+// and with `slowest = N` the N slowest calls are stated with all of it, in the case's output:
+//   draw: call 412 took 9.100 ms: encode 7.900 ms, glyphs 24570 -- zoom 0.43
 struct each_options {
     std::size_t least = 12;                                          // calls measured, at least
     std::size_t most = 100'000;                                      // and at most
     std::chrono::nanoseconds time = std::chrono::milliseconds{400};  // measured for this long
-    std::size_t warmup = 3;  // calls before the first measured one
+    std::size_t warmup = 3;   // calls before the first measured one
+    std::size_t slowest = 0;  // the slowest calls stated one by one, this many
+    // What one call may take (a frame's 8.33 ms). Stated: `name.over` is how many calls took more,
+    // `name.over.share` their part of all, and those calls are the ones stated one by one where
+    // `slowest` is 0 (the eight slowest of them).
+    std::chrono::nanoseconds limit{0};
 };
+
+// HEAP ALLOCATIONS A CALL. The library replaces no `operator new`; a program that counts replaces
+// it and says so from there:
+//   void* operator new(std::size_t n) { bench::allocated(n); return std::malloc(n); }
+// `each` then reports `name.allocations` (the mean a call) and `name.allocations.max`, and
+// `name.allocated` (bytes, the mean) -- less what a call paused for;
+// `at_most{"draw.allocations.max", 0}` is a frame that allocates nothing. A program that never says
+// so reports none of them.
+// Counted a thread: a call's allocations are those of the thread that runs it (what its workers
+// allocate meanwhile is not the call's), and counting costs a thread two additions.
+void allocated(std::size_t bytes) noexcept;
+struct allocation_count {
+    std::uint64_t count = 0, bytes = 0;
+};
+allocation_count allocations() noexcept;  // this thread's, so far
 
 // One call: what the body may say of it.
 class lap {
@@ -92,11 +120,15 @@ public:
     // The time from `pause` to `resume` is not this call's.
     void pause() noexcept {
         if (!paused_)
-            paused_ = true, paused_at_ = clock::now();
+            paused_ = true, paused_at_ = clock::now(), paused_with_ = allocations();
     }
     void resume() noexcept {
-        if (paused_)
+        if (paused_) {
+            const allocation_count now = allocations();
+            out_count_ += now.count - paused_with_.count;
+            out_bytes_ += now.bytes - paused_with_.bytes;
             paused_ = false, out_ += clock::now() - paused_at_;
+        }
     }
     // What this call worked through (nodes, cells, bytes): `name.per_item` is the mean time of one.
     void items(std::uint64_t n) noexcept {
@@ -109,13 +141,54 @@ public:
     bool warmup() const noexcept {
         return warmup_;
     }
+    // A part of this call, timed by the body. Said again in the same call: added to.
+    void part(std::string_view name, clock::duration spent);
+    // The part `name` is the time from here to the end of what this returns.
+    class timed {
+    public:
+        timed(lap& of, std::string_view name) : of_(of), name_(name), from_(clock::now()) {}
+        timed(const timed&) = delete;
+        timed& operator=(const timed&) = delete;
+        ~timed() {
+            of_.part(name_, clock::now() - from_);
+        }
+    private:
+        lap& of_;
+        std::string name_;
+        clock::time_point from_;
+    };
+    [[nodiscard]] timed time(std::string_view name) {
+        return timed{*this, name};
+    }
+    // A quantity of this call (what it drew, what it sent). Said again in the same call: replaced.
+    void value(std::string_view name, double v);
+    // This call is the last: what is measured has run out (a recorded session's last frame).
+    void last() noexcept {
+        last_ = true;
+    }
+    // Words about this call, stated with it when it is among the slowest.
+    void say(std::string text) {
+        now_.said = std::move(text);
+    }
 private:
     friend struct lap_access;
-    bool paused_ = false, warmup_ = false;
+    bool paused_ = false, warmup_ = false, last_ = false;
     clock::time_point paused_at_{};
     clock::duration out_{};
+    allocation_count paused_with_{}, began_with_{};
+    std::uint64_t out_count_ = 0, out_bytes_ = 0;
     std::uint64_t items_ = 0;
     std::size_t index_ = 0;
+    // What the calls said: a column a name, a row a measured call (not a number where a call did
+    // not say).
+    struct row {
+        std::vector<double> parts, values;
+        std::string said;
+    };
+    std::uint64_t now_count_ = 0, now_bytes_ = 0;  // the call that ended allocated
+    std::vector<std::string> part_names_, value_names_;
+    row now_;
+    std::vector<row> rows_;
 };
 
 // What `each` does with a lap (not for a test).
@@ -124,29 +197,72 @@ struct lap_access {
         l.warmup_ = on;
     }
     static void begin(lap& l) noexcept {
-        l.paused_ = false, l.out_ = {};
+        l.paused_ = false, l.out_ = {}, l.out_count_ = l.out_bytes_ = 0;
+        l.began_with_ = allocations();
     }
     static lap::clock::duration end(lap& l) noexcept {
         l.resume();
         ++l.index_;
+        const allocation_count now = allocations();
+        l.now_count_ = now.count - l.began_with_.count - l.out_count_;
+        l.now_bytes_ = now.bytes - l.began_with_.bytes - l.out_bytes_;
         return l.out_;
+    }
+    // The call that ended was a measured one: what it said is kept, in the order of the samples.
+    static void keep(lap& l);
+    // What it said is dropped (a warm-up call's).
+    static void drop(lap& l);
+    static bool last(const lap& l) noexcept {
+        return l.last_;
+    }
+    // What the measured calls said.
+    struct view {
+        std::span<const std::string> parts, values;
+        std::span<const lap::row> rows;
+    };
+    static view look(const lap& l) noexcept {
+        return {l.part_names_, l.value_names_, l.rows_};
     }
     static std::uint64_t items(const lap& l) noexcept {
         return l.items_;
     }
 };
 
+// Where one part (seconds) or one quantity lies over the calls that said it.
+struct quantity {
+    std::string name;
+    std::size_t calls = 0;  // that said it
+    double min = 0, mean = 0, p50 = 0, p95 = 0, p99 = 0, max = 0;
+};
+
+// One call, with what it said.
+struct slow_call {
+    std::size_t index = 0;  // among the measured calls, from 0
+    double seconds = 0;
+    std::vector<std::pair<std::string, double>> parts, values;
+    std::string said;
+};
+
 struct distribution {
     std::vector<double> samples;  // seconds a call, in the order measured
     double min = 0, mean = 0, p50 = 0, p95 = 0, p99 = 0, max = 0;
-    std::uint64_t items = 0;  // a call's, as the last call that said so stated it
-    double per_item = 0;      // mean / items; 0 when no call stated any
+    std::uint64_t items = 0;              // a call's, as the last call that said so stated it
+    double per_item = 0;                  // mean / items; 0 when no call stated any
+    std::vector<quantity> parts, values;  // what the calls said (lap::part, lap::value)
+    std::vector<slow_call> slowest;       // the slowest first (each_options::slowest)
+    double limit = 0;      // seconds a call may take (each_options::limit); 0: none stated
+    std::size_t over = 0;  // the calls that took more
 };
 
 // The value `q` of the way (0 to 1) through `sorted`, between the two nearest by position.
 double percentile(std::span<const double> sorted, double q);
 distribution distribute(std::vector<double> samples, std::uint64_t items = 0);
-// The metrics of a distribution (see `each`), in seconds; `per_item` when a call stated items.
+// The same, with what the calls of `l` said and the `slowest` of them one by one.
+distribution distribute(std::vector<double> samples, const lap& l, std::size_t slowest,
+                        double limit = 0);
+// The metrics of a distribution (see `each`), in seconds; `per_item` when a call stated items; a
+// part's as the calls' (`name.<part>`, `.p95`, `.p99`, `.max`, `.mean`), a quantity's mean and
+// `.max`; the slowest calls a line each in the case's output.
 void record(std::string_view name, const distribution& d);
 
 template <class F>
@@ -165,18 +281,23 @@ distribution each(std::string_view name, F&& f, each_options o = {}) {
         return std::max(clock::duration{}, t1 - t0 - lap_access::end(l));
     };
     lap_access::warmup(l, true);
-    for (std::size_t i = 0; i < o.warmup; ++i)
+    for (std::size_t i = 0; i < o.warmup && !lap_access::last(l); ++i) {
         call();
+        lap_access::drop(l);
+    }
     lap_access::warmup(l, false);
     std::vector<double> samples;
     samples.reserve(std::min<std::size_t>(o.most, 4096));
     clock::duration total{};
-    while (samples.size() < o.most && (samples.size() < o.least || total < o.time)) {
+    while (!lap_access::last(l) && samples.size() < o.most &&
+           (samples.size() < o.least || total < o.time)) {
         const auto spent = call();
         total += spent;
         samples.push_back(std::chrono::duration<double>(spent).count());
+        lap_access::keep(l);
     }
-    auto d = distribute(std::move(samples), lap_access::items(l));
+    auto d = distribute(std::move(samples), l, o.slowest,
+                        std::chrono::duration<double>(o.limit).count());
     record(name, d);
     return d;
 }

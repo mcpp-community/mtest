@@ -61,6 +61,92 @@ int main(int argc, char** argv) {
             expect(ge(d.max, 0.0004)) << "the slow calls are seen: " << d.max;
             expect(eq(d.items, std::uint64_t(50)) && gt(d.per_item, 0.0) && lt(d.per_item, d.mean));
         };
+    "a call says what it was made of: parts, quantities, and the slowest calls one by one"_test
+        [kind::bench] = [] {
+            const auto spin = [](std::chrono::microseconds d) {
+                const auto end = std::chrono::steady_clock::now() + d;
+                while (std::chrono::steady_clock::now() < end) {}
+            };
+            auto d = bench::each("frame",
+                                 [&](bench::lap& l) {
+                                     const bool slow = !l.warmup() && l.index() == 2 + 7;
+                                     {
+                                         auto encoding = l.time("encode");
+                                         spin(std::chrono::microseconds{slow ? 900 : 100});
+                                     }
+                                     l.part("upload", std::chrono::microseconds{30});
+                                     l.part("upload", std::chrono::microseconds{20});  // added to
+                                     l.value("glyphs", slow ? 24570 : 922);
+                                     if (l.index() % 2 == 0)
+                                         l.value("lists", 11);  // some calls say it
+                                     if (slow)
+                                         l.say("zoom 0.43");
+                                 },
+                                 {.least = 20, .most = 20, .warmup = 2, .slowest = 2});
+            expect(eq(d.parts.size(), std::size_t(2)) && eq(d.values.size(), std::size_t(2)));
+            expect(eq(d.parts[0].name, std::string("encode")) &&
+                   eq(d.parts[0].calls, std::size_t(20)));
+            expect(ge(d.parts[0].max, 0.0009) && lt(d.parts[0].p50, 0.0005)) << d.parts[0].max;
+            expect(eq(d.parts[1].name, std::string("upload")) && eq(d.parts[1].max, 0.00005));
+            expect(eq(d.values[0].name, std::string("glyphs")) && eq(d.values[0].max, 24570.0) &&
+                   eq(d.values[0].min, 922.0));
+            expect(eq(d.values[1].calls, std::size_t(10)) && eq(d.values[1].mean, 11.0))
+                << "over the calls that said it";
+            expect(eq(d.slowest.size(), std::size_t(2)) && eq(d.slowest[0].index, std::size_t(7)) &&
+                   eq(d.slowest[0].said, std::string("zoom 0.43")) &&
+                   ge(d.slowest[0].seconds, d.slowest[1].seconds));
+            expect(eq(d.slowest[0].parts.size(), std::size_t(2)) &&
+                   ge(d.slowest[0].parts[0].second, 0.0009) &&
+                   eq(d.slowest[0].values[0].second, 24570.0));
+        };
+    "a limit a call: how many passed it, and those are the ones stated; a body ends the run"_test
+        [kind::bench] = [] {
+            const auto spin = [](std::chrono::microseconds d) {
+                const auto end = std::chrono::steady_clock::now() + d;
+                while (std::chrono::steady_clock::now() < end) {}
+            };
+            std::size_t calls = 0;
+            auto d = bench::each("sweep",
+                                 [&](bench::lap& l) {
+                                     ++calls;
+                                     spin(std::chrono::microseconds{
+                                         l.index() == 4 || l.index() == 9 ? 700 : 50});
+                                     if (l.index() == 11)
+                                         l.last();  // the sweep has run out
+                                 },
+                                 {.least = 100,
+                                  .most = 100,
+                                  .warmup = 0,
+                                  .limit = std::chrono::microseconds{400}});
+            expect(eq(calls, std::size_t(12)) && eq(d.samples.size(), std::size_t(12)));
+            expect(eq(d.over, std::size_t(2)) && eq(d.slowest.size(), std::size_t(2)) &&
+                   eq(d.limit, 0.0004));
+            const std::array<std::size_t, 2> late{d.slowest[0].index, d.slowest[1].index};
+            expect((late[0] == 4 && late[1] == 9) || (late[0] == 9 && late[1] == 4));
+        };
+    "calls that say nothing keep nothing"_test[kind::bench] = [] {
+        auto d = bench::each("quiet", [](bench::lap&) {},
+                             {.least = 5, .most = 5, .warmup = 1, .slowest = 1});
+        expect(d.parts.empty() && d.values.empty() && eq(d.slowest.size(), std::size_t(1)) &&
+               d.slowest[0].parts.empty() && d.slowest[0].said.empty());
+    };
+    "a program that counts its allocations: a call's, less what it paused for"_test[kind::bench] =
+        [] {
+            auto d = bench::each("alloc",
+                                 [](bench::lap& l) {
+                                     l.pause();
+                                     bench::allocated(1000);  // not the call's
+                                     l.resume();
+                                     bench::allocated(64);
+                                     if (l.index() == 3)
+                                         bench::allocated(32);
+                                 },
+                                 {.least = 6, .most = 6, .warmup = 1});
+            expect(eq(d.values.size(), std::size_t(2)) &&
+                   eq(d.values[0].name, std::string("allocations")));
+            expect(eq(d.values[0].min, 1.0) && eq(d.values[0].max, 2.0) &&
+                   eq(d.values[1].max, 96.0) && eq(d.values[1].min, 64.0));
+        };
     "a body that takes no lap is measured the same"_test[kind::bench] = [] {
         int x = 0;
         auto d =

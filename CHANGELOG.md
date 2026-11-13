@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1] - 2026-11-13
+
+- **`mcpplibs.mtest.e2e`, `.bench` and `.cts` are public modules of the library.** Each re-exports
+  `mcpplibs.mtest`, so the lib root cannot re-export them, and a program that imported one was told
+  that it was not public and would fail against the packed library (mcpp SPEC-008). Each is now a
+  feature, on by default (`e2e`, `bench`, `cts`), which is how mcpp counts a module beside the root
+  as public; a program's imports and its manifest are unchanged.
+
 ## [0.7.0] - 2026-11-13
 
 - **What a machine can do is declared once, and a requirement no machine answers is an error**

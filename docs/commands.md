@@ -37,6 +37,7 @@ nothing; a built program's own listing is the authority (`manifest/src/manifest.
 | Command | Does |
 |---|---|
 | `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--env K=V`, `--run-under CMD` (every start of a program, its listing included: a runner such as an emulator or a machine of the program's system), `--monitor LEVEL` (P10), `--group G` (runs reported together); `--junit`, `--html`, `--report-json FILE`, `--md FILE`; `--coverage` measures the coverage map. A program's cases are divided among workers that would otherwise idle (`[run] split`), and programs run together within the machine's memory (`[run] memory`) |
+| `run --resume RUN` | the selection, less the cases RUN judged: their results are carried into the new run, so an interrupted long run (a bench over a matrix) ends as one whole run; a case RUN could not start runs again |
 | `rerun` | the cases that failed in the last run |
 | `smoke` | the `smoke` set |
 | `golden` | a run with `MTEST_GOLDEN=update`: golden files are written, not compared |
@@ -74,4 +75,7 @@ A run is named by its identifier, `last`, or `last-N`.
 | `ci annotate`, `ci collect --from DIR` | a run's failures as GitHub annotations and its Markdown report as the job's summary; a CI store taken in |
 | `ci report [--group G]` | every collected run of a group (default: `GITHUB_RUN_ID`) as one Markdown report, in the job's summary and `--out` |
 | `ci timeline --repo OWNER/REPO --run-id N` | a workflow run's jobs as a schedule with the critical path (each job waited for the job that ended last before it began), as Markdown with a gantt; `--summary` writes it to the job's summary |
+| `ci coverage [--group G]` | every program of mtest.toml judged against the collected runs of a group (default `GITHUB_RUN_ID`; none: every stored run): `ran` on some host, `unaffected` (a narrowed run left it out), `excused` or `owed` (`[ci.coverage]`), else `uncovered`, which fails, as does a listed entry that ran or names no program, and a program that did not pass on a host `[ci.coverage] hosts` requires; the capability words no run's machine provided are listed |
+| `ci plan [--hosts H]... [--format github]` | the selection divided among the hosts (`[ci.plan]`) by each host's history: the cases its capability answers admit, their measured time there, and the shards that fit `[ci.plan] shard`; `github` writes `<host>=[1,...,N]` and `<host>_work=true\|false` to `GITHUB_OUTPUT`, for a job matrix |
+| `capabilities` | how this machine answers each word of `[capabilities]`, and why |
 | `measure --out FILE -- ARGV` | runs ARGV and writes what it used (its children's account) as JSON: how the engine measures a program that reports no use of its own (P10.4) |

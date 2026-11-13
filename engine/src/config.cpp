@@ -240,7 +240,8 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
     }
     known(t, "mtest.toml",
           {"project", "programs", "discover", "host", "sets", "policy", "retry", "regression",
-           "store", "trace", "cases", "coverage", "static", "run", "monitor", "report", "fixtures"},
+           "store", "trace", "cases", "coverage", "static", "run", "monitor", "report", "fixtures",
+           "capabilities", "ci"},
           c);
     if (auto p = t["project"].as_table()) {
         known(*p, "project", {"store", "jobs"}, c);
@@ -407,6 +408,62 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
         c.report.scope = (*r)["scope"].value_or(std::string("run"));
         c.report.top = static_cast<int>((*r)["top"].value_or(std::int64_t{10}));
         c.report.max_nodes = static_cast<int>((*r)["max_nodes"].value_or(std::int64_t{60}));
+    }
+    if (auto caps = t["capabilities"].as_table()) {
+        for (const auto& [name, v] : *caps) {
+            if (name.str() == "tag") {
+                if (auto s = v.value<std::string>())
+                    c.capabilities.tag = *s;
+                continue;
+            }
+            auto ct = v.as_table();
+            if (!ct)
+                return std::unexpected(std::format("capabilities.{} is not a table of tests (os, "
+                                                   "arch, program, command, path, env, all, none)",
+                                                   name.str()));
+            known(*ct, std::format("capabilities.{}", name.str()),
+                  {"os", "arch", "program", "command", "path", "env", "all", "none"}, c);
+            capability_spec cs;
+            cs.name = std::string(name.str());
+            cs.systems = strings((*ct)["os"]);
+            cs.archs = strings((*ct)["arch"]);
+            cs.programs = strings((*ct)["program"]);
+            cs.command = strings((*ct)["command"]);
+            cs.paths = strings((*ct)["path"]);
+            if (auto e = (*ct)["env"].as_table())
+                for (const auto& [k, ev] : *e)
+                    if (auto s = ev.value<std::string>())
+                        cs.env.emplace_back(std::string(k.str()), *s);
+            cs.all = strings((*ct)["all"]);
+            cs.none = strings((*ct)["none"]);
+            c.capabilities.words[cs.name] = std::move(cs);
+        }
+        for (const auto& [name, cs] : c.capabilities.words)
+            for (const auto* list : {&cs.all, &cs.none})
+                for (const auto& w : *list)
+                    if (!c.capabilities.words.contains(w))
+                        return std::unexpected(std::format("capabilities.{} names `{}`, which "
+                                                           "[capabilities] does not declare",
+                                                           name, w));
+    }
+    if (auto ci = t["ci"].as_table()) {
+        known(*ci, "ci", {"coverage", "plan"}, c);
+        if (auto cv = (*ci)["coverage"].as_table()) {
+            known(*cv, "ci.coverage", {"exceptions", "debt", "hosts"}, c);
+            c.ci_coverage.exceptions = (*cv)["exceptions"].value_or(std::string{});
+            c.ci_coverage.debt = (*cv)["debt"].value_or(std::string{});
+            c.ci_coverage.hosts = (*cv)["hosts"].value_or(std::string{});
+        }
+        if (auto pl = (*ci)["plan"].as_table()) {
+            known(*pl, "ci.plan", {"hosts", "shard", "max_shards", "unknown"}, c);
+            c.ci_plan.hosts = strings((*pl)["hosts"]);
+            if (auto d = duration_of((*pl)["shard"]))
+                c.ci_plan.shard = *d;
+            if (auto m = (*pl)["max_shards"].value<std::int64_t>())
+                c.ci_plan.max_shards = std::max<int>(1, int(*m));
+            if (auto d = duration_of((*pl)["unknown"]))
+                c.ci_plan.unknown = *d;
+        }
     }
     if (auto fs = t["fixtures"].as_table())
         for (const auto& [name, node] : *fs) {

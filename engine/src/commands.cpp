@@ -10,6 +10,8 @@ import mcpplibs.mtest.engine.analysis;
 import mcpplibs.mtest.engine.output;
 import mcpplibs.mtest.engine.exec;
 import mcpplibs.mtest.engine.coverage;
+import mcpplibs.mtest.engine.capability;
+import mcpplibs.mtest.engine.cicheck;
 import mcpplibs.mtest.engine.dag;
 import mcpplibs.mtest.engine.report;
 import mcpplibs.mtest.manifest;
@@ -279,6 +281,48 @@ answer cmd_run(const std::filesystem::path& cwd, const json& p,
     auto pl = make_plan(ctx->cfg, ctx->st, *programs, *sel);
     if (!pl)
         return machine(pl.error());
+    // `--resume RUN` (0.7.0, M5): the cases RUN judged are not run again, and their results are
+    // carried into this run, so that a long run (a bench over a matrix) that was interrupted ends
+    // as one whole run. A case RUN could not start (infra) or never reached runs now.
+    std::vector<case_result> carried;
+    std::string resumed_id;
+    if (auto ref = text_of(p, "resume"); !ref.empty()) {
+        auto prev = load_run(ctx->st, ref);
+        if (!prev)
+            return usage(std::format("no stored run {} to resume", ref));
+        resumed_id = prev->id;
+        std::map<std::string, case_result> judged;
+        for (auto& c : prev->cases)
+            if (c.status != "infra")
+                judged[c.program + "::" + c.id] = c;
+        std::size_t kept = 0;
+        for (auto& u : pl->units) {
+            const auto before = u.cases.size();
+            std::erase_if(u.cases, [&](const unit_case& uc) {
+                auto it = judged.find(u.program.name + "::" + uc.info.id);
+                if (it == judged.end())
+                    return false;
+                carried.push_back(it->second);
+                return true;
+            });
+            if (u.cases.size() != before)
+                u.all = false;
+            kept += u.cases.size();
+        }
+        std::erase_if(pl->units, [](const unit& u) { return u.cases.empty(); });
+        pl->selected = kept;
+        pl->notes.push_back(std::format("resuming run {}: {} case(s) carried, {} to run",
+                                        resumed_id, carried.size(), kept));
+        if (pl->units.empty()) {
+            json data = {{"status", "pass"},
+                         {"resumed", resumed_id},
+                         {"carried", carried.size()},
+                         {"conclusion",
+                          std::format("run {} has judged every selected case: nothing left to run",
+                                      resumed_id)}};
+            return {0, data, std::format("run {} has judged every selected case\n", resumed_id)};
+        }
+    }
     if (pl->units.empty()) {
         json data = {{"status", "pass"},
                      {"cases", 0},
@@ -318,6 +362,17 @@ answer cmd_run(const std::filesystem::path& cwd, const json& p,
         o.coverage_cases = &coverage_cases;
     }
     auto r = execute(ctx->cfg, ctx->st, *pl, o);
+    if (!resumed_id.empty()) {
+        r.resumed = resumed_id;
+        for (auto& c : carried)
+            r.cases.push_back(std::move(c));
+        r.counts = count(r.cases);
+        if (r.status == "pass" && std::ranges::any_of(r.cases, [](const case_result& c) {
+                return failing(c.status) && !c.quarantined;
+            }))
+            r.status = "fail";
+        write_run(ctx->st, r);
+    }
     if (o.coverage_dir) {
         auto m = collect_coverage(ctx->cfg, coverage_cases, r.commit);
         if (!m)
@@ -1417,6 +1472,27 @@ answer ci_timeline(const json& p) {
             md};
 }
 
+// `mtest capabilities`: how this machine answers each word of [capabilities] (0.7.0, M1).
+answer cmd_capabilities(const std::filesystem::path& cwd, const json&) {
+    auto ctx = open(cwd);
+    if (!ctx)
+        return ctx.error();
+    json words = json::object();
+    std::string text = std::format("host {}\n", host_name());
+    std::size_t present = 0;
+    for (const auto& [w, a] : machine_capabilities(ctx->cfg)) {
+        words[w] = {{"present", a.present}, {"why", a.why}};
+        text += std::format("  {} {} -- {}\n", a.present ? "+" : "-", w, a.why);
+        present += a.present;
+    }
+    return {0,
+            {{"host", host_name()},
+             {"capabilities", words},
+             {"conclusion", std::format("{} of {} capabilities present on {}", present,
+                                        ctx->cfg.capabilities.words.size(), host_name())}},
+            text};
+}
+
 answer cmd_ci(const std::filesystem::path& cwd, const json& p) {
     const auto action = text_of(p, "action", "status");
     if (action == "status") {
@@ -1526,7 +1602,37 @@ answer cmd_ci(const std::filesystem::path& cwd, const json& p) {
                 {{"imported", n}, {"conclusion", std::format("took {} run(s)", n)}},
                 std::format("took {} run(s)\n", n)};
     }
-    return usage("ci status, annotate or collect");
+    if (action == "coverage" || action == "plan") {
+        // The runs judged: a group's (default: GITHUB_RUN_ID's) or, with none, every stored run.
+        std::vector<run_record> all;
+        std::string group = text_of(p, "group");
+        if (group.empty() && action == "coverage")
+            group = os::env::get("GITHUB_RUN_ID").value_or("");
+        for (const auto& r : runs(ctx->st))
+            if (group.empty() || r.group == group)
+                if (auto full = load_run(ctx->st, r.id))
+                    all.push_back(std::move(*full));
+        if (action == "coverage" && all.empty())
+            return usage(group.empty()
+                             ? std::string("ci coverage: the store holds no run (ci collect first)")
+                             : std::format("ci coverage: no stored run of group {}", group));
+        auto programs = programs_of(*ctx, p);
+        if (!programs)
+            return programs.error();
+        if (action == "coverage") {
+            auto c = ci_coverage(ctx->cfg, *programs, all);
+            return {c.status, c.data, c.text};
+        }
+        auto sel = selection_of(*ctx, p);
+        if (!sel)
+            return sel.error();
+        auto pl = make_plan(ctx->cfg, ctx->st, *programs, *sel);
+        if (!pl)
+            return machine(pl.error());
+        auto c = ci_plan(ctx->cfg, *pl, all, strings(p, "hosts"), text_of(p, "format"));
+        return {c.status, c.data, c.text};
+    }
+    return usage("ci status, annotate, collect, report, timeline, coverage or plan");
 }
 
 }  // namespace
@@ -1534,6 +1640,7 @@ answer cmd_ci(const std::filesystem::path& cwd, const json& p) {
 answer dispatch(const std::filesystem::path& cwd, std::string_view command, const json& params,
                 const std::function<void(const json&)>& events) {
     const json& p = params.is_object() ? params : json::object();
+    forget_capabilities();
     if (command == "run")
         return cmd_run(cwd, p, events);
     if (command == "rerun") {
@@ -1608,6 +1715,8 @@ answer dispatch(const std::filesystem::path& cwd, std::string_view command, cons
         const int code = measure(os::fs::from_utf8(text_of(p, "out")), argv);
         return {code, {{"status", code}, {"conclusion", std::format("ended with {}", code)}}, ""};
     }
+    if (command == "capabilities")
+        return cmd_capabilities(cwd, p);
     if (command == "ci")
         return cmd_ci(cwd, p);
     return usage(std::format("no command {} (mtest help)", command));
@@ -1684,6 +1793,9 @@ json catalog() {
         with({{"jobs", {{"type", "integer"}, {"description", "programs at once"}}},
               {"seed", {{"type", "integer"}, {"description", "the seed of anything random"}}},
               {"fail_fast", {{"type", "boolean"}, {"description", "stop at the first failure"}}},
+              {"resume",
+               {{"type", "string"},
+                {"description", "a run whose judged cases are carried and not run again"}}},
               {"retries", {{"type", "integer"}, {"description", "runs again of a failed case"}}},
               {"isolate", {{"type", "boolean"}, {"description", "each case in its own process"}}},
               {"timeout", {{"type", "string"}, {"description", "a duration for each program"}}},
@@ -1818,23 +1930,35 @@ json catalog() {
         "Across pull requests: their checks (status); a run's failures as annotations and its "
         "report as the job's summary (annotate); a CI store taken in (collect); the runs of a "
         "group as one report (report); a workflow run's jobs as a graph with its critical path "
-        "(timeline).",
-        plain({{"action", {{"enum", {"status", "annotate", "collect", "report", "timeline"}}}},
-               {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
-               {"run", run_id["run"]},
-               {"from", {{"type", "string"}}},
-               {"group", {{"type", "string"}}},
-               {"sections", {{"type", "string"}}},
-               {"out", {{"type", "string"}}},
-               {"repo", {{"type", "string"}, {"description", "timeline: OWNER/REPO"}}},
-               {"run_id", {{"type", "string"}, {"description", "timeline: the workflow run"}}},
-               {"summary",
-                {{"type", "boolean"}, {"description", "timeline: also the job's summary"}}}}));
+        "(timeline); whether every program ran on some host (coverage); a selection divided among "
+        "the hosts by their history (plan).",
+        with({{"action",
+               {{"enum",
+                 {"status", "annotate", "collect", "report", "timeline", "coverage", "plan"}}}},
+              {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
+              {"run", run_id["run"]},
+              {"from", {{"type", "string"}}},
+              {"group", {{"type", "string"}}},
+              {"sections", {{"type", "string"}}},
+              {"out", {{"type", "string"}}},
+              {"repo", {{"type", "string"}, {"description", "timeline: OWNER/REPO"}}},
+              {"run_id", {{"type", "string"}, {"description", "timeline: the workflow run"}}},
+              {"summary",
+               {{"type", "boolean"}, {"description", "timeline: also the job's summary"}}},
+              {"hosts",
+               {{"type", "array"},
+                {"items", {{"type", "string"}}},
+                {"description", "plan: the hosts ([ci.plan] hosts)"}}},
+              {"format",
+               {{"enum", {"text", "github"}},
+                {"description", "plan: github writes GITHUB_OUTPUT"}}}}));
+    add("capabilities", "How this machine answers each capability word of [capabilities].",
+        plain({}));
     add("measure", "Run a program and write what it used (its children's account) to --out.",
         plain({{"out", {{"type", "string"}}},
                {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),
         true);
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.6.3"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.7.0"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

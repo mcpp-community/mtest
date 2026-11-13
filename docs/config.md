@@ -101,6 +101,36 @@ objects  = "target/x86_64-linux-gnu/0123abcd/obj"  # the instrumented objects (.
 database = "target/x86_64-linux-gnu/0123abcd/compile_commands.json"
 max_age  = "7d"                         # an older map is not read: every case is then affected
 
+# What this machine can do, in the words cases require (`# requires: gcc` with tags_from above, or a
+# case's tag `requires:gcc`). Every test an entry states must hold; an entry that states none holds
+# everywhere. A case that requires a word this machine lacks is skipped, with the reason
+# `missing capability: <word> (<the test that failed>)`; a word no entry declares is an error, for no
+# machine could answer it. `mtest capabilities` prints the answers; each run records them.
+[capabilities]
+tag      = "requires:"                  # the tag prefix whose words are capabilities (the default)
+gcc      = { program = "g++" }          # found on PATH (a list: each)
+elf      = { os = ["linux"] }           # the engine's system names: linux, macos, windows, ...
+x86_64   = { arch = ["x86_64"] }
+musl     = { path = ["${HOME}/.mcpp/registry/data/xpkgs/xim-x-musl-gcc/*/bin/*-gcc"] }  # some file matches
+msvc     = { command = ["vswhere", "-latest"] }   # runs and exits 0 within 30 s
+xmsvc    = { env = { CI_MSVC = "1" } }  # equals; "*": set and not empty
+pack     = { all = ["elf", "patchelf"] }
+no-msvc  = { os = ["windows"], none = ["msvc"] }
+
+# `mtest ci coverage`: the tables it reads beside the runs collected from every job. A first column
+# names a program (or program::case); `#` begins a comment.
+[ci.coverage]
+exceptions = "tests/coverage-exceptions.tsv"   # <program>\t<why no machine of CI can run it>
+debt       = "tests/coverage-debt.tsv"         # <program>\t<what the machines lack>: skips everywhere
+hosts      = "tests/host-requirements.tsv"     # <program>\t<hosts>\t<why>: must pass on each host
+
+# `mtest ci plan`: a selection divided among CI's hosts by each host's history.
+[ci.plan]
+hosts      = ["linux", "macos", "windows"]     # the names runs record (MTEST_HOST, else the system)
+shard      = "15m"                             # the expected time of one shard
+max_shards = 8
+unknown    = "30s"                             # the expected time of a case a host never ran
+
 [sets.fast]                             # sets.md
 tags    = ["fast"]
 include = ["smoke"]

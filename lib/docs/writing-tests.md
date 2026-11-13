@@ -53,7 +53,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
   The entry enters the child before any case; the copy runs no case and reports nothing. The files of
   one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
   copies.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.6.3"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.7.0"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -107,6 +107,39 @@ How the tests of a project are laid out, from the directory to the line, is in
 - Parameters: `"is even"_test = values{2, 4, 6} | [](int v) { expect(eq(v % 2, 0)); };`
 - Measurements: `import mcpplibs.mtest.bench;`, then `bench::measure("name", [] { ... });` in a
   `Bench`.
+
+## Programs under test
+
+`import mcpplibs.mtest.e2e;` A case of kind `e2e` starts the program it tests and judges what it did.
+
+```cpp
+auto r = e2e::run({.argv = {e2e::program("app"), "--version"}, .cwd = dir});
+expect(e2e::succeeded(r));                    // started, in time, status 0
+expect(e2e::matches(r.out, R"(app \d+\.\d+)"));
+expect(e2e::contains(r.err, "warning"));
+```
+
+- `e2e::run` runs a command to its end or its time limit; the outcome carries its status, both
+  outputs and `line`, the command as one POSIX shell line (`e2e::shell_line`). A failed
+  `succeeded`, `exited(r, n)`, `contains` or `matches` reports the line that repeats it and the
+  tails of both outputs, so a failure reads as a session a person can paste into a shell.
+- `e2e::tree({{path, content}...})` writes a directory of files; `e2e::golden(file, text)` compares
+  with a golden file (`MTEST_GOLDEN=update` writes it).
+- **A session** drives a program whose input depends on what it wrote: a serial console, a
+  debugger, a login, a read-eval-print loop.
+
+  ```cpp
+  auto s = e2e::session::start({.argv = {"qemu-system-x86_64", "-nographic", ...}});
+  expect(fatal(s.saw("login: ", std::chrono::minutes{3})));
+  s.send_line("root");
+  auto prompt = s.expect(R"(# $)");
+  ```
+
+  `expect` consumes the output up to the end of the pattern's first match and returns it; nothing
+  when the time ran out (`timed_out()`) or the output ended (`ended()`). `saw` is the same as a
+  comparison whose failure carries the output not yet consumed. `transcript()` is everything
+  written, with what was sent marked. Both streams travel in one pipe, in the order written; no
+  terminal is involved, so a session behaves the same on every system.
 
 ## Conformance to a specification
 

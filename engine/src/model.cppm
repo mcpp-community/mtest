@@ -156,6 +156,12 @@ struct run_record {
     // together.
     std::string group;
     std::string monitor = "basic";  // the level the run measured at (P10)
+    // The machine among the hosts of CI (MTEST_HOST, else the system), and how it answered each
+    // declared capability (0.7.0): what `mtest ci coverage` and `mtest ci plan` read.
+    std::string host;
+    std::map<std::string, bool> capabilities;
+    // The run whose results this one carries for the cases it did not run again (`--resume`).
+    std::string resumed;
 };
 
 // JSON as text, a byte that is not UTF-8 (a program's output in a Windows code page) written as

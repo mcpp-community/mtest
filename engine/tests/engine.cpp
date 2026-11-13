@@ -734,8 +734,10 @@ printf ')" + header +
     };
     "a run fixture is served once and its endpoint reaches its users"_test[kind::e2e] = [] {
         auto root = project(
+            // Ready once the endpoint exists: announced first, a user started at once found no
+            // directory (seen once in a macOS run of CI, 43359543216).
             {{"serve.sh",
-              "echo \"mtest-ready $PWD/served\"; mkdir -p served; cat >/dev/null; rmdir served\n"},
+              "mkdir -p served; echo \"mtest-ready $PWD/served\"; cat >/dev/null; rmdir served\n"},
              {"u1.sh", "test -d \"$MTEST_FIXTURE_HOME\" && echo one >> "
                        "\"$MTEST_FIXTURE_HOME/../uses.txt\"\n"},
              {"u2.sh", "test -d \"$MTEST_FIXTURE_HOME\" && echo two >> "
@@ -765,6 +767,98 @@ printf ')" + header +
         const auto& u = r["timeline"][0]["usage"];
         expect(eq(u["source"].get<std::string>(), std::string("engine"))) << u.dump();
         expect(gt(u["peak_bytes"].get<double>(), 1.0e6));
+    };
+    // --- 0.7.0: capabilities (M1), coverage over collected runs, plan per host (M6), resume (M5)
+    const std::string discovered =
+        "[discover.s]\nglobs = [\"[0-9]*.sh\"]\ncommand = [\"bash\", \"{path}\"]\nlevel = 0\n"
+        "skip_exit = 77\ntags_from = { \"# requires:\" = \"requires:\" }\n";
+    "a capability this machine lacks makes a skip that names it"_test[kind::e2e] = [&] {
+        auto root = project(
+            {{"1_has.sh", "# requires: here\nexit 0\n"},
+             {"2_lacks.sh", "# requires: absent\nexit 0\n"},
+             {"mtest.toml", discovered + "[capabilities]\nhere = {}\n"
+                                         "absent = { program = \"no-such-program-mtest\" }\n"}});
+        auto j = json_of(mtest(root, {"run", "--json", "--report-json", "r.json"}));
+        expect(eq(j["status"].get<std::string>(), std::string("pass"))) << j.dump();
+        auto r = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
+        std::string reason;
+        for (const auto& c : r["cases"])
+            if (c["program"] == "2_lacks.sh")
+                reason = c.value("reason", "");
+        expect(contains(reason, "missing capability: absent")) << r.dump();
+        expect(eq(r["capabilities"]["here"].get<bool>(), true));
+        auto caps = json_of(mtest(root, {"capabilities", "--json"}));
+        expect(eq(caps["capabilities"]["absent"]["present"].get<bool>(), false));
+    };
+    "a capability no entry declares is an error, not a skip"_test[kind::e2e] = [&] {
+        auto root = project({{"1_x.sh", "# requires: nowhere\nexit 0\n"},
+                             {"mtest.toml", discovered + "[capabilities]\nhere = {}\n"}});
+        auto r = mtest(root, {"run"});
+        expect(ne(r.status, 0));
+        expect(contains(r.out + r.err, "does not declare")) << r.out << r.err;
+    };
+    "a capability is composed of others and of the environment"_test[kind::e2e] = [&] {
+        auto root =
+            project({{"mtest.toml", discovered + "[capabilities]\na = {}\n"
+                                                 "b = { none = [\"a\"] }\nc = { all = [\"a\"] }\n"
+                                                 "d = { env = { MTEST_TEST_SET = \"yes\" } }\n"}});
+        auto caps = json_of(mtest(root, {"capabilities", "--json"}));
+        expect(eq(caps["capabilities"]["b"]["present"].get<bool>(), false));
+        expect(eq(caps["capabilities"]["c"]["present"].get<bool>(), true));
+        expect(eq(caps["capabilities"]["d"]["present"].get<bool>(), false));
+    };
+    "every program ran somewhere or is accounted for"_test[kind::e2e] = [&] {
+        auto root = project({{"1_ok.sh", "exit 0\n"},
+                             {"2_skips.sh", "echo 'SKIP: nothing here'; exit 77\n"},
+                             {"3_owed.sh", "echo 'SKIP: nothing here'; exit 77\n"},
+                             {"debt.tsv", "# owed\n3_owed.sh\tno host has it\n"},
+                             {"mtest.toml", discovered + "[ci.coverage]\ndebt = \"debt.tsv\"\n"}});
+        (void)mtest(root, {"run", "--json", "--group", "g1"});
+        auto r = mtest(root, {"ci", "coverage", "--group", "g1", "--json"});
+        expect(eq(r.status, 1));
+        auto j = json_of(r);
+        expect(eq(j["cases"]["1_ok.sh"].get<std::string>(), std::string("ran")));
+        expect(eq(j["cases"]["2_skips.sh"].get<std::string>(), std::string("uncovered")));
+        expect(eq(j["cases"]["3_owed.sh"].get<std::string>(), std::string("owed")));
+    };
+    "a debt entry for a program that ran fails the check"_test[kind::e2e] = [&] {
+        auto root = project({{"1_ok.sh", "exit 0\n"},
+                             {"debt.tsv", "1_ok.sh\tno host has it\n"},
+                             {"mtest.toml", discovered + "[ci.coverage]\ndebt = \"debt.tsv\"\n"}});
+        (void)mtest(root, {"run", "--json", "--group", "g2"});
+        auto j = json_of(mtest(root, {"ci", "coverage", "--group", "g2", "--json"}));
+        expect(contains(j["problems"].dump(), "remove the entry")) << j.dump();
+    };
+    "a plan divides the selection among the hosts by their history"_test[kind::e2e] = [&] {
+        auto root =
+            project({{"1_any.sh", "exit 0\n"},
+                     {"2_linuxish.sh", "# requires: special\nexit 0\n"},
+                     {"mtest.toml",
+                      discovered + "[capabilities]\nspecial = { env = { MTEST_SPECIAL = \"1\" } }\n"
+                                   "[ci.plan]\nshard = \"10m\"\n"}});
+        auto run = e2e::run({.argv = {e2e::program("mtest"), "run", "--json"},
+                             .cwd = root,
+                             .env = {{"MTEST_HOST", "h1"}},
+                             .timeout = std::chrono::seconds{120}});
+        expect(fatal(eq(run.status, 0))) << run.out << run.err;
+        auto j = json_of(mtest(root, {"ci", "plan", "--hosts", "h1", "--hosts", "h2", "--json"}));
+        expect(fatal(eq(j["hosts"].size(), std::size_t(2))));
+        expect(eq(j["hosts"][0]["cases"].get<int>(), 1)) << "h1 lacks `special`: " << j.dump();
+        expect(eq(j["hosts"][0]["shards"].get<int>(), 1));
+        expect(eq(j["hosts"][1]["cases"].get<int>(), 2)) << "h2 has no history: every case";
+    };
+    "a resumed run carries what the first judged and runs the rest"_test[kind::e2e] = [&] {
+        auto root =
+            project({{"1_a.sh", "exit 0\n"}, {"2_b.sh", "exit 0\n"}, {"mtest.toml", discovered}});
+        expect(fatal(eq(mtest(root, {"run", "--json", "--program", "1_a.sh"}).status, 0)));
+        auto j =
+            json_of(mtest(root, {"run", "--json", "--resume", "last", "--report-json", "r.json"}));
+        expect(eq(j["status"].get<std::string>(), std::string("pass")));
+        auto r = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
+        expect(eq(r["cases"].size(), std::size_t(2))) << r.dump();
+        expect(!r["resumed"].get<std::string>().empty());
+        auto again = mtest(root, {"run", "--resume", "last"});
+        expect(contains(again.out, "judged every selected case")) << again.out;
     };
     return report();
 }

@@ -58,7 +58,9 @@ json to_json(const case_info& c) {
             {"line", c.line},       {"kind", c.kind},           {"tags", c.tags},
             {"clauses", c.clauses}, {"resources", c.resources}, {"artifacts", c.artifacts},
             {"expect", c.expect},   {"timeout", c.timeout},     {"isolated", c.isolated},
-            {"retries", c.retries}, {"uses", c.uses},           {"bounds", to_json(c.bounds)}};
+            {"retries", c.retries}, {"uses", c.uses},           {"bounds", to_json(c.bounds)},
+            {"only", c.only},       {"except", c.except},       {"capabilities", c.capabilities},
+            {"reason", c.reason}};
 }
 json to_json(const failure_info& f) {
     json j = {{"file", f.file}, {"line", f.line}, {"message", f.message}};
@@ -102,6 +104,10 @@ json to_json(const case_result& c) {
         j["artifacts"] = c.artifacts;
     if (!c.tags.empty())
         j["tags"] = c.tags;
+    if (!c.only.empty())
+        j["only"] = c.only;
+    if (!c.except.empty())
+        j["except"] = c.except;
     if (!c.clauses.empty())
         j["clauses"] = c.clauses;
     if (c.quarantined)
@@ -210,6 +216,13 @@ case_info case_info_from(const json& j) {
     c.resources = strings<std::string>(j, "resources");
     c.artifacts = strings<std::string>(j, "artifacts");
     c.uses = strings<std::string>(j, "uses");
+    c.only = strings<std::string>(j, "only");
+    c.except = strings<std::string>(j, "except");
+    if (auto a = j.find("capabilities"); a != j.end() && a->is_object())
+        for (auto it = a->begin(); it != a->end(); ++it)
+            if (it.value().is_boolean())
+                c.capabilities[it.key()] = it.value().get<bool>();
+    c.reason = str(j, "reason");
     return c;
 }
 case_result case_result_from(const json& j) {
@@ -241,6 +254,8 @@ case_result case_result_from(const json& j) {
     c.artifacts = strings<std::string>(j, "artifacts");
     c.tags = strings<std::string>(j, "tags");
     c.clauses = strings<std::string>(j, "clauses");
+    c.only = strings<std::string>(j, "only");
+    c.except = strings<std::string>(j, "except");
     c.quarantined = j.value("quarantined", false);
     c.attempts = j.value("attempts", 1);
     if (auto it = j.find("fixtures"); it != j.end() && it->is_array())

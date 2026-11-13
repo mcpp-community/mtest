@@ -53,7 +53,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
   The entry enters the child before any case; the copy runs no case and reports nothing. The files of
   one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
   copies.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.7.2"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.8.0"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -73,7 +73,8 @@ skipped, `fail("why")` as failed.
 ## Attributes
 
 Written after an object's name, before its body, or in brackets after a case's name. A case has
-the attributes of every scope that declares it: tags, clauses, resources and artifacts add up,
+the attributes of every scope that declares it: tags, clauses, resources, artifacts, the places it
+does not run on and the capabilities it requires add up, the places it runs only on narrow,
 isolation holds for everything inside; the others are the innermost one stated.
 
 | Attribute | States | The runner |
@@ -90,9 +91,46 @@ isolation holds for everything inside; the others are the innermost one stated.
 | `at_most{"ready", 15}`, `at_least{"recall", 0.9}` | the limits of a metric it reports | the case fails when its metric passes a limit or is not reported; `mtest analyze trend` shows each metric beside its limits |
 | `skip_if{cond, "why"}`, `expect_failure{"why"}`, `known_gap{"why", "YYYY-MM-DD"}` | its expected verdict | reports skip, xfail, xpass |
 | `monitor{monitor_level::detailed}` | how closely its use of the machine is measured | measures at least that closely: its processor time (`basic`), its memory and I/O (`detailed`), both over time (`trace`), as metrics with their precision (protocol P10) |
+| `only{platform::windows}`, `only{platform::linux, architecture::x86_64}`, `except{platform::macos}` | where it runs: on one of the platforms and one of the architectures `only` names, when it names any, and on none `except` names | skips it elsewhere, saying where (`only on windows (this host: linux x86_64)`); `mtest ci coverage` requires it to pass on each named place a run covered |
+| a `capability`, `[gcc]` | what it requires of the machine, and the tag `requires:gcc` | skips it on a machine that lacks it, saying why (`missing capability: gcc (no g++ on PATH)`) |
 | `uses{"index"}` | a run fixture it uses | serves the fixture once for the run before the first case that uses it, gives its endpoint (`fixture_endpoint("index")`), ends it after the last |
 
 `Bench` holds `machine`: a measurement means something only on a machine nothing else uses.
+
+### Places and capabilities
+
+The program decides where a case runs, whichever runner starts it (`mtest`, `mcpp test`, the
+program alone), and lists the decision with its reason. Places are the platforms and architectures
+of `mcpplibs.os`. A capability is declared once, in code, by the tests of mtest.toml's
+`[capabilities]` (a system, an architecture, programs on PATH, a file a glob matches, a command
+that succeeds, environment values, other capabilities that must or must not hold) or a function
+for what those cannot state; it is answered once per process. Declared in a module interface, it
+is made before the units that import it, so a suite at namespace scope may state it:
+
+```cpp
+// tests/support/machine.cppm
+export module app.test.machine;
+import mcpplibs.mtest;
+using namespace mcpplibs::mtest;
+export const capability gcc{"gcc", {.os = {platform::linux}, .program = {"g++"}}};
+export const capability pack{"pack", {.all = {gcc}, .program = {"patchelf"}}};
+export const capability msvc{"msvc", {.os = {platform::windows}, .test = has_visual_studio}};
+
+// tests/e2e/linking.cpp
+import app.test.machine;
+
+E2E linking{"linking", [] {
+    "links statically"_test[gcc] = [] { ... };
+    "reads the registry"_test[only{platform::windows}] = [] {
+        on<platform::windows>([&](auto) { expect(eq(registry_value(), 1)); });
+    };
+}};
+```
+
+What may be decided when the program is compiled is: `can_run_on(platform)` is a constant, and
+`host()` is one on a native build (an ok image knows it when it is loaded). Code that names what
+exists for one platform only is written in `on<P>([&](auto) { ... })`, whose body a build for
+another platform discards.
 How the tests of a project are laid out, from the directory to the line, is in
 [docs/layout.md](../../docs/layout.md).
 

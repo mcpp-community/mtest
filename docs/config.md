@@ -105,7 +105,9 @@ max_age  = "7d"                         # an older map is not read: every case i
 # case's tag `requires:gcc`). Every test an entry states must hold; an entry that states none holds
 # everywhere. A case that requires a word this machine lacks is skipped, with the reason
 # `missing capability: <word> (<the test that failed>)`; a word no entry declares is an error, for no
-# machine could answer it. `mtest capabilities` prints the answers; each run records them.
+# machine could answer it. `mtest capabilities` prints the answers; each run records them. A word a
+# program answers itself (the C++ library's `capability`, declared in code with these tests) needs
+# no entry: the program lists its answer and the reason of the skip, and the run records it too.
 [capabilities]
 tag      = "requires:"                  # the tag prefix whose words are capabilities (the default)
 gcc      = { program = "g++" }          # found on PATH (a list: each)
@@ -123,6 +125,8 @@ no-msvc  = { os = ["windows"], none = ["msvc"] }
 exceptions = "tests/coverage-exceptions.tsv"   # <program>\t<why no machine of CI can run it>
 debt       = "tests/coverage-debt.tsv"         # <program>\t<what the machines lack>: skips everywhere
 hosts      = "tests/host-requirements.tsv"     # <program>\t<hosts>\t<why>: must pass on each host
+# A case that states its places (`only{platform::windows}`, `--only windows`) must also pass on each
+# of them that a collected run was on, and some run must have been on one: no table names it.
 
 # `mtest ci plan`: a selection divided among CI's hosts by each host's history.
 [ci.plan]

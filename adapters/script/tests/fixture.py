@@ -48,6 +48,11 @@ def holds():
     pass
 
 
+@mt.case("placed", only=["wasm32"])
+def placed():
+    pass
+
+
 @mt.case("bounded", at_most={"elapsed": 0.1})
 def bounded():
     mt.metric("elapsed", 0.5, "s")

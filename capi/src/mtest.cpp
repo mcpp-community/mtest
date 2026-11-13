@@ -23,7 +23,7 @@ std::string text(const char* value) {
 
 struct pending_case {
     event body;
-    std::vector<std::string> tags, clauses, resources, artifacts;
+    std::vector<std::string> tags, clauses, resources, artifacts, only, except;
     bool expect_fail = false;
     double timeout = 0;
     bool isolated = false;
@@ -78,6 +78,10 @@ struct state {
             p.body["clauses"] = p.clauses;
             p.body["resources"] = p.resources;
             p.body["artifacts"] = p.artifacts;
+            if (!p.only.empty())
+                p.body["only"] = p.only;
+            if (!p.except.empty())
+                p.body["except"] = p.except;
             if (p.expect_fail)
                 p.body["expect"] = "fail";
             if (p.timeout > 0)
@@ -116,7 +120,7 @@ void mtest_init(const char* framework, int level) {
              {"protocol", 1},
              {"level", std::clamp(level, 1, 3)},
              {"framework", text(framework)},
-             {"version", "0.7.2"},
+             {"version", "0.8.0"},
              {"isolation", {"process", "case"}}});
 }
 
@@ -160,6 +164,12 @@ void mtest_case_resource(const char* value) {
 }
 void mtest_case_artifact(const char* value) {
     attribute(&pending_case::artifacts, value);
+}
+void mtest_case_only(const char* value) {
+    attribute(&pending_case::only, value);
+}
+void mtest_case_except(const char* value) {
+    attribute(&pending_case::except, value);
 }
 
 void mtest_case_timeout(double seconds) {

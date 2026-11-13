@@ -33,6 +33,12 @@ void mtest_case_tag(const char* tag);
 void mtest_case_clause(const char* clause);
 void mtest_case_resource(const char* resource);
 void mtest_case_artifact(const char* artifact);
+/* Where the case last listed runs (0.8.0): a platform (linux, macos, windows) or an architecture
+   (x86_64, aarch64, riscv64). With `only` it runs only on one of the platforms named, when any is,
+   and on one of the architectures, when any is; with `except` on none named. The engine skips it
+   elsewhere, saying where; a program that runs alone decides for itself. */
+void mtest_case_only(const char* place);
+void mtest_case_except(const char* place);
 /* How long the case last listed may run, in seconds (P3.3). */
 void mtest_case_timeout(double seconds);
 /* The case last listed runs in a process of its own (P3.3). */

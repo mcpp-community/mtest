@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.8.0] - 2026-11-14
+
+- **Where a case runs is stated by the case** (`only{}`, `except{}`). A case or a suite names the
+  platforms and architectures of `mcpplibs.os` it runs on (`only{platform::windows}`,
+  `only{platform::linux, architecture::x86_64}`) or not (`except{platform::macos}`); a suite's and
+  its case's narrow together. Elsewhere it is skipped with one reason, `only on windows (this host:
+  linux x86_64)`. The Bash adapter (`--only`, `--except`), the Python adapter (`only=`,
+  `excepted=`) and the C ABI (`mtest_case_only`, `mtest_case_except`) state the same; the engine
+  skips a listed case outside its places without starting it.
+- **Code for one platform is selected when it is compiled.** mtest re-exports mcpplibs.os's
+  `platform`, `architecture`, `can_run_on`, `host` and `on<P>`: `on<platform::windows>([&](auto) {
+  ... })` is a body that a build for another platform discards, and an ok image decides when it is
+  loaded.
+- **What a machine can do is declared in code and answered by the program** (`capability`). The
+  tests of `[capabilities]` -- a system, an architecture, programs on PATH, a file a glob matches, a
+  command, environment values, other capabilities that must or must not hold -- and a function for
+  what they cannot state, answered once per process. A capability is an attribute
+  (`"links"_test[gcc]`, with the tag `requires:gcc`); a case whose machine lacks it is skipped,
+  `missing capability: gcc (no g++ on PATH)`, under any runner (`mtest`, `mcpp test`, the program
+  alone). The engine takes the program's answers: a word the program answers needs no
+  `[capabilities]` entry, and the run records it.
+- **The listing says why a case is skipped, and where it runs** (P3.3): a `case` event may carry
+  `reason` (with `expect: skip`), `only`, `except` and `capabilities`; the schema states them. The
+  conformance suite checks them of every level-3 implementation (`placed`).
+- **`mtest ci coverage` checks each case on its places**: a case that states `only` must pass on
+  each of its places that a collected run covered, and some run must have been on one -- what
+  `[ci.coverage] hosts` states of a program, stated by the case.
+- Additive: a program, a listing and a configuration that state none of these mean what they did.
+
 ## [0.7.2] - 2026-11-13
 
 - **Each call measured by itself** (`bench::each`, `mcpplibs.mtest.bench`). `bench::measure` times

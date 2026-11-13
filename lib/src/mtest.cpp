@@ -324,7 +324,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.7.2"},
+         {"version", "0.8.0"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
@@ -673,7 +673,8 @@ void test::operator=(body b) {
     std::unique_lock g(s.lock);
     write_program();
     const std::string id = full_id(name_);
-    const attributes attrs = within(inherited(), attrs_);
+    attributes attrs = within(inherited(), attrs_);
+    attrs.skip = skip_reason(attrs);
     s.seen.insert(id);
     s.clauses.insert(attrs.clauses.begin(), attrs.clauses.end());
     const std::string file = b.where.file_name();
@@ -690,6 +691,20 @@ void test::operator=(body b) {
         ev["clauses"] = attrs.clauses;
         ev["resources"] = attrs.resources;
         ev["artifacts"] = attrs.artifacts;
+        if (attrs.only_platforms || attrs.only_architectures) {
+            auto words = attrs.only_platforms.value_or(std::vector<std::string>{});
+            for (const auto& w : attrs.only_architectures.value_or(std::vector<std::string>{}))
+                words.push_back(w);
+            ev["only"] = words;
+        }
+        if (!attrs.excepted.empty())
+            ev["except"] = attrs.excepted;
+        if (!attrs.capabilities.empty()) {
+            event answered = event::object();
+            for (const auto& c : attrs.capabilities)
+                answered[c.name()] = c.answer().present;
+            ev["capabilities"] = answered;
+        }
         if (attrs.limit)
             ev["timeout"] = std::chrono::duration<double>(*attrs.limit).count();
         if (!attrs.bounds.empty())
@@ -708,9 +723,10 @@ void test::operator=(body b) {
                 d["timeout"] = std::chrono::duration<double>(attrs.diagnosis->limit).count();
             ev["diagnose"] = d;
         }
-        if (attrs.skip)
+        if (attrs.skip) {
             ev["expect"] = "skip";
-        else if (attrs.expected_failure)
+            ev["reason"] = *attrs.skip;
+        } else if (attrs.expected_failure)
             ev["expect"] = "fail";
         write_event(ev);
         return;
@@ -1128,6 +1144,220 @@ void apply(attributes& a, known_gap g) {
     a.gap_due = g.due;
 }
 
+// ---- where a case runs, and what the machine can do (0.8.0) ------------------
+
+namespace {
+
+bool holds_word(const std::vector<std::string>& words, std::string_view w) {
+    return std::ranges::find(words, w) != words.end();
+}
+
+std::string joined(const std::vector<std::string>& words) {
+    std::string out;
+    for (const auto& w : words)
+        out += (out.empty() ? "" : ", ") + w;
+    return out;
+}
+
+std::string this_host() {
+    return std::format("{} {}", os::name(os::host()), os::name(os::ARCH));
+}
+
+// `${NAME}` replaced by the environment's value (empty when unset).
+std::string expand(std::string_view text) {
+    std::string out;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '$' && i + 1 < text.size() && text[i + 1] == '{') {
+            const auto end = text.find('}', i + 2);
+            if (end != std::string_view::npos) {
+                out += os::env::get(text.substr(i + 2, end - i - 2)).value_or("");
+                i = end;
+                continue;
+            }
+        }
+        out += text[i];
+    }
+    return out;
+}
+
+// Whether `name` matches `pattern`, where `*` is any run of characters and `?` any one.
+bool glob_match(std::string_view pattern, std::string_view name) {
+    if (pattern.empty())
+        return name.empty();
+    if (pattern.front() == '*')
+        for (std::size_t skip = 0; skip <= name.size(); ++skip)
+            if (glob_match(pattern.substr(1), name.substr(skip)))
+                return true;
+    if (pattern.front() == '*')
+        return false;
+    return !name.empty() && (pattern.front() == '?' || pattern.front() == name.front()) &&
+           glob_match(pattern.substr(1), name.substr(1));
+}
+
+// Whether some file matches `pattern`: a path whose components may hold `*` and `?`.
+bool some_file(const std::string& pattern) {
+    const auto p = os::fs::from_utf8(pattern);
+    std::vector<std::filesystem::path> at{p.root_path()};
+    for (const auto& part : p.relative_path()) {
+        const auto word = os::fs::utf8(part);
+        std::vector<std::filesystem::path> next;
+        for (const auto& dir : at) {
+            std::error_code ec;
+            if (!word.contains('*') && !word.contains('?')) {
+                if (std::filesystem::exists(dir / part, ec))
+                    next.push_back(dir / part);
+                continue;
+            }
+            for (const auto& e : std::filesystem::directory_iterator(dir, ec))
+                if (glob_match(word, os::fs::utf8(e.path().filename())))
+                    next.push_back(e.path());
+        }
+        if (next.empty())
+            return false;
+        at = std::move(next);
+    }
+    return !at.empty();
+}
+
+capability_answer evaluate(const probe& t) {
+    const std::string system(os::name(os::host()));
+    const std::string arch(os::name(os::ARCH));
+    if (!t.os.empty() && std::ranges::find(t.os, os::host()) == t.os.end())
+        return {false, std::format("the system is {}", system)};
+    if (!t.arch.empty() && std::ranges::find(t.arch, os::ARCH) == t.arch.end())
+        return {false, std::format("the architecture is {}", arch)};
+    for (const auto& [k, want] : t.env) {
+        const auto have = os::env::get(k);
+        if (want == "*" ? (!have || have->empty()) : have != want)
+            return {false, std::format("{} is {}", k, have ? std::format("`{}`", *have) : "unset")};
+    }
+    for (const auto& c : t.all)
+        if (const auto& a = c.answer(); !a.present)
+            return {false, std::format("`{}` is absent ({})", c.name(), a.why)};
+    for (const auto& c : t.none)
+        if (c.answer().present)
+            return {false, std::format("`{}` is present", c.name())};
+    for (const auto& program : t.program)
+        if (!os::env::find_executable(expand(program)))
+            return {false, std::format("no {} on PATH", program)};
+    if (!t.path.empty() &&
+        std::ranges::none_of(t.path, [](const auto& g) { return some_file(expand(g)); }))
+        return {false, std::format("no file matches {}", expand(t.path.front()))};
+    if (!t.command.empty()) {
+        os::process::spawn_options o;
+        o.program = os::fs::from_utf8(expand(t.command.front()));
+        for (std::size_t i = 1; i < t.command.size(); ++i)
+            o.args.push_back(expand(t.command[i]));
+        o.in = os::process::stdio::null;
+        o.out = os::process::stdio::null;
+        o.err = os::process::stdio::null;
+        os::process::bounds limits;
+        limits.hard = std::chrono::seconds{30};
+        auto r = os::process::run(std::move(o), limits);
+        if (!r)
+            return {false, std::format("{} did not start", t.command.front())};
+        if (r->timed_out || !r->status.success())
+            return {false,
+                    std::format("{} ended with {}", t.command.front(),
+                                r->timed_out ? std::string("a timeout")
+                                             : std::format("status {}", r->status.shell_code()))};
+    }
+    if (t.test && !t.test())
+        return {false, "its test does not hold"};
+    return {true, "every test holds"};
+}
+
+// Only the words both name, when both name some.
+void narrow(std::optional<std::vector<std::string>>& to, const std::vector<std::string>& words) {
+    if (!to)
+        to = words;
+    else
+        std::erase_if(*to, [&](const std::string& w) { return !holds_word(words, w); });
+}
+
+void restrict_to(attributes& a, const std::vector<place>& places) {
+    std::vector<std::string> platforms, architectures;
+    for (const auto& p : places)
+        (p.architecture_word ? architectures : platforms).push_back(p.word);
+    if (!platforms.empty())
+        narrow(a.only_platforms, platforms);
+    if (!architectures.empty())
+        narrow(a.only_architectures, architectures);
+}
+
+void add_capability(attributes& a, const capability& c) {
+    const auto tag = "requires:" + c.name();
+    if (!holds_word(a.tags, tag))
+        a.tags.push_back(tag);
+    if (std::ranges::none_of(a.capabilities,
+                             [&](const capability& x) { return x.name() == c.name(); }))
+        a.capabilities.push_back(c);
+}
+
+}  // namespace
+
+struct capability::state {
+    std::string name;
+    probe tests;
+    std::once_flag once;
+    capability_answer answer;
+};
+
+capability::capability(std::string name, probe tests) : state_(std::make_shared<state>()) {
+    state_->name = std::move(name);
+    state_->tests = std::move(tests);
+}
+
+const std::string& capability::name() const noexcept {
+    return state_->name;
+}
+
+const capability_answer& capability::answer() const {
+    std::call_once(state_->once, [this] { state_->answer = evaluate(state_->tests); });
+    return state_->answer;
+}
+
+void apply(attributes& a, only o) {
+    restrict_to(a, o.places);
+}
+
+void apply(attributes& a, except e) {
+    for (const auto& p : e.places)
+        if (!holds_word(a.excepted, p.word))
+            a.excepted.push_back(p.word);
+}
+
+void apply(attributes& a, capability c) {
+    add_capability(a, c);
+}
+
+std::optional<std::string> skip_reason(const attributes& a) {
+    if (a.skip)
+        return a.skip;
+    const std::string system(os::name(os::host()));
+    const std::string arch(os::name(os::ARCH));
+    const auto outside = [](const auto& only, const std::string& w) {
+        return only && !holds_word(*only, w);
+    };
+    if (outside(a.only_platforms, system) || outside(a.only_architectures, arch)) {
+        std::vector<std::string> words = a.only_platforms.value_or(std::vector<std::string>{});
+        for (const auto& w : a.only_architectures.value_or(std::vector<std::string>{}))
+            words.push_back(w);
+        return std::format("only on {} (this host: {})",
+                           words.empty()
+                               ? std::string("no place: its `only` statements exclude one another")
+                               : joined(words),
+                           this_host());
+    }
+    for (const auto& w : a.excepted)
+        if (w == system || w == arch)
+            return std::format("not on {} (this host: {})", w, this_host());
+    for (const auto& c : a.capabilities)
+        if (const auto& answer = c.answer(); !answer.present)
+            return std::format("missing capability: {} ({})", c.name(), answer.why);
+    return std::nullopt;
+}
+
 attributes within(const attributes& outer, const attributes& inner) {
     attributes a = outer;
     auto add = [](std::vector<std::string>& to, const std::vector<std::string>& from) {
@@ -1159,6 +1389,13 @@ attributes within(const attributes& outer, const attributes& inner) {
         a.retries = inner.retries;
     if (inner.diagnosis)
         a.diagnosis = inner.diagnosis;
+    if (inner.only_platforms)
+        narrow(a.only_platforms, *inner.only_platforms);
+    if (inner.only_architectures)
+        narrow(a.only_architectures, *inner.only_architectures);
+    add(a.excepted, inner.excepted);
+    for (const auto& c : inner.capabilities)
+        add_capability(a, c);
     return a;
 }
 

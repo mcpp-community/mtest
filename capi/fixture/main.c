@@ -37,6 +37,8 @@ int main(void) {
         mtest_case("holds", __FILE__, __LINE__, "unit");
         mtest_case_resource("serial:db");
         mtest_case_artifact("file:data/x.txt");
+        mtest_case("placed", __FILE__, __LINE__, "unit");
+        mtest_case_only("wasm32");
         mtest_case("bounded", __FILE__, __LINE__, NULL);
         mtest_bound("bounded", "elapsed", NAN, 0.1);
         return mtest_done();
@@ -49,6 +51,8 @@ int main(void) {
     run("measures", "pass", NULL, 0);
     run("covers", "pass", NULL, 0);
     run("holds", "pass", NULL, 0);
+    /* The C ABI lists places and leaves the decision to its program: this one runs nowhere else. */
+    run("placed", "skip", "only on wasm32", 0);
     run("bounded", "pass", NULL, 0); /* its bound fails it */
     return mtest_done();
 }

@@ -327,6 +327,36 @@ void apply_attributes(const config& c, const program_spec& program, case_info& c
         ci.kind = program.kind.empty() ? "unit" : program.kind;
 }
 
+// Why a case whose places are `only` and `except` does not run on this machine (0.8.0), in the
+// library's words; empty when it runs here.
+std::string place_skip(const std::vector<std::string>& only,
+                       const std::vector<std::string>& except) {
+    const std::string system(os::name(os::host()));
+    const std::string arch(os::name(os::ARCH));
+    const auto here = std::format("{} {}", system, arch);
+    const auto architecture = [](std::string_view w) {
+        return w == "x86_64" || w == "aarch64" || w == "riscv64" || w == "wasm32";
+    };
+    bool platforms = false, architectures = false, platform_ok = false, arch_ok = false;
+    std::string words;
+    for (const auto& w : only) {
+        words += (words.empty() ? "" : ", ") + w;
+        if (architecture(w)) {
+            architectures = true;
+            arch_ok = arch_ok || w == arch;
+        } else {
+            platforms = true;
+            platform_ok = platform_ok || w == system;
+        }
+    }
+    if ((platforms && !platform_ok) || (architectures && !arch_ok))
+        return std::format("only on {} (this host: {})", words, here);
+    for (const auto& w : except)
+        if (w == system || w == arch)
+            return std::format("not on {} (this host: {})", w, here);
+    return {};
+}
+
 std::string layout_kind(std::string_view path) {
     std::string_view previous;
     for (const auto part : std::views::split(path, '/')) {
@@ -578,14 +608,22 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
             u.expected_peak = pk->second;
         for (auto ci : *listed) {
             apply_attributes(c, u.program, ci);
+            // A case its program lists skipped, saying why (0.8.0: a place it does not run on, a
+            // capability it answered absent), is recorded so and not started.
+            if (ci.expect == "skip" && ci.skip.empty() && !ci.reason.empty())
+                ci.skip = ci.reason;
+            // A place it does not run on, whether or not its program decided so itself.
+            if (ci.skip.empty())
+                ci.skip = place_skip(ci.only, ci.except);
             // A required capability this machine lacks makes the case a skip that says which; one
-            // `[capabilities]` does not declare is an error, for no machine could answer it.
+            // that neither the program answers nor `[capabilities]` declares is an error, for no
+            // machine could answer it.
             if (!c.capabilities.words.empty()) {
                 auto tags = ci.tags;
                 tags.insert(tags.end(), p.tags.begin(), p.tags.end());
                 for (const auto& t : tags) {
                     auto word = capability_of_tag(c, t);
-                    if (!word)
+                    if (!word || ci.capabilities.contains(*word))
                         continue;
                     if (!c.capabilities.words.contains(*word))
                         return std::unexpected(

@@ -76,6 +76,65 @@ std::vector<std::string> words_of(const config& c, const std::vector<std::string
     return out;
 }
 
+// The architectures among the words of `only` and `except`; the rest are platforms.
+bool is_architecture(std::string_view w) {
+    return w == "x86_64" || w == "aarch64" || w == "riscv64" || w == "wasm32";
+}
+
+// Whether a run on `system`, `arch` is one of the places `only` names (0.8.0).
+bool covers(const std::vector<std::string>& only, std::string_view system, std::string_view arch) {
+    bool any_platform = false, any_arch = false, platform_ok = false, arch_ok = false;
+    for (const auto& w : only) {
+        if (is_architecture(w)) {
+            any_arch = true;
+            arch_ok = arch_ok || w == arch;
+        } else {
+            any_platform = true;
+            platform_ok = platform_ok || w == system;
+        }
+    }
+    return (!any_platform || platform_ok) && (!any_arch || arch_ok);
+}
+
+// A case stated to run only on some places must pass on each of them that a run covered, and on
+// at least one: what [ci.coverage] hosts states of a program, stated by the case itself.
+std::vector<std::string> placed_problems(const std::vector<run_record>& runs,
+                                         const std::function<bool(const run_record&)>& narrowed) {
+    std::map<std::string, std::vector<std::string>> places;  // program::case -> its `only`
+    for (const auto& r : runs)
+        for (const auto& cr : r.cases)
+            if (!cr.only.empty())
+                places.try_emplace(cr.program + "::" + cr.id, cr.only);
+    std::vector<std::string> out;
+    for (const auto& [key, only] : places) {
+        std::map<std::string, bool> passed;  // "<system> <arch>" covered -> passed there
+        for (const auto& r : runs) {
+            if (!covers(only, r.system, r.arch))
+                continue;
+            const auto at = std::format("{} {}", r.system, r.arch);
+            const auto result = std::ranges::find_if(r.cases, [&](const case_result& cr) {
+                return cr.program + "::" + cr.id == key;
+            });
+            if (result == r.cases.end() && narrowed(r))
+                continue;  // absent by the run's selection
+            const bool ok =
+                result != r.cases.end() && (result->status == "pass" || result->status == "xfail" ||
+                                            result->status == "flaky");
+            passed[at] = passed[at] || ok;
+        }
+        std::string words;
+        for (const auto& w : only)
+            words += (words.empty() ? "" : ", ") + w;
+        if (passed.empty())
+            out.push_back(std::format("{} runs only on {} and no run was there", key, words));
+        for (const auto& [at, ok] : passed)
+            if (!ok)
+                out.push_back(
+                    std::format("{} runs only on {} and did not pass on {}", key, words, at));
+    }
+    return out;
+}
+
 }  // namespace
 
 ci_answer ci_coverage(const config& c, const std::vector<program_spec>& programs,
@@ -176,6 +235,8 @@ ci_answer ci_coverage(const config& c, const std::vector<program_spec>& programs
                                 host));
         }
     }
+    for (auto& pr : placed_problems(runs, [&](const run_record& r) { return narrowed(c, r); }))
+        problems.push_back(std::move(pr));
     std::vector<std::string> unprovided;
     for (const auto& [w, _] : c.capabilities.words)
         if (!word_somewhere[w])

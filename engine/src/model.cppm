@@ -72,6 +72,11 @@ struct case_info {
     std::vector<bound_info>
         stated_bounds;  // mtest.toml's, which the engine judges (the program judges its own)
     std::vector<std::string> uses;  // run fixtures (P11)
+    // Where it runs (0.8.0): the platforms and architectures it runs only on, and those it does
+    // not run on; the capabilities its program answered, and why the program lists it skipped.
+    std::vector<std::string> only, except;
+    std::map<std::string, bool> capabilities;
+    std::string reason;
 };
 
 // A shared object a case caused to be made (P5.2 `fixture`), and how long making it took.
@@ -102,6 +107,7 @@ struct case_result {
     std::vector<failure_info> failures;
     std::vector<metric_info> metrics;
     std::vector<std::string> artifacts, tags, clauses;
+    std::vector<std::string> only, except;  // where it runs, as listed (0.8.0)
     std::vector<fixture_info> fixtures;
     std::vector<bound_info> bounds;  // as listed, for `analyze trend`
     bool quarantined = false;

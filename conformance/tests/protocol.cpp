@@ -115,8 +115,10 @@ std::vector<std::string> fixture_ids(int level) {
                                "measures", "covers", "holds"})
         if (level >= 3 || s != "expected to fail")
             out.push_back(id(s));
-    if (level >= 3)
+    if (level >= 3) {
         out.push_back(id("bounded"));
+        out.push_back(id("placed"));
+    }
     return out;
 }
 
@@ -205,6 +207,23 @@ int main() {
         auto xf = find(r, "case", id("expected to fail"));
         expect(fatal(xf.has_value()));
         expect(eq(xf->value("expect", ""), std::string("fail")));
+        // Where it runs (0.8.0): the places it runs only on, and a case it lists skipped says why.
+        auto placed = find(r, "case", id("placed"));
+        expect(fatal(placed.has_value()));
+        expect(placed->value("only", json::array()) == json::array({"wasm32"})) << placed->dump();
+        if (placed->value("expect", "") == "skip")
+            expect(contains(placed->value("reason", ""), "only on wasm32")) << placed->dump();
+    };
+    "P3.3 a case outside its places is not run"_test[kind::cts][clause{"P3.3"}] = [] {
+        const auto r = run("run");
+        if (level(r) < 3)
+            skip("the implementation is below level 3");
+        if (os::ARCH == os::architecture::wasm32)
+            skip("this host is the fixture's place");
+        auto end = find(r, "end", id("placed"));
+        expect(fatal(end.has_value()));
+        expect(eq(end->value("status", ""), std::string("skip")));
+        expect(contains(end->value("reason", ""), "only on wasm32")) << end->dump();
     };
     "P4.1 a selection runs exactly the selected cases"_test[kind::cts][clause{"P4.1"}] = [] {
         const auto r = run("run", std::vector<std::string>{id("passes"), id("group/inner")});

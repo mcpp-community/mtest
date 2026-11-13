@@ -25,5 +25,13 @@ Every level-3 implementation states the same attributes of a case, in its own wo
 | diagnosis | `diagnose{}` | `--diagnose-env K=V`, `--diagnose-timeout S` | `diagnose={"env": {...}}` | `mtest_case_diagnose(k, v, s)` |
 | bounds (P6.5) | `at_most{}`, `at_least{}` | `--at-most M=V`, `--at-least M=V` | `at_most={M: V}`, `at_least=` | `mtest_bound(id, metric, min, max)` |
 | expected verdict | `expect_failure{}`, `skip_if{}` | `--expect-fail`, `--skip` | `expect_fail=`, `skip_reason=` | `mtest_case_expect_fail()` |
+| places (0.8.0) | `only{}`, `except{}` | `--only P`, `--except P` | `only=[...]`, `excepted=[...]` | `mtest_case_only(p)`, `mtest_case_except(p)` |
+| capabilities (0.8.0) | a `capability` | `# requires:` and `[capabilities]` | `tags=["requires:..."]` and `[capabilities]` | `mtest_case_tag("requires:...")` and `[capabilities]` |
+
+A place is a platform (`linux`, `macos`, `windows`) or an architecture (`x86_64`, `aarch64`,
+`riscv64`). The library and the script adapters skip a case outside its places themselves, so a
+program run alone agrees with a runner; the engine skips it too, for a program that only lists them
+(the C ABI). A capability in C++ is answered by the program; the other implementations name the
+word, and the engine answers it from `[capabilities]`.
 
 A case that states no kind is of its program's (its directory's, docs/layout.md).

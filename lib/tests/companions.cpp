@@ -36,6 +36,47 @@ int main(int argc, char** argv) {
         expect(le(s.median, s.max));
         expect(gt(s.iterations, std::size_t(0)));
     };
+    "each call measured by itself: where the calls lie, less what a call paused for"_test
+        [kind::bench] = [] {
+            std::size_t calls = 0, warm = 0;
+            const auto spin = [](std::chrono::microseconds d) {
+                const auto end = std::chrono::steady_clock::now() + d;
+                while (std::chrono::steady_clock::now() < end) {}
+            };
+            auto d =
+                bench::each("step",
+                            [&](bench::lap& l) {
+                                l.warmup() ? ++warm : ++calls;
+                                l.pause();
+                                spin(std::chrono::microseconds{2000});  // not the call's
+                                l.resume();
+                                spin(std::chrono::microseconds{l.index() % 10 == 9 ? 400 : 100});
+                                l.items(50);
+                            },
+                            {.least = 40, .most = 40, .warmup = 2});
+            expect(eq(d.samples.size(), std::size_t(40)) && eq(calls, std::size_t(40)) &&
+                   eq(warm, std::size_t(2)));
+            expect(le(d.min, d.p50) && le(d.p50, d.p95) && le(d.p95, d.p99) && le(d.p99, d.max));
+            expect(ge(d.min, 0.0001) && lt(d.p50, 0.002)) << "the pause is not counted: " << d.p50;
+            expect(ge(d.max, 0.0004)) << "the slow calls are seen: " << d.max;
+            expect(eq(d.items, std::uint64_t(50)) && gt(d.per_item, 0.0) && lt(d.per_item, d.mean));
+        };
+    "a body that takes no lap is measured the same"_test[kind::bench] = [] {
+        int x = 0;
+        auto d =
+            bench::each("plain", [&] { bench::keep(++x); }, {.least = 5, .most = 5, .warmup = 0});
+        expect(eq(d.samples.size(), std::size_t(5)) && eq(x, 5) && eq(d.items, std::uint64_t(0)) &&
+               eq(d.per_item, 0.0));
+    };
+    "a distribution of known samples"_test = [] {
+        auto d = bench::distribute({5, 1, 3, 2, 4}, 2);
+        expect(eq(d.min, 1.0) && eq(d.p50, 3.0) && eq(d.max, 5.0) && eq(d.mean, 3.0) &&
+               eq(d.per_item, 1.5));
+        expect(eq(d.p95, 4.8) && eq(d.samples.front(), 5.0))
+            << "between the two nearest; the samples stay in order";
+        const std::array<double, 2> two{10, 20};
+        expect(eq(bench::percentile(two, 0.5), 15.0) && eq(bench::percentile({}, 0.5), 0.0));
+    };
     "a summary of known samples"_test = [] {
         auto s = bench::summarize({3, 1, 2, 10, 4}, 1);
         expect(eq(s.median, 3.0));

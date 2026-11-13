@@ -53,7 +53,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
   The entry enters the child before any case; the copy runs no case and reports nothing. The files of
   one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
   copies.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.7.1"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.7.2"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -106,7 +106,11 @@ How the tests of a project are laid out, from the directory to the line, is in
   (`mcpp test --seed N` repeats one); `produced(file)` reports a file it wrote.
 - Parameters: `"is even"_test = values{2, 4, 6} | [](int v) { expect(eq(v % 2, 0)); };`
 - Measurements: `import mcpplibs.mtest.bench;`, then `bench::measure("name", [] { ... });` in a
-  `Bench`.
+  `Bench` -- what one call costs, from batches. Where the calls differ and the slow ones matter (a
+  frame, a request), `bench::each("draw", [&](bench::lap& l) { ... });` times every call and
+  reports `draw` (the median), `draw.p95`, `draw.p99`, `draw.max`, `draw.mean`; `l.pause()` and
+  `l.resume()` leave out what is not the call's, `l.items(n)` adds `draw.per_item`. A bound names
+  any of them: `at_most{"draw.p95", 0.016}`.
 
 ## Programs under test
 

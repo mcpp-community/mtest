@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.2] - 2026-11-13
+
+- **Each call measured by itself** (`bench::each`, `mcpplibs.mtest.bench`). `bench::measure` times
+  batches and states what one call costs on the whole; `each` times every call, for work whose
+  calls differ and whose slow ones are the point -- a frame, a request, a step of a simulation. It
+  reports where the calls lie as metrics a bound can name: the median as `name`, and `name.p95`,
+  `name.p99`, `name.max`, `name.mean` (`at_most{"draw.p95", 0.016}`). The body may take a
+  `bench::lap`: `pause()` and `resume()` leave out what is not the call's (preparing the next
+  input), `items(n)` states what the call worked through and adds `name.per_item`. The samples are
+  not stated with these metrics: the verdict on samples that spread is for a measurement meant to
+  be one number. `bench::distribute` and `bench::percentile` are the same arithmetic on samples a
+  test has already. Additive; no event and no clause changed.
+
 ## [0.7.1] - 2026-11-13
 
 - **`mcpplibs.mtest.e2e`, `.bench` and `.cts` are public modules of the library.** Each re-exports

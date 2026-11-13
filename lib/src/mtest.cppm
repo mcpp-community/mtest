@@ -8,6 +8,7 @@
 export module mcpplibs.mtest;
 
 import std;
+import mcpplibs.os;
 
 export namespace mcpplibs::mtest {
 
@@ -35,6 +36,75 @@ struct metric_bound {
     std::optional<double> max, min;
 };
 
+// ---- where a case runs ------------------------------------------------------
+
+// The platforms and architectures of mcpplibs.os, and its two questions (0.8.0): whether this build
+// can run on a platform, a constant, and the platform it runs on now, `host()`, a constant on a
+// native build and known when an ok image is loaded. Code that compiles only for one platform is
+// written in `on<P>([&](auto) { ... })`, whose body a build for another platform discards:
+//
+//   "reads the registry"_test[only{platform::windows}] = [] {
+//       on<platform::windows>([&](auto) { expect(eq(registry_value(), 1)); });
+//   };
+using platform = mcpplibs::os::platform;
+using architecture = mcpplibs::os::architecture;
+using mcpplibs::os::can_run_on;
+using mcpplibs::os::host;
+using mcpplibs::os::on;
+
+// A platform or an architecture, by mcpplibs.os's name for it ("windows", "aarch64").
+struct place {
+    std::string word;
+    bool architecture_word = false;
+    place(platform p) : word(mcpplibs::os::name(p)) {}
+    place(architecture a) : word(mcpplibs::os::name(a)), architecture_word(true) {}
+};
+
+// WHAT THIS MACHINE CAN DO (0.8.0), declared once in code beside the tests that need it, by the
+// tests of mtest.toml's [capabilities] (docs/config.md), and answered by the program itself, once
+// per process, whichever runner starts it:
+//
+//   export const capability gcc{"gcc", {.os = {platform::linux}, .program = {"g++"}}};
+//   export const capability pack{"pack", {.all = {gcc}, .program = {"patchelf"}}};
+//   "links statically"_test[gcc] = [] { ... };
+//
+// A case that requires a capability this machine lacks is skipped, with the reason
+// `missing capability: <name> (<the test that failed>)`; it carries the tag `requires:<name>`. A
+// capability declared in a module interface is made before the units that import it, so suites at
+// namespace scope may state it.
+class capability;
+
+struct probe {
+    std::vector<platform> os;          // the system is one of them
+    std::vector<architecture> arch;    // the architecture is one of them
+    std::vector<std::string> program;  // each is found on PATH
+    std::vector<std::string> path;     // some file matches one (`*`, `?`, `${NAME}`)
+    std::vector<std::string> command;  // runs and exits 0 within 30 s
+    std::vector<std::pair<std::string, std::string>> env;  // equals; "*": set and not empty
+    std::vector<capability> all;                           // each is present
+    std::vector<capability> none;                          // none is present
+    std::function<bool()> test;                            // what the words above cannot state
+};
+
+struct capability_answer {
+    bool present = false;
+    std::string why;  // the test that decided it, in a person's words
+};
+
+class capability {
+public:
+    capability(std::string name, probe tests);
+    const std::string& name() const noexcept;
+    // Asked once per process; every copy shares the answer.
+    const capability_answer& answer() const;
+    explicit operator bool() const {
+        return answer().present;
+    }
+private:
+    struct state;
+    std::shared_ptr<state> state_;
+};
+
 struct attributes {
     std::optional<mtest::kind> kind;
     std::vector<std::string> tags;
@@ -52,6 +122,11 @@ struct attributes {
     std::vector<metric_bound> bounds;                // what its metrics may be (at_most, at_least)
     std::optional<mtest::monitor_level> monitoring;  // how closely its use is measured (monitor)
     std::vector<std::string> uses;                   // the run fixtures it uses (P11)
+    // Where it runs (only, except): the platforms and the architectures it is restricted to, none
+    // stated meaning every one, and the words of either on which it does not run.
+    std::optional<std::vector<std::string>> only_platforms, only_architectures;
+    std::vector<std::string> excepted;
+    std::vector<capability> capabilities;  // what it requires of the machine
 };
 
 // Each is written in brackets after the case's name, "x"_test[tag{"slow"}][resource{"machine"}],
@@ -115,9 +190,24 @@ struct uses {
     std::string fixture;
 };
 
-// Each attribute applied to a set of them. Tags, clauses, resources, artifacts and bounds add up,
-// and a case within an isolated suite is isolated; a kind, a skip, an expected failure, a known
-// gap, a time limit, retries and a diagnosis are the innermost one stated.
+// The case runs only on the platforms and architectures named: on one of the platforms, when any is
+// named, and on one of the architectures, when any is. Stated on a suite and on its case, both
+// hold. Elsewhere it is skipped: `only on windows (this host: linux x86_64)`.
+struct only {
+    std::vector<place> places;
+    only(std::initializer_list<place> p) : places(p) {}
+};
+// The case does not run on any platform or architecture named: `not on macos (this host: ...)`.
+struct except {
+    std::vector<place> places;
+    except(std::initializer_list<place> p) : places(p) {}
+};
+
+// Each attribute applied to a set of them. Tags, clauses, resources, artifacts, bounds, the
+// platforms not run on and the capabilities required add up, the platforms and architectures a
+// case runs only on narrow, and a case within an isolated suite is isolated; a kind, a skip, an
+// expected failure, a known gap, a time limit, retries and a diagnosis are the innermost one
+// stated.
 inline void apply(attributes& a, mtest::kind k) {
     a.kind = k;
 }
@@ -165,6 +255,12 @@ inline void apply(attributes& a, uses u) {
     a.uses.push_back(std::move(u.fixture));
 }
 void apply(attributes& a, known_gap g);
+void apply(attributes& a, only o);
+void apply(attributes& a, except e);
+void apply(attributes& a, capability c);
+// Why a case with these attributes does not run on this machine: its own skip, else a platform or
+// an architecture it does not run on, else a capability the machine lacks.
+std::optional<std::string> skip_reason(const attributes& a);
 
 template <class A>
 concept attribute = requires(attributes& set, A a) { apply(set, std::move(a)); };

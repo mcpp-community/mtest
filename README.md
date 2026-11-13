@@ -38,7 +38,7 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.7.2"
+mcpplibs.mtest = "0.8.0"
 ```
 
 A failure names its place and both sides (`expected 2, actual 3`). Under a runner the same program
@@ -61,6 +61,12 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] {
     "reads its configuration"_test[retries{1}] = [] { /* ... */ };
 }};
 ```
+
+Where a case runs and what it needs of the machine are attributes too: `only{platform::windows}`,
+`except{architecture::aarch64}`, and a `capability` declared once in code
+(`const capability gcc{"gcc", {.program = {"g++"}}};`, then `"links"_test[gcc]`). The program
+skips a case elsewhere, saying why, under any runner; `on<platform::windows>([&](auto) { ... })`
+is code a build for another platform discards.
 
 ## Tests, with the engine
 

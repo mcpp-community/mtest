@@ -168,6 +168,31 @@
       "type": "string"
      },
      "description": "P11.2: the run fixtures the case uses"
+    },
+    "reason": {
+     "type": "string",
+     "description": "why the program lists the case skipped (expect skip)"
+    },
+    "only": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "0.8.0: the platforms and architectures the case runs only on"
+    },
+    "except": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "0.8.0: the platforms and architectures the case does not run on"
+    },
+    "capabilities": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "boolean"
+     },
+     "description": "0.8.0: the capabilities the case requires, as its program answered them"
     }
    },
    "required": [

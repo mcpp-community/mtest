@@ -807,6 +807,89 @@ printf ')" + header +
         expect(eq(caps["capabilities"]["c"]["present"].get<bool>(), true));
         expect(eq(caps["capabilities"]["d"]["present"].get<bool>(), false));
     };
+    // --- 0.8.0: where a case runs, stated by the case; capabilities its program answers
+    "a case runs only where its places hold, and the engine says where"_test[kind::e2e] = [] {
+        const std::string head =
+            "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\nok() { :; }\n";
+        const std::string here(mcpplibs::os::name(mcpplibs::os::host()));
+        auto root =
+            project({{"t.sh", head + "mtest_case here ok --only " + here +
+                                  "\nmtest_case elsewhere ok --except " + here +
+                                  "\nmtest_case 'on another architecture' ok --only riscv64\n"
+                                  "mtest_report\n"}});
+        auto j = json_of(mtest(root, {"run", "--json", "--report-json", "r.json", "bash t.sh"}));
+        expect(eq(j["status"].get<std::string>(), std::string("pass"))) << j.dump();
+        auto r = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
+        std::map<std::string, json> by_id;
+        for (const auto& c : r["cases"])
+            by_id[c["id"].get<std::string>()] = c;
+        expect(eq(by_id["here"]["status"].get<std::string>(), std::string("pass"))) << r.dump();
+        expect(eq(by_id["here"].value("only", json::array()), json::array({here})))
+            << "the record keeps its places";
+        expect(eq(by_id["elsewhere"]["status"].get<std::string>(), std::string("skip")));
+        expect(contains(by_id["elsewhere"].value("reason", ""), "not on " + here));
+        if (mcpplibs::os::ARCH != mcpplibs::os::architecture::riscv64)
+            expect(
+                contains(by_id["on another architecture"].value("reason", ""), "only on riscv64"));
+    };
+    "a capability its program answers needs no entry in [capabilities]"_test[kind::e2e] = [&] {
+        // A program that answers `requires:` words itself (the C++ library's `capability`) lists
+        // them under `capabilities`, and the reason of a skip; the engine takes both.
+        const std::string listing =
+            R"js({"e":"program","framework":"fake","level":3}
+{"e":"case","id":"has","name":"has","tags":["requires:mine"],"capabilities":{"mine":true}}
+{"e":"case","id":"lacks","name":"lacks","tags":["requires:theirs"],"capabilities":{"theirs":false},"expect":"skip","reason":"missing capability: theirs (no theirs on PATH)"}
+{"e":"done"}
+)js";
+        const std::string ran =
+            R"({"e":"program","framework":"fake","level":3}
+{"e":"begin","id":"has","t":0}
+{"e":"end","id":"has","status":"pass","ms":1}
+{"e":"done"}
+)";
+        auto root =
+            project({{"listing.ndjson", listing},
+                     {"ran.ndjson", ran},
+                     {"1_fake.sh", "# mtest-protocol=1\nif [ \"$MTEST_MODE\" = list ]; then cat "
+                                   "listing.ndjson > \"$MTEST_REPORT\"; "
+                                   "else cat ran.ndjson > \"$MTEST_REPORT\"; fi\n"},
+                     {"mtest.toml",
+                      "[discover.s]\nglobs = [\"[0-9]*.sh\"]\ncommand = [\"bash\", \"{path}\"]\n"
+                      "[capabilities]\nother = {}\n"}});
+        auto j = json_of(mtest(root, {"run", "--json", "--report-json", "r.json"}));
+        expect(eq(j["status"].get<std::string>(), std::string("pass"))) << j.dump();
+        auto r = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
+        std::map<std::string, json> by_id;
+        for (const auto& c : r["cases"])
+            by_id[c["id"].get<std::string>()] = c;
+        expect(eq(by_id["has"]["status"].get<std::string>(), std::string("pass"))) << r.dump();
+        expect(eq(by_id["lacks"]["status"].get<std::string>(), std::string("skip")));
+        expect(contains(by_id["lacks"].value("reason", ""), "missing capability: theirs"));
+        expect(eq(r["capabilities"].value("mine", false), true))
+            << "the run records the program's answers";
+        expect(eq(r["capabilities"].value("theirs", true), false));
+    };
+    "a case stated for a place must pass there"_test[kind::e2e] = [] {
+        const std::string head = "#!/usr/bin/env bash\n# mtest-protocol=1\n. '" + adapter() + "'\n";
+        const std::string here(mcpplibs::os::name(mcpplibs::os::host()));
+        auto root = project(
+            {{"t.sh", head + "bad() { mtest_eq 1 2; }\nok() { :; }\nmtest_case fails bad --only " +
+                          here + "\nmtest_case passes ok --only " + here +
+                          "\nmtest_case nowhere ok --only riscv64 --only " + here +
+                          "\nmtest_report\n"},
+             {"mtest.toml",
+              "[discover.s]\nglobs = [\"t.sh\"]\ncommand = [\"bash\", \"{path}\"]\n"}});
+        (void)mtest(root, {"run", "--json", "--group", "g8"});
+        auto j = json_of(mtest(root, {"ci", "coverage", "--group", "g8", "--json"}));
+        const auto problems = j["problems"].dump();
+        expect(contains(problems, "t.sh::fails runs only on " + here + " and did not pass on"))
+            << j.dump();
+        expect(!contains(problems, "t.sh::passes")) << j.dump();
+        if (mcpplibs::os::ARCH != mcpplibs::os::architecture::riscv64)
+            expect(contains(problems, "t.sh::nowhere runs only on riscv64, " + here +
+                                          " and no run was there"))
+                << j.dump();
+    };
     "every program ran somewhere or is accounted for"_test[kind::e2e] = [&] {
         auto root = project({{"1_ok.sh", "exit 0\n"},
                              {"2_skips.sh", "echo 'SKIP: nothing here'; exit 77\n"},

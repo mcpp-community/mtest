@@ -37,7 +37,7 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.7.2"
+mcpplibs.mtest = "0.8.0"
 ```
 
 失败时给出位置与两侧的值（`expected 2, actual 3`）。在运行器之下，同一程序按协议报告；单独运行时每个用例输出一行。
@@ -56,6 +56,8 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] {
     "reads its configuration"_test[retries{1}] = [] { /* ... */ };
 }};
 ```
+
+用例在何处运行、需要机器具备什么，同样是属性：`only{platform::windows}`、`except{architecture::aarch64}`，以及在代码中声明一次的 `capability`（`const capability gcc{"gcc", {.program = {"g++"}}};`，再写 `"links"_test[gcc]`）。无论由哪个运行器启动，程序都在场所之外跳过用例并说明原因；`on<platform::windows>([&](auto) { ... })` 中的代码在其他平台的构建中被丢弃。
 
 ## 用引擎运行测试
 

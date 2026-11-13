@@ -415,6 +415,11 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
     rec.host = host_name();
     for (const auto& [word, a] : machine_capabilities(c))
         rec.capabilities[word] = a.present;
+    // And each capability a program declares in code and answered when it was listed (0.8.0).
+    for (const auto& u : p.units)
+        for (const auto& uc : u.cases)
+            for (const auto& [word, present] : uc.info.capabilities)
+                rec.capabilities.try_emplace(word, present);
     const int hw = int(std::max(1u, std::thread::hardware_concurrency()));
     rec.jobs = o.jobs > 0 ? o.jobs : c.jobs > 0 ? c.jobs : hw;
     const int retries = o.retries >= 0 ? o.retries : c.retries;
@@ -437,6 +442,9 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
         cr.kind = uc.info.kind;
         cr.status = "skip";
         cr.reason = uc.info.skip;
+        cr.tags = uc.info.tags;
+        cr.only = uc.info.only;
+        cr.except = uc.info.except;
         skipped.push_back(std::move(cr));
         return true;
     };
@@ -691,6 +699,8 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
                     cr.kind = ci->info.kind;
                     cr.tags = ci->info.tags;
                     cr.clauses = ci->info.clauses;
+                    cr.only = ci->info.only;
+                    cr.except = ci->info.except;
                     cr.bounds = ci->info.bounds;
                     judge_bounds(cr, ci->info.stated_bounds);
                     expected_to_fail(cr, ci->info.expect_fail);

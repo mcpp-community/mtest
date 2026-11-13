@@ -17,6 +17,7 @@ receive none of the protocol's variables (P2.2).
 import inspect
 import json
 import os
+import platform
 import sys
 import time
 
@@ -128,13 +129,42 @@ def _check_bounds(at_most, at_least):
             _failure(f"metric {name} = {reported[name]:g}, under its bound {limit:g} (at_least)", depth=3)
 
 
+_ARCHITECTURES = ("x86_64", "aarch64", "riscv64", "wasm32")
+
+
+def _host():
+    """This host's platform and architecture, in mcpplibs.os's names."""
+    system = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}.get(platform.system(), platform.system().lower())
+    machine = platform.machine()
+    arch = {"amd64": "x86_64", "AMD64": "x86_64", "arm64": "aarch64", "ARM64": "aarch64"}.get(machine, machine)
+    return system, arch
+
+
+def _place_skip(only, excepted):
+    """Why a case with these places does not run here, or None."""
+    system, arch = _host()
+    here = f"{system} {arch}"
+    platforms = [w for w in only if w not in _ARCHITECTURES]
+    archs = [w for w in only if w in _ARCHITECTURES]
+    if (platforms and system not in platforms) or (archs and arch not in archs):
+        return f"only on {', '.join(only)} (this host: {here})"
+    for w in excepted:
+        if w in (system, arch):
+            return f"not on {w} (this host: {here})"
+    return None
+
+
 def case(id, tags=(), kind=None, clauses=(), resources=(), artifacts=(), expect_fail=None, skip_reason=None,
-         timeout=None, isolate=False, retries=None, diagnose=None, at_most=None, at_least=None):
+         timeout=None, isolate=False, retries=None, diagnose=None, at_most=None, at_least=None, only=(), excepted=()):
     """Declares a case: lists it, runs it, or passes over it, as the runner asks. A case that states no
     kind is of its program's (its directory's, docs/layout.md). `timeout` (seconds), `isolate`,
     `retries` and `diagnose` ({"env": {...}, "timeout": seconds}) are how a runner runs it (P3.3);
-    `at_most` and `at_least` ({metric: value}) bound its metrics (P6.5)."""
+    `at_most` and `at_least` ({metric: value}) bound its metrics (P6.5). `only` and `excepted` name
+    platforms (linux, macos, windows) and architectures (x86_64, aarch64, riscv64): the case runs only
+    on one of the platforms and one of the architectures `only` names, when it names any, and on none
+    `excepted` names; elsewhere it is skipped."""
     at_most, at_least = dict(at_most or {}), dict(at_least or {})
+    skip_reason = skip_reason or _place_skip(list(only), list(excepted))
     def declare(fn):
         global _failed, _current
         _seen.append(id)
@@ -154,8 +184,13 @@ def case(id, tags=(), kind=None, clauses=(), resources=(), artifacts=(), expect_
                 fields["diagnose"] = diagnose
             if at_most or at_least:
                 fields["bounds"] = _bounds_json(at_most, at_least)
+            if only:
+                fields["only"] = list(only)
+            if excepted:
+                fields["except"] = list(excepted)
             if skip_reason:
                 fields["expect"] = "skip"
+                fields["reason"] = skip_reason
             elif expect_fail:
                 fields["expect"] = "fail"
             _event(**fields)

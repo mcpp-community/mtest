@@ -21,6 +21,7 @@ on the spec; this list says which of its clauses mtest's parts answer, and since
 | O5 `scheduling` | `resources` and `artifacts` (P7); `timeout`, `isolation`, `retries`, `diagnose` (P3.3) in the `case` events | 0.1.0; P3.3's 0.3.0 |
 | O6 `fixtures` | `shared<T>` and the `fixture` event; components and run fixtures (P11), served under `MTEST_SERVE` | 0.3.0; P11 0.5.0 |
 | O7 `usage` | the program's `usage` at its end, and the cases' use at `MTEST_MONITOR` (P10) | 0.5.0 |
+| P3.3, places and capabilities | a `case` event states `only` and `except` (the platforms and architectures of `only{}`, `except{}`), `capabilities` (each `capability` the case requires, as the program answered it), and the `reason` of a case it lists skipped; the program skips a case outside its places or lacking a capability, whichever runner starts it | 0.8.0 |
 | O8 `output` | each case's output, kept while it runs under a runner and stated as `output` events; a case declared inside another keeps its own. Where the system cannot rearrange the program's streams (an ok image), no output is kept for a case, the spec's fallback | 0.6.0 |
 
 ## The engine (`mtest`)
@@ -32,6 +33,7 @@ on the spec; this list says which of its clauses mtest's parts answer, and since
 | O5 | schedules cases by their resources and history, by pools since 0.5.0; ends a case at its `timeout`, runs `retries` and `diagnose` since 0.3.0 | 0.1.0 |
 | O6 | serves run fixtures once per run (P11.2, P11.3) | 0.5.0 |
 | O7 | measures a program that reports no use from a process of its own (P10.4) | 0.5.0 |
+| P3.3, places | skips a listed case outside its `only` and `except`, and one its program lists skipped with a `reason`, without starting it; takes the program's answers for the capabilities it names (no `[capabilities]` entry needed) and records them in the run; `mtest ci coverage` requires a case to pass on each of its places that a collected run covered | 0.8.0 |
 | O9 `session` | `mtest serve` answers `test/plan`, `test/run`, `test/add`, `test/cancel`, `test/status` and `shutdown`, and states `test/build`, `test/case`, `test/program`, `test/run`; it builds nothing, and starts each program from the launch mcpp gives (B5) | 0.6.0 |
 
 ## The adapters and the C ABI

@@ -54,12 +54,48 @@ _mtest_selected() {
 # mtest_case ID FUNCTION [--tag T] [--kind K] [--clause C] [--resource R] [--artifact A] [--timeout SECONDS]
 #            [--isolate] [--retries N] [--diagnose-env NAME=VALUE] [--diagnose-timeout SECONDS]
 #            [--at-most METRIC=VALUE] [--at-least METRIC=VALUE]
-#            [--expect-fail REASON] [--skip REASON]
+#            [--expect-fail REASON] [--skip REASON] [--only PLACE] [--except PLACE]
+# A PLACE is a platform (linux, macos, windows) or an architecture (x86_64, aarch64, riscv64): with
+# --only the case runs only on one of the platforms named, when any is, and on one of the
+# architectures, when any is; with --except it does not run on any named. Elsewhere it is skipped.
 # A case that states no kind is of the program's (its directory's, docs/layout.md).
+# This host's platform and architecture, in mcpplibs.os's names.
+_mtest_host_platform() {
+    case "$(uname -s)" in
+        Linux*) echo linux ;; Darwin*) echo macos ;; MINGW*|MSYS*|CYGWIN*|Windows*) echo windows ;;
+        *) uname -s | tr '[:upper:]' '[:lower:]' ;;
+    esac
+}
+_mtest_host_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64|AMD64) echo x86_64 ;; aarch64|arm64|ARM64) echo aarch64 ;; *) uname -m ;;
+    esac
+}
+_mtest_is_arch() { case "$1" in x86_64|aarch64|riscv64|wasm32) return 0 ;; esac; return 1; }
+
+# _mtest_place_skip N ONLY... EXCEPT...: why the case does not run here, or nothing.
+_mtest_place_skip() {
+    local n="$1"; shift
+    local system arch here words="" w platforms=0 archs=0 platform_ok=0 arch_ok=0 i=0
+    system="$(_mtest_host_platform)"; arch="$(_mtest_host_arch)"; here="$system $arch"
+    while [ $i -lt "$n" ]; do
+        w="$1"; shift; i=$((i + 1))
+        words="${words:+$words, }$w"
+        if _mtest_is_arch "$w"; then archs=1; [ "$w" = "$arch" ] && arch_ok=1
+        else platforms=1; [ "$w" = "$system" ] && platform_ok=1; fi
+    done
+    if { [ $platforms -eq 1 ] && [ $platform_ok -eq 0 ]; } || { [ $archs -eq 1 ] && [ $arch_ok -eq 0 ]; }; then
+        echo "only on $words (this host: $here)"; return 0
+    fi
+    for w in "$@"; do
+        if [ "$w" = "$system" ] || [ "$w" = "$arch" ]; then echo "not on $w (this host: $here)"; return 0; fi
+    done
+}
+
 mtest_case() {
     local id="$1" fn="$2"; shift 2
     local tags=() clauses=() resources=() artifacts=() kind="" limit="" xfail="" skip=""
-    local isolate="" retries="" diagnose=() diagnose_limit="" bounds=()
+    local isolate="" retries="" diagnose=() diagnose_limit="" bounds=() only=() except=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --tag) tags+=("$2"); shift 2 ;;
@@ -76,10 +112,13 @@ mtest_case() {
             --at-least) bounds+=("min:$2"); shift 2 ;;
             --expect-fail) xfail="$2"; shift 2 ;;
             --skip) skip="$2"; shift 2 ;;
+            --only) only+=("$2"); shift 2 ;;
+            --except) except+=("$2"); shift 2 ;;
             *) echo "mtest_case: unknown option $1" >&2; shift ;;
         esac
     done
     _mtest_seen+=("$id")
+    [ -z "$skip" ] && skip="$(_mtest_place_skip "${#only[@]}" ${only[@]+"${only[@]}"} ${except[@]+"${except[@]}"})"
     if [ "$_mtest_mode" = list ]; then
         local ev
         ev="\"e\":\"case\",\"id\":$(_mtest_json "$id"),\"name\":$(_mtest_json "$id"),\"file\":$(_mtest_json "${BASH_SOURCE[1]:-$0}"),\"line\":${BASH_LINENO[0]:-0},\"tags\":$(_mtest_list "${tags[@]}"),\"clauses\":$(_mtest_list "${clauses[@]}"),\"resources\":$(_mtest_list "${resources[@]}"),\"artifacts\":$(_mtest_list "${artifacts[@]}")"
@@ -103,7 +142,9 @@ mtest_case() {
             done
             ev+=",\"bounds\":[$list]"
         fi
-        [ -n "$skip" ] && ev+=',"expect":"skip"'
+        [ ${#only[@]} -gt 0 ] && ev+=",\"only\":$(_mtest_list "${only[@]}")"
+        [ ${#except[@]} -gt 0 ] && ev+=",\"except\":$(_mtest_list "${except[@]}")"
+        [ -n "$skip" ] && ev+=",\"expect\":\"skip\",\"reason\":$(_mtest_json "$skip")"
         [ -n "$xfail" ] && [ -z "$skip" ] && ev+=',"expect":"fail"'
         _mtest_event "$ev"
         return 0

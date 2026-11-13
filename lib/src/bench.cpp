@@ -234,6 +234,8 @@ laps::laps(std::string_view name, each_options o) : name_(name), o_(o) {
 
 bool laps::next() {
     const auto now = clock::now();
+    if (done_)
+        return false;  // ended: it stays so, however often it is asked
     if (running_) {
         // The call that was running ends here: what `next` does after is no call's.
         const auto spent = std::max(clock::duration{}, now - began_ - lap_access::end(*this));

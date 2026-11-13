@@ -161,6 +161,14 @@ int main(int argc, char** argv) {
         expect(eq(d.slowest.size(), std::size_t(1)) &&
                eq(d.slowest[0].values[0].second, double(d.slowest[0].index + 2)));
     };
+    "a loop that ran out by its options stays ended"_test[kind::bench] = [] {
+        std::size_t calls = 0;
+        bench::laps run{"counted", {.least = 4, .most = 4, .warmup = 1}};
+        while (run.next())
+            ++calls;
+        expect(!run.next() && !run.next()) << "asked again";
+        expect(eq(calls, std::size_t(5)) && eq(run.result().samples.size(), std::size_t(4)));
+    };
     "calls that say nothing keep nothing"_test[kind::bench] = [] {
         auto d = bench::each("quiet", [](bench::lap&) {},
                              {.least = 5, .most = 5, .warmup = 1, .slowest = 1});

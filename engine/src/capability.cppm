@@ -17,6 +17,9 @@ struct capability_answer {
 std::optional<std::string> capability_of_tag(const config& c, std::string_view tag);
 // How this machine answers `word`; a word `c` does not declare is absent, and says so.
 capability_answer ask_capability(const config& c, std::string_view word);
+// Forgets every answer: each command asks afresh, so that a long-running service (`mtest serve`)
+// does not keep the answer of a declaration since edited or of a program since installed.
+void forget_capabilities();
 // Every declared word, answered.
 std::map<std::string, capability_answer> machine_capabilities(const config& c);
 // The name of this machine among the hosts of CI: MTEST_HOST, else the system's name.

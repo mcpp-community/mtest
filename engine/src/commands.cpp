@@ -1640,6 +1640,7 @@ answer cmd_ci(const std::filesystem::path& cwd, const json& p) {
 answer dispatch(const std::filesystem::path& cwd, std::string_view command, const json& params,
                 const std::function<void(const json&)>& events) {
     const json& p = params.is_object() ? params : json::object();
+    forget_capabilities();
     if (command == "run")
         return cmd_run(cwd, p, events);
     if (command == "rerun") {

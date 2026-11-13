@@ -54,8 +54,13 @@ bool some_file(const std::string& pattern) {
 
 capability_answer evaluate(const config& c, const capability_spec& s, int depth);
 
+std::map<std::string, capability_answer, std::less<>>& memo() {
+    static std::map<std::string, capability_answer, std::less<>> m;
+    return m;
+}
+
 capability_answer answer_of(const config& c, std::string_view word, int depth) {
-    static std::map<std::string, capability_answer, std::less<>> memo;
+    auto& memo = ::mcpplibs::mtest::engine::memo();
     if (auto it = memo.find(word); it != memo.end())
         return it->second;
     auto spec = c.capabilities.words.find(std::string(word));
@@ -132,6 +137,10 @@ std::optional<std::string> capability_of_tag(const config& c, std::string_view t
 
 capability_answer ask_capability(const config& c, std::string_view word) {
     return answer_of(c, word, 0);
+}
+
+void forget_capabilities() {
+    memo().clear();
 }
 
 std::map<std::string, capability_answer> machine_capabilities(const config& c) {

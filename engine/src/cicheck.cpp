@@ -10,7 +10,7 @@ namespace os = mcpplibs::os;
 
 namespace {
 
-const std::set<std::string, std::less<>> kRan = {"pass", "fail",    "timeout", "xfail",
+const std::set<std::string, std::less<>> kRan = {"pass",  "fail",  "timeout", "xfail",
                                                  "xpass", "flaky", "invalid"};
 
 struct row {
@@ -26,7 +26,8 @@ std::expected<std::vector<row>, std::string> table(const config& c, const std::s
     const auto path = c.root / os::fs::from_utf8(file);
     auto text = os::fs::read(path);
     if (!text)
-        return std::unexpected(std::format("cannot read {}: {}", os::fs::utf8(path), text.error().message()));
+        return std::unexpected(
+            std::format("cannot read {}: {}", os::fs::utf8(path), text.error().message()));
     std::istringstream in(*text);
     std::string line;
     while (std::getline(in, line)) {
@@ -117,12 +118,14 @@ ci_answer ci_coverage(const config& c, const std::vector<program_spec>& programs
     for (const auto* list : {&excused, &owed})
         for (const auto& [name, _] : *list) {
             if (!known.contains(name))
-                problems.push_back(std::format("{} is listed in [ci.coverage] {} but no program has that name",
-                                               name, list == &excused ? "exceptions" : "debt"));
+                problems.push_back(
+                    std::format("{} is listed in [ci.coverage] {} but no program has that name",
+                                name, list == &excused ? "exceptions" : "debt"));
             else if (ran_on.contains(name))
-                problems.push_back(std::format("{} is listed in [ci.coverage] {} but ran on {}: remove the entry",
-                                               name, list == &excused ? "exceptions" : "debt",
-                                               *ran_on[name].begin()));
+                problems.push_back(
+                    std::format("{} is listed in [ci.coverage] {} but ran on {}: remove the entry",
+                                name, list == &excused ? "exceptions" : "debt",
+                                *ran_on[name].begin()));
         }
 
     json judged = json::object();
@@ -153,7 +156,9 @@ ci_answer ci_coverage(const config& c, const std::vector<program_spec>& programs
     for (const auto& h : *hosts) {
         const auto name = program_of(h.name);
         if (!known.contains(name)) {
-            problems.push_back(std::format("{} is listed in [ci.coverage] hosts but no program has that name", name));
+            problems.push_back(
+                std::format("{} is listed in [ci.coverage] hosts but no program has that name",
+                            name));
             continue;
         }
         std::istringstream words(h.cols.empty() ? std::string() : h.cols.front());
@@ -166,7 +171,9 @@ ci_answer ci_coverage(const config& c, const std::vector<program_spec>& programs
                     !seen_on[name].contains(host))
                     absent_by_selection = true;
             if (!absent_by_selection)
-                problems.push_back(std::format("{} must pass on {} ([ci.coverage] hosts) and did not", name, host));
+                problems.push_back(
+                    std::format("{} must pass on {} ([ci.coverage] hosts) and did not", name,
+                                host));
         }
     }
     std::vector<std::string> unprovided;
@@ -175,8 +182,12 @@ ci_answer ci_coverage(const config& c, const std::vector<program_spec>& programs
             unprovided.push_back(w);
 
     a.status = uncovered.empty() && problems.empty() ? 0 : 1;
-    a.data = {{"programs", programs.size()}, {"runs", runs.size()},  {"tally", tally},
-              {"cases", judged},             {"uncovered", uncovered}, {"problems", problems},
+    a.data = {{"programs", programs.size()},
+              {"runs", runs.size()},
+              {"tally", tally},
+              {"cases", judged},
+              {"uncovered", uncovered},
+              {"problems", problems},
               {"capabilities_no_run_provided", unprovided}};
     std::string t = std::format("{} program(s) over {} run(s):", programs.size(), runs.size());
     for (const auto& [k, n] : tally)
@@ -192,9 +203,10 @@ ci_answer ci_coverage(const config& c, const std::vector<program_spec>& programs
             t += " " + w;
         t += "\n";
     }
-    a.data["conclusion"] = a.status == 0 ? std::string("every program ran somewhere or is accounted for")
-                                         : std::format("{} uncovered, {} problem(s)", uncovered.size(),
-                                                       problems.size());
+    a.data["conclusion"] =
+        a.status == 0
+            ? std::string("every program ran somewhere or is accounted for")
+            : std::format("{} uncovered, {} problem(s)", uncovered.size(), problems.size());
     a.text = t;
     return a;
 }
@@ -204,7 +216,9 @@ ci_answer ci_plan(const config& c, const plan& selected, const std::vector<run_r
     ci_answer a;
     const auto hosts = hosts_in.empty() ? c.ci_plan.hosts : hosts_in;
     if (hosts.empty())
-        return {2, {{"conclusion", "ci plan needs --hosts or [ci.plan] hosts"}}, "ci plan needs --hosts or [ci.plan] hosts\n"};
+        return {2,
+                {{"conclusion", "ci plan needs --hosts or [ci.plan] hosts"}},
+                "ci plan needs --hosts or [ci.plan] hosts\n"};
     // Each host's newest answers and the newest measured time of each case there (runs are oldest
     // first in the store's order; a later one overwrites).
     std::map<std::string, std::map<std::string, bool>> answers;
@@ -244,9 +258,10 @@ ci_answer ci_plan(const config& c, const plan& selected, const std::vector<run_r
                     ++unmeasured;
                 }
             }
-        const int shards = cases == 0 ? 0
-                                      : std::clamp(int(std::ceil(total / double(c.ci_plan.shard.count()))), 1,
-                                                   c.ci_plan.max_shards);
+        const int shards = cases == 0
+                               ? 0
+                               : std::clamp(int(std::ceil(total / double(c.ci_plan.shard.count()))),
+                                            1, c.ci_plan.max_shards);
         json indices = json::array();
         for (int i = 1; i <= shards; ++i)
             indices.push_back(i);
@@ -258,9 +273,11 @@ ci_answer ci_plan(const config& c, const plan& selected, const std::vector<run_r
                        {"shards", shards},
                        {"indices", indices},
                        {"history", !ans.empty()}});
-        text += std::format("{}: {} case(s), {:.0f} s expected ({} unmeasured), {} shard(s){}\n", host, cases,
-                            total / 1000, unmeasured, shards, ans.empty() ? " -- no history: every case counted" : "");
-        github += std::format("{}={}\n{}_work={}\n", host, indices.dump(), host, cases > 0 ? "true" : "false");
+        text += std::format("{}: {} case(s), {:.0f} s expected ({} unmeasured), {} shard(s){}\n",
+                            host, cases, total / 1000, unmeasured, shards,
+                            ans.empty() ? " -- no history: every case counted" : "");
+        github += std::format("{}={}\n{}_work={}\n", host, indices.dump(), host,
+                              cases > 0 ? "true" : "false");
     }
     if (format == "github") {
         if (auto f = os::env::get("GITHUB_OUTPUT"); f && !f->empty())
@@ -268,7 +285,8 @@ ci_answer ci_plan(const config& c, const plan& selected, const std::vector<run_r
         text += github;
     }
     a.data = {{"hosts", out},
-              {"conclusion", std::format("{} host(s) planned for {} selected case(s)", hosts.size(), selected.selected)}};
+              {"conclusion", std::format("{} host(s) planned for {} selected case(s)", hosts.size(),
+                                         selected.selected)}};
     a.text = text;
     return a;
 }

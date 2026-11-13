@@ -115,13 +115,15 @@ struct capability_spec {
     std::vector<std::string> archs;     // `arch`: x86_64, aarch64, riscv64, wasm32
     std::vector<std::string> programs;  // `program`: each found on PATH
     std::vector<std::string> command;   // `command`: runs and exits 0 within 30 s
-    std::vector<std::string> paths;     // `path`: some glob names a file; `${NAME}` is the environment's
-    std::vector<std::pair<std::string, std::string>> env;  // `env`: NAME equals the value ("*": set)
+    std::vector<std::string>
+        paths;  // `path`: some glob names a file; `${NAME}` is the environment's
+    std::vector<std::pair<std::string, std::string>>
+        env;                             // `env`: NAME equals the value ("*": set)
     std::vector<std::string> all, none;  // other words: every one present; none present
 };
 
 struct capabilities_spec {
-    std::string tag = "requires:";                // the tag prefix whose words are capabilities
+    std::string tag = "requires:";  // the tag prefix whose words are capabilities
     std::map<std::string, capability_spec> words;
 };
 
@@ -136,7 +138,7 @@ struct ci_coverage_spec {
 
 // `[ci.plan]` (0.7.0, M6): how `mtest ci plan` divides a selection among the hosts of CI.
 struct ci_plan_spec {
-    std::vector<std::string> hosts;                      // the host names runs record (MTEST_HOST)
+    std::vector<std::string> hosts;  // the host names runs record (MTEST_HOST)
     std::chrono::milliseconds shard{std::chrono::minutes{15}};  // the expected time of one shard
     int max_shards = 8;
     std::chrono::milliseconds unknown{std::chrono::seconds{30}};  // a case with no history

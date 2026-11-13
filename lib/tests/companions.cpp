@@ -79,7 +79,8 @@ int main(int argc, char** argv) {
         expect(contains(bad.expected, "valid pattern"));
     };
     "a command is a line a shell repeats"_test = [] {
-        e2e::command c{.argv = {"prog", "two words", "it's"}, .cwd = "/tmp/a b",
+        e2e::command c{.argv = {"prog", "two words", "it's"},
+                       .cwd = "/tmp/a b",
                        .env = {{"K", "v 1"}, {"GONE", std::nullopt}}};
         expect(eq(e2e::shell_line(c),
                   std::string("cd '/tmp/a b' && K='v 1' unset GONE; prog 'two words' 'it'\\''s'")));

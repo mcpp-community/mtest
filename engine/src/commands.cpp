@@ -317,8 +317,9 @@ answer cmd_run(const std::filesystem::path& cwd, const json& p,
             json data = {{"status", "pass"},
                          {"resumed", resumed_id},
                          {"carried", carried.size()},
-                         {"conclusion", std::format("run {} has judged every selected case: nothing left to run",
-                                                    resumed_id)}};
+                         {"conclusion",
+                          std::format("run {} has judged every selected case: nothing left to run",
+                                      resumed_id)}};
             return {0, data, std::format("run {} has judged every selected case\n", resumed_id)};
         }
     }
@@ -1612,8 +1613,9 @@ answer cmd_ci(const std::filesystem::path& cwd, const json& p) {
                 if (auto full = load_run(ctx->st, r.id))
                     all.push_back(std::move(*full));
         if (action == "coverage" && all.empty())
-            return usage(group.empty() ? std::string("ci coverage: the store holds no run (ci collect first)")
-                                       : std::format("ci coverage: no stored run of group {}", group));
+            return usage(group.empty()
+                             ? std::string("ci coverage: the store holds no run (ci collect first)")
+                             : std::format("ci coverage: no stored run of group {}", group));
         auto programs = programs_of(*ctx, p);
         if (!programs)
             return programs.error();
@@ -1929,23 +1931,28 @@ json catalog() {
         "group as one report (report); a workflow run's jobs as a graph with its critical path "
         "(timeline); whether every program ran on some host (coverage); a selection divided among "
         "the hosts by their history (plan).",
-        with({{"action", {{"enum", {"status", "annotate", "collect", "report", "timeline", "coverage", "plan"}}}},
-               {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
-               {"run", run_id["run"]},
-               {"from", {{"type", "string"}}},
-               {"group", {{"type", "string"}}},
-               {"sections", {{"type", "string"}}},
-               {"out", {{"type", "string"}}},
-               {"repo", {{"type", "string"}, {"description", "timeline: OWNER/REPO"}}},
-               {"run_id", {{"type", "string"}, {"description", "timeline: the workflow run"}}},
-               {"summary",
-                {{"type", "boolean"}, {"description", "timeline: also the job's summary"}}},
-               {"hosts",
-                {{"type", "array"},
-                 {"items", {{"type", "string"}}},
-                 {"description", "plan: the hosts ([ci.plan] hosts)"}}},
-               {"format", {{"enum", {"text", "github"}}, {"description", "plan: github writes GITHUB_OUTPUT"}}}}));
-    add("capabilities", "How this machine answers each capability word of [capabilities].", plain({}));
+        with({{"action",
+               {{"enum",
+                 {"status", "annotate", "collect", "report", "timeline", "coverage", "plan"}}}},
+              {"prs", {{"type", "array"}, {"items", {{"type", "string"}}}}},
+              {"run", run_id["run"]},
+              {"from", {{"type", "string"}}},
+              {"group", {{"type", "string"}}},
+              {"sections", {{"type", "string"}}},
+              {"out", {{"type", "string"}}},
+              {"repo", {{"type", "string"}, {"description", "timeline: OWNER/REPO"}}},
+              {"run_id", {{"type", "string"}, {"description", "timeline: the workflow run"}}},
+              {"summary",
+               {{"type", "boolean"}, {"description", "timeline: also the job's summary"}}},
+              {"hosts",
+               {{"type", "array"},
+                {"items", {{"type", "string"}}},
+                {"description", "plan: the hosts ([ci.plan] hosts)"}}},
+              {"format",
+               {{"enum", {"text", "github"}},
+                {"description", "plan: github writes GITHUB_OUTPUT"}}}}));
+    add("capabilities", "How this machine answers each capability word of [capabilities].",
+        plain({}));
     add("measure", "Run a program and write what it used (its children's account) to --out.",
         plain({{"out", {{"type", "string"}}},
                {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),

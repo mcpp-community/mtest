@@ -418,9 +418,9 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
             }
             auto ct = v.as_table();
             if (!ct)
-                return std::unexpected(std::format(
-                    "capabilities.{} is not a table of tests (os, arch, program, command, path, env, all, none)",
-                    name.str()));
+                return std::unexpected(std::format("capabilities.{} is not a table of tests (os, "
+                                                   "arch, program, command, path, env, all, none)",
+                                                   name.str()));
             known(*ct, std::format("capabilities.{}", name.str()),
                   {"os", "arch", "program", "command", "path", "env", "all", "none"}, c);
             capability_spec cs;
@@ -442,8 +442,9 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
             for (const auto* list : {&cs.all, &cs.none})
                 for (const auto& w : *list)
                     if (!c.capabilities.words.contains(w))
-                        return std::unexpected(std::format(
-                            "capabilities.{} names `{}`, which [capabilities] does not declare", name, w));
+                        return std::unexpected(std::format("capabilities.{} names `{}`, which "
+                                                           "[capabilities] does not declare",
+                                                           name, w));
     }
     if (auto ci = t["ci"].as_table()) {
         known(*ci, "ci", {"coverage", "plan"}, c);

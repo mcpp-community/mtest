@@ -588,10 +588,11 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
                     if (!word)
                         continue;
                     if (!c.capabilities.words.contains(*word))
-                        return std::unexpected(std::format(
-                            "{} requires the capability `{}` (tag {}), which [capabilities] of "
-                            "mtest.toml does not declare: no machine could answer it",
-                            p.name, *word, t));
+                        return std::unexpected(
+                            std::format("{} requires the capability `{}` (tag {}), which "
+                                        "[capabilities] of "
+                                        "mtest.toml does not declare: no machine could answer it",
+                                        p.name, *word, t));
                     if (auto a = ask_capability(c, *word); !a.present && ci.skip.empty())
                         ci.skip = std::format("missing capability: {} ({})", *word, a.why);
                 }

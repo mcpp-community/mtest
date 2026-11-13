@@ -113,9 +113,10 @@ capability_answer evaluate(const config& c, const capability_spec& s, int depth)
         if (!r)
             return {false, std::format("{} did not start", s.command.front())};
         if (r->timed_out || !r->status.success())
-            return {false, std::format("{} ended with {}", s.command.front(),
-                                       r->timed_out ? std::string("a timeout")
-                                                    : std::format("status {}", r->status.shell_code()))};
+            return {false,
+                    std::format("{} ended with {}", s.command.front(),
+                                r->timed_out ? std::string("a timeout")
+                                             : std::format("status {}", r->status.shell_code()))};
     }
     return {true, "every test holds"};
 }
@@ -123,7 +124,8 @@ capability_answer evaluate(const config& c, const capability_spec& s, int depth)
 }  // namespace
 
 std::optional<std::string> capability_of_tag(const config& c, std::string_view tag) {
-    if (c.capabilities.words.empty() || c.capabilities.tag.empty() || !tag.starts_with(c.capabilities.tag))
+    if (c.capabilities.words.empty() || c.capabilities.tag.empty() ||
+        !tag.starts_with(c.capabilities.tag))
         return std::nullopt;
     return std::string(tag.substr(c.capabilities.tag.size()));
 }

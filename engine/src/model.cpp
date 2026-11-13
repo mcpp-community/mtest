@@ -171,26 +171,16 @@ fixture_run fixture_run_from(const json& j) {
             j.value("ready_ms", 0.0), j.value("ended_ms", 0.0), str(j, "status")};
 }
 json to_json(const run_record& r) {
-    return {{"schema", "mtest.run/1"},
-            {"id", r.id},
-            {"started", r.started},
-            {"finished", r.finished},
-            {"status", r.status},
-            {"system", r.system},
-            {"arch", r.arch},
-            {"machine", r.machine},
-            {"commit", r.commit},
-            {"set", r.set},
-            {"selection", r.selection},
-            {"ms", r.ms},
-            {"jobs", r.jobs},
-            {"counts", r.counts},
-            {"group", r.group},
-            {"monitor", r.monitor},
-            {"host", r.host},
-            {"capabilities", r.capabilities},
-            {"resumed", r.resumed},
-            {"programs", r.programs.size()},
+    return {{"schema", "mtest.run/1"},  {"id", r.id},
+            {"started", r.started},     {"finished", r.finished},
+            {"status", r.status},       {"system", r.system},
+            {"arch", r.arch},           {"machine", r.machine},
+            {"commit", r.commit},       {"set", r.set},
+            {"selection", r.selection}, {"ms", r.ms},
+            {"jobs", r.jobs},           {"counts", r.counts},
+            {"group", r.group},         {"monitor", r.monitor},
+            {"host", r.host},           {"capabilities", r.capabilities},
+            {"resumed", r.resumed},     {"programs", r.programs.size()},
             {"cases", r.cases.size()}};
 }
 

@@ -113,7 +113,8 @@ namespace {
 
 std::string shell_word(std::string_view word) {
     const bool plain = !word.empty() && std::ranges::all_of(word, [](char ch) {
-        return std::isalnum(static_cast<unsigned char>(ch)) || std::string_view("@%+=:,./_-").contains(ch);
+        return std::isalnum(static_cast<unsigned char>(ch)) ||
+               std::string_view("@%+=:,./_-").contains(ch);
     });
     if (plain)
         return std::string(word);
@@ -139,8 +140,9 @@ comparison about(const outcome& r, bool held, std::string expression, std::strin
     else
         c.actual = std::format("status {}", r.status);
     if (!held)
-        c.actual += std::format("\n--- command ---\n{}\n--- stdout (tail) ---\n{}\n--- stderr (tail) ---\n{}",
-                                r.line, tail(r.out), tail(r.err));
+        c.actual += std::
+            format("\n--- command ---\n{}\n--- stdout (tail) ---\n{}\n--- stderr (tail) ---\n{}",
+                   r.line, tail(r.out), tail(r.err));
     return c;
 }
 
@@ -155,7 +157,8 @@ std::string shell_line(const command& c) {
     for (std::size_t i = 0; i < c.argv.size(); ++i)
         line += (i ? " " : "") + shell_word(c.argv[i]);
     if (!c.input.empty())
-        line += " <<'MTEST_INPUT'\n" + c.input + (c.input.ends_with('\n') ? "" : "\n") + "MTEST_INPUT";
+        line +=
+            " <<'MTEST_INPUT'\n" + c.input + (c.input.ends_with('\n') ? "" : "\n") + "MTEST_INPUT";
     return line;
 }
 
@@ -197,8 +200,8 @@ struct session::state {
     os::process::process proc;
     command cmd;
     std::string line;
-    std::string buffer;       // written, not yet consumed
-    std::string transcript;   // everything, with what was sent marked
+    std::string buffer;      // written, not yet consumed
+    std::string transcript;  // everything, with what was sent marked
     bool started = false, timed_out = false, ended = false;
     std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
 
@@ -246,7 +249,8 @@ session session::start(command c) {
     o.err = os::process::stdio::output;
     auto p = os::process::process::spawn(o);
     if (!p) {
-        st.transcript = std::format("[mtest: {} did not start: {}]\n", c.argv.front(), p.error().message());
+        st.transcript =
+            std::format("[mtest: {} did not start: {}]\n", c.argv.front(), p.error().message());
         return s;
     }
     st.proc = std::move(*p);
@@ -266,9 +270,15 @@ session::~session() {
     }
 }
 
-bool session::started() const noexcept { return s_ && s_->started; }
-bool session::timed_out() const noexcept { return s_ && s_->timed_out; }
-bool session::ended() const noexcept { return !s_ || s_->ended; }
+bool session::started() const noexcept {
+    return s_ && s_->started;
+}
+bool session::timed_out() const noexcept {
+    return s_ && s_->timed_out;
+}
+bool session::ended() const noexcept {
+    return !s_ || s_->ended;
+}
 const std::string& session::transcript() const noexcept {
     static const std::string none;
     return s_ ? s_->transcript : none;
@@ -304,9 +314,10 @@ std::optional<std::string> session::expect(std::string_view pattern,
             st.timed_out = true;
             return std::nullopt;
         }
-        const auto slice = std::min<std::chrono::milliseconds>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now),
-            std::chrono::milliseconds{200});
+        const auto slice =
+            std::min<std::chrono::milliseconds>(std::chrono::duration_cast<
+                                                    std::chrono::milliseconds>(deadline - now),
+                                                std::chrono::milliseconds{200});
         if (!st.pull(slice))
             return std::nullopt;
     }
@@ -344,7 +355,8 @@ outcome session::finish(std::chrono::milliseconds timeout) {
     while (!st.ended && std::chrono::steady_clock::now() < deadline)
         st.pull(std::chrono::milliseconds{200});
     auto status = st.proc.wait_for(std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::max(deadline - std::chrono::steady_clock::now(), std::chrono::steady_clock::duration{})));
+        std::max(deadline - std::chrono::steady_clock::now(),
+                 std::chrono::steady_clock::duration{})));
     if (status && *status) {
         r.status = (*status)->shell_code();
     } else {
@@ -354,7 +366,8 @@ outcome session::finish(std::chrono::milliseconds timeout) {
         (void)st.proc.wait();
     }
     r.out = st.transcript;
-    r.duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - st.began);
+    r.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - st.began);
     return r;
 }
 
@@ -365,7 +378,8 @@ comparison session::saw(std::string_view pattern, std::chrono::milliseconds time
     c.held = expect(pattern, timeout).has_value();
     if (!c.held)
         c.actual = std::format("{}; not yet consumed:\n{}\n--- command ---\n{}",
-                               timed_out() ? "the time ran out" : (ended() ? "the output ended" : "did not start"),
+                               timed_out() ? "the time ran out"
+                                           : (ended() ? "the output ended" : "did not start"),
                                tail(pending()), s_ ? s_->line : std::string());
     return c;
 }

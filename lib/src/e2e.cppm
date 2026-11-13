@@ -105,7 +105,6 @@ public:
     // `expect(pattern)` held, as a comparison whose failure carries the pending output.
     comparison saw(std::string_view pattern,
                    std::chrono::milliseconds timeout = std::chrono::seconds{30});
-
 private:
     struct state;
     std::unique_ptr<state> s_;

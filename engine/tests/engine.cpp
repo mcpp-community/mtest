@@ -771,10 +771,11 @@ printf ')" + header +
         "[discover.s]\nglobs = [\"[0-9]*.sh\"]\ncommand = [\"bash\", \"{path}\"]\nlevel = 0\n"
         "skip_exit = 77\ntags_from = { \"# requires:\" = \"requires:\" }\n";
     "a capability this machine lacks makes a skip that names it"_test[kind::e2e] = [&] {
-        auto root = project({{"1_has.sh", "# requires: here\nexit 0\n"},
-                             {"2_lacks.sh", "# requires: absent\nexit 0\n"},
-                             {"mtest.toml", discovered + "[capabilities]\nhere = {}\n"
-                                                         "absent = { program = \"no-such-program-mtest\" }\n"}});
+        auto root = project(
+            {{"1_has.sh", "# requires: here\nexit 0\n"},
+             {"2_lacks.sh", "# requires: absent\nexit 0\n"},
+             {"mtest.toml", discovered + "[capabilities]\nhere = {}\n"
+                                         "absent = { program = \"no-such-program-mtest\" }\n"}});
         auto j = json_of(mtest(root, {"run", "--json", "--report-json", "r.json"}));
         expect(eq(j["status"].get<std::string>(), std::string("pass"))) << j.dump();
         auto r = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
@@ -795,9 +796,10 @@ printf ')" + header +
         expect(contains(r.out + r.err, "does not declare")) << r.out << r.err;
     };
     "a capability is composed of others and of the environment"_test[kind::e2e] = [&] {
-        auto root = project({{"mtest.toml", discovered + "[capabilities]\na = {}\n"
-                                                         "b = { none = [\"a\"] }\nc = { all = [\"a\"] }\n"
-                                                         "d = { env = { MTEST_TEST_SET = \"yes\" } }\n"}});
+        auto root =
+            project({{"mtest.toml", discovered + "[capabilities]\na = {}\n"
+                                                 "b = { none = [\"a\"] }\nc = { all = [\"a\"] }\n"
+                                                 "d = { env = { MTEST_TEST_SET = \"yes\" } }\n"}});
         auto caps = json_of(mtest(root, {"capabilities", "--json"}));
         expect(eq(caps["capabilities"]["b"]["present"].get<bool>(), false));
         expect(eq(caps["capabilities"]["c"]["present"].get<bool>(), true));
@@ -826,10 +828,12 @@ printf ')" + header +
         expect(contains(j["problems"].dump(), "remove the entry")) << j.dump();
     };
     "a plan divides the selection among the hosts by their history"_test[kind::e2e] = [&] {
-        auto root = project({{"1_any.sh", "exit 0\n"},
-                             {"2_linuxish.sh", "# requires: special\nexit 0\n"},
-                             {"mtest.toml", discovered + "[capabilities]\nspecial = { env = { MTEST_SPECIAL = \"1\" } }\n"
-                                                         "[ci.plan]\nshard = \"10m\"\n"}});
+        auto root =
+            project({{"1_any.sh", "exit 0\n"},
+                     {"2_linuxish.sh", "# requires: special\nexit 0\n"},
+                     {"mtest.toml",
+                      discovered + "[capabilities]\nspecial = { env = { MTEST_SPECIAL = \"1\" } }\n"
+                                   "[ci.plan]\nshard = \"10m\"\n"}});
         auto run = e2e::run({.argv = {e2e::program("mtest"), "run", "--json"},
                              .cwd = root,
                              .env = {{"MTEST_HOST", "h1"}},
@@ -842,9 +846,11 @@ printf ')" + header +
         expect(eq(j["hosts"][1]["cases"].get<int>(), 2)) << "h2 has no history: every case";
     };
     "a resumed run carries what the first judged and runs the rest"_test[kind::e2e] = [&] {
-        auto root = project({{"1_a.sh", "exit 0\n"}, {"2_b.sh", "exit 0\n"}, {"mtest.toml", discovered}});
+        auto root =
+            project({{"1_a.sh", "exit 0\n"}, {"2_b.sh", "exit 0\n"}, {"mtest.toml", discovered}});
         expect(fatal(eq(mtest(root, {"run", "--json", "--program", "1_a.sh"}).status, 0)));
-        auto j = json_of(mtest(root, {"run", "--json", "--resume", "last", "--report-json", "r.json"}));
+        auto j =
+            json_of(mtest(root, {"run", "--json", "--resume", "last", "--report-json", "r.json"}));
         expect(eq(j["status"].get<std::string>(), std::string("pass")));
         auto r = json::parse(*mcpplibs::os::fs::read(root / "r.json"));
         expect(eq(r["cases"].size(), std::size_t(2))) << r.dump();

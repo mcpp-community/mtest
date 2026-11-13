@@ -98,7 +98,7 @@ const json* tool_named(const json& tools, std::string_view name) {
 
 cmdline::App application(const json& tools) {
     auto app = cmdline::App("mtest")
-                   .version("0.6.3")
+                   .version("0.7.0")
                    .description("run tests of any language, and ask about their runs")
                    .option(cmdline::Option("json").global().help("print the answer's data"));
     for (const auto& t : tools)
@@ -253,7 +253,7 @@ int main(int argc, char** argv) {
     const std::string name(parsed->subcommand_name());
     const auto& sub = parsed->subcommand()->get();
     if (name == "version") {
-        std::println("mtest 0.6.3");
+        std::println("mtest 0.7.0");
         return 0;
     }
     const auto cwd = std::filesystem::current_path();

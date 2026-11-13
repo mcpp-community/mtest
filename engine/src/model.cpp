@@ -187,6 +187,9 @@ json to_json(const run_record& r) {
             {"counts", r.counts},
             {"group", r.group},
             {"monitor", r.monitor},
+            {"host", r.host},
+            {"capabilities", r.capabilities},
+            {"resumed", r.resumed},
             {"programs", r.programs.size()},
             {"cases", r.cases.size()}};
 }
@@ -310,6 +313,12 @@ run_record run_record_from(const json& j) {
     r.jobs = j.value("jobs", 1);
     r.group = str(j, "group");
     r.monitor = j.value("monitor", std::string("basic"));
+    r.host = str(j, "host");
+    if (auto c = j.find("capabilities"); c != j.end() && c->is_object())
+        for (auto it = c->begin(); it != c->end(); ++it)
+            if (it.value().is_boolean())
+                r.capabilities[it.key()] = it.value().get<bool>();
+    r.resumed = str(j, "resumed");
     if (auto it = j.find("counts"); it != j.end() && it->is_object())
         for (auto& item_ : it->items())
             if (auto& k = item_.key(); true)

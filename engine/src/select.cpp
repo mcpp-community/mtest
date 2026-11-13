@@ -4,6 +4,7 @@ import std;
 import mcpplibs.os;
 import mcpplibs.mtest.engine.exec;
 import mcpplibs.mtest.engine.coverage;
+import mcpplibs.mtest.engine.capability;
 
 namespace mcpplibs::mtest::engine {
 
@@ -577,6 +578,24 @@ std::expected<plan, std::string> make_plan(const config& c, const store& s,
             u.expected_peak = pk->second;
         for (auto ci : *listed) {
             apply_attributes(c, u.program, ci);
+            // A required capability this machine lacks makes the case a skip that says which; one
+            // `[capabilities]` does not declare is an error, for no machine could answer it.
+            if (!c.capabilities.words.empty()) {
+                auto tags = ci.tags;
+                tags.insert(tags.end(), p.tags.begin(), p.tags.end());
+                for (const auto& t : tags) {
+                    auto word = capability_of_tag(c, t);
+                    if (!word)
+                        continue;
+                    if (!c.capabilities.words.contains(*word))
+                        return std::unexpected(std::format(
+                            "{} requires the capability `{}` (tag {}), which [capabilities] of "
+                            "mtest.toml does not declare: no machine could answer it",
+                            p.name, *word, t));
+                    if (auto a = ask_capability(c, *word); !a.present && ci.skip.empty())
+                        ci.skip = std::format("missing capability: {} ({})", *word, a.why);
+                }
+            }
             ++out.considered;
             const auto key = p.name + "::" + ci.id;
             auto pick = [&]() -> std::optional<std::string> {

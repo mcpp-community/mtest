@@ -105,6 +105,43 @@ struct fixture_spec {
     std::vector<std::string> command;
 };
 
+// `[capabilities]` (0.7.0, M1): a word a case requires through a tag (`requires:gcc`), and how
+// this machine answers it. Every test an entry states holds for the word to be present; an entry
+// that states none is present everywhere. The words replace a runner's own probing, so that a
+// requirement no machine can answer is a configuration error rather than a silent skip.
+struct capability_spec {
+    std::string name;
+    std::vector<std::string> systems;   // `os`: the engine's system names (linux, macos, windows)
+    std::vector<std::string> archs;     // `arch`: x86_64, aarch64, riscv64, wasm32
+    std::vector<std::string> programs;  // `program`: each found on PATH
+    std::vector<std::string> command;   // `command`: runs and exits 0 within 30 s
+    std::vector<std::string> paths;     // `path`: some glob names a file; `${NAME}` is the environment's
+    std::vector<std::pair<std::string, std::string>> env;  // `env`: NAME equals the value ("*": set)
+    std::vector<std::string> all, none;  // other words: every one present; none present
+};
+
+struct capabilities_spec {
+    std::string tag = "requires:";                // the tag prefix whose words are capabilities
+    std::map<std::string, capability_spec> words;
+};
+
+// `[ci.coverage]` (0.7.0): the files `mtest ci coverage` reads beside the collected runs. Each is a
+// tab-separated table whose first column is a case (`program`, or `program::id`); `#` begins a
+// comment.
+struct ci_coverage_spec {
+    std::string exceptions;  // <case>\t<why no machine of CI can run it>
+    std::string debt;        // <case>\t<what the machines lack>: it skips everywhere; only shrinks
+    std::string hosts;       // <case>\t<hosts, space-separated>\t<why>: it must pass on each
+};
+
+// `[ci.plan]` (0.7.0, M6): how `mtest ci plan` divides a selection among the hosts of CI.
+struct ci_plan_spec {
+    std::vector<std::string> hosts;                      // the host names runs record (MTEST_HOST)
+    std::chrono::milliseconds shard{std::chrono::minutes{15}};  // the expected time of one shard
+    int max_shards = 8;
+    std::chrono::milliseconds unknown{std::chrono::seconds{30}};  // a case with no history
+};
+
 struct config {
     std::filesystem::path root;  // the directory of mtest.toml, or the working directory
     std::filesystem::path store = ".mtest";
@@ -130,6 +167,9 @@ struct config {
     monitor_spec monitor;
     report_spec report;
     std::vector<fixture_spec> fixtures;
+    capabilities_spec capabilities;
+    ci_coverage_spec ci_coverage;
+    ci_plan_spec ci_plan;
     std::vector<std::string> warnings;  // keys this engine does not know
 };
 

@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.7.0] - 2026-11-13
+
+- **What a machine can do is declared once, and a requirement no machine answers is an error**
+  (`[capabilities]`). Each word states its tests -- a system, an architecture, a program on PATH, a
+  command that succeeds, a file a glob matches, an environment value, other words that must or must
+  not hold -- and a case that requires a word (`requires:<word>`, from `# requires:` lines through
+  `tags_from`) that this machine lacks is skipped with the reason `missing capability: <word> (<the
+  test that failed>)`. A word no entry declares stops the run, naming the program. `mtest
+  capabilities` prints the answers; each run records its host (`MTEST_HOST`, else the system) and
+  its answers. Before, a project probed in a script of its own and kept a list of known words beside
+  it.
+- **Whether every program ran somewhere is a command** (`mtest ci coverage`). Over the runs of all
+  the jobs of a CI run, collected into one store, each program is `ran`, `unaffected`, `excused` or
+  `owed` by the tables `[ci.coverage]` names, or `uncovered`, which fails; an entry that outlived its
+  reason fails too, and a program that must pass on given hosts is checked on each. The capability
+  words no job's machine provided are listed.
+- **A selection is divided among CI's hosts before any builds** (`mtest ci plan`): for each host, the
+  cases its recorded capabilities admit, their measured time on that host, and the number of shards
+  that fit `[ci.plan] shard`; `--format github` writes a job matrix to `GITHUB_OUTPUT`. A host with
+  no history counts every case.
+- **An interrupted run resumes** (`mtest run --resume RUN`): the cases RUN judged are carried into
+  the new run and are not run again.
+- **A program under test is judged with matchers that carry the session**
+  (`mcpplibs.mtest.e2e`): `succeeded`, `exited`, `contains`, `matches`; an outcome carries the
+  command as a POSIX shell line (`shell_line`), and a failed matcher reports it with the tails of
+  both outputs.
+- **An interactive program is driven by expecting and sending** (`e2e::session`: `start`, `expect`,
+  `saw`, `send`, `send_line`, `finish`, `transcript`). Both streams travel in one pipe; no terminal
+  is involved, so the same session runs on every system. A serial console of an emulator is driven
+  this way (measured: QEMU's serial console delivers the same bytes over a pipe as over a pseudo
+  terminal).
+
 ## [0.6.3] - 2026-11-12
 
 - **A conformance suite is run against a subject, which may lack what a specification leaves

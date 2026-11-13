@@ -3,6 +3,7 @@ module mcpplibs.mtest.engine.schedule;
 import std;
 import mcpplibs.os;
 import mcpplibs.mtest.engine.exec;
+import mcpplibs.mtest.engine.capability;
 
 namespace mcpplibs::mtest::engine {
 
@@ -411,6 +412,9 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
     rec.selection = o.selection;
     rec.group = !o.group.empty() ? o.group : os::env::get("MTEST_GROUP").value_or("");
     rec.monitor = !o.monitor.empty() ? o.monitor : c.monitor.level;
+    rec.host = host_name();
+    for (const auto& [word, a] : machine_capabilities(c))
+        rec.capabilities[word] = a.present;
     const int hw = int(std::max(1u, std::thread::hardware_concurrency()));
     rec.jobs = o.jobs > 0 ? o.jobs : c.jobs > 0 ? c.jobs : hw;
     const int retries = o.retries >= 0 ? o.retries : c.retries;

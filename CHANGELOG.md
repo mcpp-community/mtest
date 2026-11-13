@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.3] - 2026-11-14
+
+- **Each call measured by itself, as a loop** (`bench::laps`). `bench::each` takes the call as a
+  function; a body that keeps its state in the function it runs in writes the same measurement as
+  a loop: `bench::laps run{"draw"}; while (run.next()) { ... }`. The time from one `next` to the
+  following one is a call's, `run` is the call's `lap` (`pause`, `resume`, `items`, `part`, `time`,
+  `value`, `say`, `last`), and when `next` returns false the metrics have been reported as `each`
+  reports them; `result()` is where the calls lay. `each` is that loop around its function: one
+  way of measuring, in two forms.
+- Additive: `each` measures and reports as it did.
+
 ## [0.8.2] - 2026-11-14
 
 - 0.8.1 as released: its tag was made and its release was not (a test of `bench::each` held that

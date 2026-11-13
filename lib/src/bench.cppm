@@ -265,41 +265,49 @@ distribution distribute(std::vector<double> samples, const lap& l, std::size_t s
 // `.max`; the slowest calls a line each in the case's output.
 void record(std::string_view name, const distribution& d);
 
+// THE SAME, AS A LOOP: for a body that keeps its state in the function it runs in.
+//   bench::laps run{"draw", {.limit = std::chrono::microseconds{8333}}};
+//   while (run.next()) {
+//       run.pause(); scene.advance(); run.resume();
+//       scene.draw();
+//       run.value("nodes", scene.nodes());
+//   }
+// The time from one `next` that returned true to the following `next` is a call's; `run` is the
+// call's `lap`. `next` returns false once what the options ask has been measured (or a call said
+// `last`), having reported the metrics as `each` does; `result()` is then where the calls lay.
+// `each` is this loop around its function: one way of measuring, in two forms.
+class laps : public lap {
+public:
+    explicit laps(std::string_view name, each_options o = {});
+    laps(const laps&) = delete;
+    laps& operator=(const laps&) = delete;
+    [[nodiscard]] bool next();
+    // Where the calls lay: after `next` has returned false.
+    [[nodiscard]] const distribution& result() const noexcept {
+        return result_;
+    }
+private:
+    std::string name_;
+    each_options o_;
+    std::vector<double> samples_;
+    clock::duration total_{};
+    clock::time_point began_{};
+    std::size_t warmed_ = 0;
+    bool running_ = false, done_ = false;
+    distribution result_;
+};
+
 template <class F>
 requires std::invocable<F&, lap&> || std::invocable<F&>
 distribution each(std::string_view name, F&& f, each_options o = {}) {
-    using clock = lap::clock;
-    lap l;
-    const auto call = [&] {
-        lap_access::begin(l);
-        const auto t0 = clock::now();
+    laps run{name, o};
+    while (run.next()) {
         if constexpr (std::invocable<F&, lap&>)
-            std::invoke(f, l);
+            std::invoke(f, static_cast<lap&>(run));
         else
             std::invoke(f);
-        const auto t1 = clock::now();
-        return std::max(clock::duration{}, t1 - t0 - lap_access::end(l));
-    };
-    lap_access::warmup(l, true);
-    for (std::size_t i = 0; i < o.warmup && !lap_access::last(l); ++i) {
-        call();
-        lap_access::drop(l);
     }
-    lap_access::warmup(l, false);
-    std::vector<double> samples;
-    samples.reserve(std::min<std::size_t>(o.most, 4096));
-    clock::duration total{};
-    while (!lap_access::last(l) && samples.size() < o.most &&
-           (samples.size() < o.least || total < o.time)) {
-        const auto spent = call();
-        total += spent;
-        samples.push_back(std::chrono::duration<double>(spent).count());
-        lap_access::keep(l);
-    }
-    auto d = distribute(std::move(samples), l, o.slowest,
-                        std::chrono::duration<double>(o.limit).count());
-    record(name, d);
-    return d;
+    return run.result();
 }
 
 }  // namespace mcpplibs::mtest::bench

@@ -136,6 +136,31 @@ int main(int argc, char** argv) {
                     expect(std::ranges::contains(d.slowest, late, &bench::slow_call::index))
                         << late;
         };
+    "the same as a loop: the calls between one next and the following one"_test[kind::bench] = [] {
+        std::size_t calls = 0, warm = 0;
+        std::uint64_t state = 1;  // kept in the function the loop runs in
+        bench::laps run{"loop", {.least = 30, .most = 30, .warmup = 2, .slowest = 1}};
+        while (run.next()) {
+            run.warmup() ? ++warm : ++calls;
+            run.pause();
+            state = state * 6364136223846793005ULL + 1442695040888963407ULL;  // not the call's
+            run.resume();
+            bench::keep(state);
+            run.value("turn", double(run.index()));
+            if (run.index() == 2 + 19)
+                run.last();  // the 20th measured call is the last
+        }
+        expect(!run.next()) << "and it stays ended";
+        const bench::distribution& d = run.result();
+        expect(eq(warm, std::size_t(2)) && eq(calls, std::size_t(20)) &&
+               eq(d.samples.size(), std::size_t(20)));
+        expect(le(d.min, d.p50) && le(d.p50, d.p99) && le(d.p99, d.max));
+        expect(eq(d.values.size(), std::size_t(1)) && eq(d.values[0].min, 2.0) &&
+               eq(d.values[0].max, 21.0))
+            << "a warm-up call's is not kept";
+        expect(eq(d.slowest.size(), std::size_t(1)) &&
+               eq(d.slowest[0].values[0].second, double(d.slowest[0].index + 2)));
+    };
     "calls that say nothing keep nothing"_test[kind::bench] = [] {
         auto d = bench::each("quiet", [](bench::lap&) {},
                              {.least = 5, .most = 5, .warmup = 1, .slowest = 1});

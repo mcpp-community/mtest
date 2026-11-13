@@ -213,6 +213,45 @@ distribution distribute(std::vector<double> samples, const lap& l, std::size_t s
     return d;
 }
 
+laps::laps(std::string_view name, each_options o) : name_(name), o_(o) {
+    samples_.reserve(std::min<std::size_t>(o_.most, 4096));
+}
+
+bool laps::next() {
+    const auto now = clock::now();
+    if (running_) {
+        // The call that was running ends here: what `next` does after is no call's.
+        const auto spent = std::max(clock::duration{}, now - began_ - lap_access::end(*this));
+        if (warmed_ < o_.warmup) {
+            ++warmed_;
+            lap_access::drop(*this);
+        } else {
+            total_ += spent;
+            samples_.push_back(std::chrono::duration<double>(spent).count());
+            lap_access::keep(*this);
+        }
+        running_ = false;
+    }
+    const bool warming = warmed_ < o_.warmup;
+    const bool more =
+        !lap_access::last(*this) && (warming || (samples_.size() < o_.most &&
+                                                 (samples_.size() < o_.least || total_ < o_.time)));
+    if (!more) {
+        if (!done_) {
+            done_ = true;
+            result_ = distribute(std::move(samples_), *this, o_.slowest,
+                                 std::chrono::duration<double>(o_.limit).count());
+            record(name_, result_);
+        }
+        return false;
+    }
+    lap_access::warmup(*this, warming);
+    lap_access::begin(*this);
+    running_ = true;
+    began_ = clock::now();
+    return true;
+}
+
 // The calls differ by their nature, so the samples are not stated with the metrics: the verdict on
 // samples that spread (P6.2) is for a measurement meant to be one number.
 void record(std::string_view name, const distribution& d) {

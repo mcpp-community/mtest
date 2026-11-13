@@ -13,6 +13,9 @@
   `draw: 2.100 ms (p95 5.300 ms, p99 7.700 ms, max 8.400 ms; mean 2.900 ms; 139 calls; 0 over
   8.333 ms)`, then a line for each part and quantity -- where no runner keeps the run's record.
   Under a runner nothing is added to the case's output: the record has the metrics.
+- **What the lap keeps is not the call's.** The allocations `part`, `time` and `value` make to keep
+  what a call says are left out of the call's count: a frame that allocates nothing reports none
+  while it states its parts (`lib/tests/allocations.cpp`, a program that replaces `operator new`).
 - Additive: `each` measures and reports as it did.
 
 ## [0.8.2] - 2026-11-14

@@ -143,14 +143,24 @@ allocation_count allocations() noexcept {
     return {allocation_calls, allocation_bytes};
 }
 
+// What the lap allocates to keep what a call says is not the call's: a frame that allocates nothing
+// still reports none while it states its parts.
 void lap::part(std::string_view name, clock::duration spent) {
+    const allocation_count before = allocations();
     double& at = cell(now_.parts, column(part_names_, name));
     const double seconds = std::chrono::duration<double>(spent).count();
     at = std::isnan(at) ? seconds : at + seconds;
+    const allocation_count after = allocations();
+    out_count_ += after.count - before.count;
+    out_bytes_ += after.bytes - before.bytes;
 }
 
 void lap::value(std::string_view name, double v) {
+    const allocation_count before = allocations();
     cell(now_.values, column(value_names_, name)) = v;
+    const allocation_count after = allocations();
+    out_count_ += after.count - before.count;
+    out_bytes_ += after.bytes - before.bytes;
 }
 
 void lap_access::keep(lap& l) {

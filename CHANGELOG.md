@@ -9,6 +9,10 @@
   `value`, `say`, `last`), and when `next` returns false the metrics have been reported as `each`
   reports them; `result()` is where the calls lay. `each` is that loop around its function: one
   way of measuring, in two forms.
+- **Run alone, a program shows what it measured.** A measurement's line in the program's output --
+  `draw: 2.100 ms (p95 5.300 ms, p99 7.700 ms, max 8.400 ms; mean 2.900 ms; 139 calls; 0 over
+  8.333 ms)`, then a line for each part and quantity -- where no runner keeps the run's record.
+  Under a runner nothing is added to the case's output: the record has the metrics.
 - Additive: `each` measures and reports as it did.
 
 ## [0.8.2] - 2026-11-14

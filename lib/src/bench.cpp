@@ -12,6 +12,17 @@ double median_of(std::vector<double> v) {
     const auto n = v.size();
     return n % 2 ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
 }
+
+// A time for a reader: 9.100 ms, 412.0 us, 1.250 s.
+std::string readable(double seconds) {
+    if (seconds >= 1)
+        return std::format("{:.3f} s", seconds);
+    if (seconds >= 1e-3)
+        return std::format("{:.3f} ms", seconds * 1e3);
+    if (seconds >= 1e-6)
+        return std::format("{:.1f} us", seconds * 1e6);
+    return std::format("{:.0f} ns", seconds * 1e9);
+}
 }  // namespace
 
 summary summarize(std::vector<double> samples, std::size_t iterations) {
@@ -32,6 +43,10 @@ summary summarize(std::vector<double> samples, std::size_t iterations) {
 
 void record(std::string_view name, const summary& s) {
     metric(name, s.median, "s", s.samples, "lower");
+    // Run alone, a program shows what it measured; under a runner the run's record has it.
+    if (!under_runner())
+        std::println("{}: {} (from {} to {}; {} samples of {} calls)", name, readable(s.median),
+                     readable(s.min), readable(s.max), s.samples.size(), s.iterations);
 }
 
 double percentile(std::span<const double> sorted, double q) {
@@ -110,16 +125,6 @@ quantity over(std::string name, const Rows& rows, std::size_t at, Pick pick) {
     return q;
 }
 
-// A time for a reader: 9.100 ms, 412.0 us, 1.250 s.
-std::string readable(double seconds) {
-    if (seconds >= 1)
-        return std::format("{:.3f} s", seconds);
-    if (seconds >= 1e-3)
-        return std::format("{:.3f} ms", seconds * 1e3);
-    if (seconds >= 1e-6)
-        return std::format("{:.1f} us", seconds * 1e6);
-    return std::format("{:.0f} ns", seconds * 1e9);
-}
 }  // namespace
 
 namespace {
@@ -279,6 +284,20 @@ void record(std::string_view name, const distribution& d) {
         metric(base + ".over", double(d.over), "");
         metric(base + ".over.share",
                d.samples.empty() ? 0 : double(d.over) / double(d.samples.size()), "");
+    }
+    if (!under_runner()) {
+        std::string line = std::format("{}: {} (p95 {}, p99 {}, max {}; mean {}; {} calls", name,
+                                       readable(d.p50), readable(d.p95), readable(d.p99),
+                                       readable(d.max), readable(d.mean), d.samples.size());
+        if (d.limit > 0)
+            line += std::format("; {} over {}", d.over, readable(d.limit));
+        line += ")";
+        for (const quantity& q : d.parts)
+            line += std::format("\n    {}: {} (p99 {}, max {})", q.name, readable(q.p50),
+                                readable(q.p99), readable(q.max));
+        for (const quantity& q : d.values)
+            line += std::format("\n    {}: {:g} (max {:g})", q.name, q.mean, q.max);
+        std::println("{}", line);
     }
     for (const slow_call& c : d.slowest) {
         std::string line = std::format("{}: call {} took {}", name, c.index, readable(c.seconds));

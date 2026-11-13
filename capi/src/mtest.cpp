@@ -120,7 +120,7 @@ void mtest_init(const char* framework, int level) {
              {"protocol", 1},
              {"level", std::clamp(level, 1, 3)},
              {"framework", text(framework)},
-             {"version", "0.8.1"},
+             {"version", "0.8.2"},
              {"isolation", {"process", "case"}}});
 }
 

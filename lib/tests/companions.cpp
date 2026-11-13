@@ -92,12 +92,20 @@ int main(int argc, char** argv) {
                    eq(d.values[0].min, 922.0));
             expect(eq(d.values[1].calls, std::size_t(10)) && eq(d.values[1].mean, 11.0))
                 << "over the calls that said it";
-            expect(eq(d.slowest.size(), std::size_t(2)) && eq(d.slowest[0].index, std::size_t(7)) &&
-                   eq(d.slowest[0].said, std::string("zoom 0.43")) &&
+            // Which calls a loaded machine slows is not this test's to say: each stated call
+            // carries what that call said, the slowest first.
+            expect(eq(d.slowest.size(), std::size_t(2)) &&
                    ge(d.slowest[0].seconds, d.slowest[1].seconds));
-            expect(eq(d.slowest[0].parts.size(), std::size_t(2)) &&
-                   ge(d.slowest[0].parts[0].second, 0.0009) &&
-                   eq(d.slowest[0].values[0].second, 24570.0));
+            for (const bench::slow_call& c : d.slowest) {
+                const bool slow = c.index == 7;
+                expect(eq(c.parts.size(), std::size_t(2)) && eq(c.parts[1].second, 0.00005))
+                    << c.index;
+                expect(eq(c.values[0].second, slow ? 24570.0 : 922.0) &&
+                       eq(c.said, std::string(slow ? "zoom 0.43" : "")))
+                    << c.index;
+                expect(eq(c.values.size(), std::size_t(c.index % 2 == 0 ? 2 : 1)))
+                    << "the calls of an even turn said lists";
+            }
         };
     "a limit a call: how many passed it, and those are the ones stated; a body ends the run"_test
         [kind::bench] = [] {
@@ -119,10 +127,14 @@ int main(int argc, char** argv) {
                                   .warmup = 0,
                                   .limit = std::chrono::microseconds{400}});
             expect(eq(calls, std::size_t(12)) && eq(d.samples.size(), std::size_t(12)));
-            expect(eq(d.over, std::size_t(2)) && eq(d.slowest.size(), std::size_t(2)) &&
-                   eq(d.limit, 0.0004));
-            const std::array<std::size_t, 2> late{d.slowest[0].index, d.slowest[1].index};
-            expect((late[0] == 4 && late[1] == 9) || (late[0] == 9 && late[1] == 4));
+            // The two that spun past the limit are over it, and stated; a loaded machine may put
+            // others over.
+            expect(ge(d.over, std::size_t(2)) &&
+                   eq(d.slowest.size(), std::min<std::size_t>(d.over, 8)) && eq(d.limit, 0.0004));
+            if (d.over <= 8)
+                for (std::size_t late : {std::size_t(4), std::size_t(9)})
+                    expect(std::ranges::contains(d.slowest, late, &bench::slow_call::index))
+                        << late;
         };
     "calls that say nothing keep nothing"_test[kind::bench] = [] {
         auto d = bench::each("quiet", [](bench::lap&) {},

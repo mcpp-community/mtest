@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2] - 2026-11-14
+
+- 0.8.1 as released: its tag was made and its release was not (a test of `bench::each` held that
+  the call it had slowed was the slowest of all, which a loaded machine does not grant). The tests
+  now hold each stated call to what that call said, whichever calls the machine slowed. The library
+  is 0.8.1's.
+
 ## [0.8.1] - 2026-11-14
 
 - **A measured call says what it was made of** (`bench::each`, `mcpplibs.mtest.bench`). The body's

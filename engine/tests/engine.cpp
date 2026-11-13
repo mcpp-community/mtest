@@ -735,7 +735,7 @@ printf ')" + header +
     "a run fixture is served once and its endpoint reaches its users"_test[kind::e2e] = [] {
         auto root = project(
             // Ready once the endpoint exists: announced first, a user started at once found no
-            // directory (measured on macOS in 0.7.0's CI).
+            // directory (seen once in a macOS run of CI, 43359543216).
             {{"serve.sh",
               "mkdir -p served; echo \"mtest-ready $PWD/served\"; cat >/dev/null; rmdir served\n"},
              {"u1.sh", "test -d \"$MTEST_FIXTURE_HOME\" && echo one >> "

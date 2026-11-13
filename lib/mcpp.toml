@@ -17,7 +17,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "mtest"
-version     = "0.7.0"
+version     = "0.7.1"
 description = "The C++ test library of mtest: cases, expectations, fixtures, bench, conformance and end-to-end helpers, with no macro and no header, speaking the mtest protocol"
 license     = "Apache-2.0"
 authors     = ["mcpp-community"]
@@ -34,6 +34,16 @@ sources = ["src/*.cppm", "src/*.cpp"]
 
 [targets.mtest]
 kind = "lib"
+
+# The three modules beside the root are its users (each re-exports it), so the root cannot
+# re-export them; a module is public when the lib root or an enabled feature brings it (mcpp
+# SPEC-008), and each is a feature, on by default. A program that imports one of them builds
+# against the packed library as from source.
+[features]
+default = ["e2e", "bench", "cts"]
+e2e     = { sources = ["src/e2e.cppm", "src/e2e.cpp"] }
+bench   = { sources = ["src/bench.cppm", "src/bench.cpp"] }
+cts     = { sources = ["src/cts.cppm", "src/cts.cpp"] }
 
 # The `main` of a test program whose files only declare suites. mcpp 2026.11.8.1 and later begin
 # such a file here by itself (`test-main`) and know it speaks the protocol (`test-protocol`); an

@@ -105,11 +105,13 @@ struct each_options {
 // `name.allocated` (bytes, the mean) -- less what a call paused for;
 // `at_most{"draw.allocations.max", 0}` is a frame that allocates nothing. A program that never says
 // so reports none of them.
+// Counted a thread: a call's allocations are those of the thread that runs it (what its workers
+// allocate meanwhile is not the call's), and counting costs a thread two additions.
 void allocated(std::size_t bytes) noexcept;
 struct allocation_count {
     std::uint64_t count = 0, bytes = 0;
 };
-allocation_count allocations() noexcept;
+allocation_count allocations() noexcept;  // this thread's, so far
 
 // One call: what the body may say of it.
 class lap {

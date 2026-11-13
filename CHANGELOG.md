@@ -21,6 +21,8 @@
   program that counts says so from its own (`bench::allocated(n)`), and `each` then reports
   `name.allocations` (the mean a call), `name.allocations.max` and `name.allocated` (bytes), less
   what a call paused for: `at_most{"draw.allocations.max", 0}` is a frame that allocates nothing.
+  Counted a thread -- the calling thread's allocations are the call's, and the count is no line
+  two threads write: a program whose workers allocate is not slowed by being measured.
 - Additive: a body that says none of these is measured and reported as it was; no event and no
   clause changed.
 

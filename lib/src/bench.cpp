@@ -123,17 +123,19 @@ std::string readable(double seconds) {
 }  // namespace
 
 namespace {
-std::atomic<std::uint64_t> allocation_calls{0}, allocation_bytes{0};
-}
+// A thread's own: an allocation costs it two additions and touches no line another thread writes,
+// so a program whose other threads allocate is not slowed by being counted.
+thread_local constinit std::uint64_t allocation_calls = 0;
+thread_local constinit std::uint64_t allocation_bytes = 0;
+}  // namespace
 
 void allocated(std::size_t bytes) noexcept {
-    allocation_calls.fetch_add(1, std::memory_order_relaxed);
-    allocation_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    ++allocation_calls;
+    allocation_bytes += bytes;
 }
 
 allocation_count allocations() noexcept {
-    return {allocation_calls.load(std::memory_order_relaxed),
-            allocation_bytes.load(std::memory_order_relaxed)};
+    return {allocation_calls, allocation_bytes};
 }
 
 void lap::part(std::string_view name, clock::duration spent) {

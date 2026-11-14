@@ -53,7 +53,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
   The entry enters the child before any case; the copy runs no case and reports nothing. The files of
   one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
   copies.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.8.2"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.8.3"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -158,7 +158,9 @@ How the tests of a project are laid out, from the directory to the line, is in
   `operator new` and calls `bench::allocated(n)` from it gets each call's allocations too:
   `draw.allocations`, `draw.allocations.max`, `draw.allocated` (bytes). With `{.limit = 8333us}`,
   `draw.over` counts the calls that took more (and they are the ones stated one by one);
-  `l.last()` ends the run at this call.
+  `l.last()` ends the run at this call. The same as a loop, for a body that keeps its state where it
+  runs: `bench::laps run{"draw"}; while (run.next()) { ... }` -- `run` is the call's lap, and
+  `run.result()` where the calls lay.
 
 ## Programs under test
 
@@ -272,6 +274,7 @@ its precision, so a bound is written as for any metric: `at_most{"mem.peak", 64.
 | `mcpp test --cases` | each program's cases, running none |
 | `mcpp test --message-format json` | a record per program with each case's result, place and both sides |
 | `mcpp test <test> --print-launch` | how a test starts, for a debugger |
+| `<the built program> [--list] [identifier \| name \| 'pattern*' ...]` | the program alone: the cases named — one by its identifier, those under a name (`suite/group`), those a pattern matches; a measurement's numbers are printed |
 | `mtest run --isolate --jobs N --shard I/N` | the cases scheduled by their resources and history, a part of them |
 
 A failure reads `case fields/a field holds its text failed at tests/fields.cpp:9: ...`; the JSON

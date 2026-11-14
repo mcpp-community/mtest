@@ -613,8 +613,11 @@ using suite = Suite;
 // Runs every suite not yet run, writes the summary (the `done` event under a
 // runner), and returns the program's exit status (P5.5).
 int report();
-// The same, for a `main` that receives its arguments: `--list` prints the cases'
-// identifiers, and the remaining arguments select cases by identifier prefix.
+// The same, for a `main` that receives its arguments, which a person gives a program run alone:
+// `--list` prints the cases' identifiers; any other argument selects — a case by its identifier,
+// the cases under a name (`suite`, `suite/group`: what lies before a `/`), or the cases a pattern
+// with
+// `*` (any run of characters) matches. A selection no case answers fails the run.
 int run(int argc, char** argv);
 
 // ---- fixtures ---------------------------------------------------------------

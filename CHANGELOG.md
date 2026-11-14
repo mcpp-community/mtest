@@ -9,6 +9,9 @@
   command states its own limits (`out_limit`, `err_limit`, the former values by default); and a
   failed `succeeded` or `exited` names the output that was cut and its size. Nothing changes for an
   output within its limit.
+- CI caches the package store with its ABI directory. The store alone, restored, held the emsdk
+  compiler without the loader its interpreter names, and the Web row of 0.8.4's release failed with
+  "provides no std module source"; a store cached before this is not restored.
 
 ## [0.8.4] - 2026-11-14
 

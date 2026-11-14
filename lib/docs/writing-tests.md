@@ -53,7 +53,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
   The entry enters the child before any case; the copy runs no case and reports nothing. The files of
   one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
   copies.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.8.4"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.8.5"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -177,6 +177,9 @@ expect(e2e::contains(r.err, "warning"));
   outputs and `line`, the command as one POSIX shell line (`e2e::shell_line`). A failed
   `succeeded`, `exited(r, n)`, `contains` or `matches` reports the line that repeats it and the
   tails of both outputs, so a failure reads as a session a person can paste into a shell.
+- An output is kept to its limit (`command::out_limit`, 256 MiB, and `err_limit`, 1 MiB); past it
+  the outcome states `out_truncated` or `err_truncated`, and a failed `succeeded` or `exited` names
+  the cut. A case that looks for text in a long output raises the limit, or checks the flag first.
 - `e2e::tree({{path, content}...})` writes a directory of files; `e2e::golden(file, text)` compares
   with a golden file (`MTEST_GOLDEN=update` writes it).
 - **A session** drives a program whose input depends on what it wrote: a serial console, a

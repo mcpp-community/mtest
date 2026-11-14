@@ -22,12 +22,22 @@ struct command {
         env;  // a value sets, nothing removes
     std::string input;
     std::chrono::milliseconds timeout{std::chrono::seconds{60}};
+    // The bytes of each output the outcome keeps; what is past them is read and dropped, so the
+    // program never waits on a full pipe (0.8.5).
+    std::size_t out_limit = std::size_t{256} << 20;
+    std::size_t err_limit = std::size_t{1} << 20;
 };
 
 struct outcome {
     int status = -1;  // the program's exit code, or the shell's 128 + signal
     bool started = false;
     bool timed_out = false;
+    // An output longer than its limit (`command::out_limit`, `err_limit`) is kept to the limit,
+    // and says so; `held_open`: a process the program started still held an output open after it
+    // ended (0.8.5).
+    bool out_truncated = false;
+    bool err_truncated = false;
+    bool held_open = false;
     std::string out, err;
     std::chrono::milliseconds duration{0};
     std::string line;  // the command as a POSIX shell line, to repeat it by hand (0.7.0)

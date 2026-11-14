@@ -24,12 +24,18 @@ runs:
       run: |
         irm https://d2learn.org/xlings-install.ps1.txt | iex
         "$env:USERPROFILE\.xlings\subos\current\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+    # The packages and the ABI directory beside them: the loader and the libraries an installed
+    # Linux package is linked against (its interpreter and run paths) are links there, into the
+    # packages. A store restored without it holds programs that do not start, and was taken for
+    # installed (the emsdk compiler, 0.8.4).
     - name: Cache the mcpp package store
       uses: actions/cache@v5
       with:
-        path: ~/.mcpp/registry/data/xpkgs
-        key: mcpp-xpkgs-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-${{ hashFiles('**/mcpp.toml') }}
-        restore-keys: mcpp-xpkgs-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-
+        path: |
+          ~/.mcpp/registry/data/xpkgs
+          ~/.mcpp/registry/abi
+        key: mcpp-store-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-${{ hashFiles('**/mcpp.toml') }}
+        restore-keys: mcpp-store-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-
     - name: Install mcpp
       shell: bash
       run: |

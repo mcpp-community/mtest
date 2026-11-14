@@ -327,7 +327,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.8.3"},
+         {"version", "0.8.4"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
@@ -1322,7 +1322,15 @@ capability_answer evaluate(const probe& t) {
     if (!t.path.empty() &&
         std::ranges::none_of(t.path, [](const auto& g) { return some_file(expand(g)); }))
         return {false, std::format("no file matches {}", expand(t.path.front()))};
-    if (!t.command.empty()) {
+    // A system that starts no programs (the Web) has none of the functions that start one, and a
+    // program that reaches them does not link there. So the question is answered where the target
+    // is known: asked for a command, such a system says it starts none, and nothing of starting one
+    // is in the program.
+    if constexpr (os::is_emscripten) {
+        if (!t.command.empty())
+            return {false, std::format("{} cannot be started: this system starts no programs",
+                                       t.command.front())};
+    } else if (!t.command.empty()) {
         os::process::spawn_options o;
         o.program = os::fs::from_utf8(expand(t.command.front()));
         for (std::size_t i = 1; i < t.command.size(); ++i)

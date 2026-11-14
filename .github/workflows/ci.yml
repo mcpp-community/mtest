@@ -105,6 +105,23 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # A system that starts no programs: the test library links there and its tests run (under node).
+  # 0.8.0 to 0.8.3 linked no test program for this target -- the library's core reached the functions
+  # that start a program, which this system does not have -- and no row here built for it.
+  web:
+    name: web (wasm32-emscripten)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-mcpp
+      # The tests of the library that start no program themselves.
+      - name: The library's tests that start no program, under node
+        run: |
+          set -euo pipefail
+          mcpp test -p mcpplibs.mtest --target wasm32-emscripten bounds
+          mcpp test -p mcpplibs.mtest --target wasm32-emscripten allocations
+
   # As it is released: ok images, run by okrun on each system of each architecture.
   images:
     name: images (${{ matrix.os }}, ${{ matrix.arch }}-openkal)

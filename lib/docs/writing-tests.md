@@ -274,6 +274,7 @@ its precision, so a bound is written as for any metric: `at_most{"mem.peak", 64.
 | `mcpp test --cases` | each program's cases, running none |
 | `mcpp test --message-format json` | a record per program with each case's result, place and both sides |
 | `mcpp test <test> --print-launch` | how a test starts, for a debugger |
+| `<the built program> [--list] [identifier \| name \| 'pattern*' ...]` | the program alone: the cases named — one by its identifier, those under a name (`suite/group`), those a pattern matches; a measurement's numbers are printed |
 | `mtest run --isolate --jobs N --shard I/N` | the cases scheduled by their resources and history, a part of them |
 
 A failure reads `case fields/a field holds its text failed at tests/fields.cpp:9: ...`; the JSON

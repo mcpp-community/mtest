@@ -16,6 +16,11 @@
 - **What the lap keeps is not the call's.** The allocations `part`, `time` and `value` make to keep
   what a call says are left out of the call's count: a frame that allocates nothing reports none
   while it states its parts (`lib/tests/allocations.cpp`, a program that replaces `operator new`).
+- **A program run alone selects as the runner does.** Its arguments name cases by identifier, by
+  the name they lie under (`suite/group`, which was run and then reported as no case), or by a
+  pattern with `*` (the cases it matches, as `mcpp test --case` takes one); a selection no
+  case answers fails the run. The interface said "by prefix" and the program took whole
+  identifiers: the statement and the behaviour are now one (`lib/tests/alone.cpp`).
 - Additive: `each` measures and reports as it did.
 
 ## [0.8.2] - 2026-11-14

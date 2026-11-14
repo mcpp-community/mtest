@@ -60,6 +60,9 @@ struct state {
     bool protocol = false;
     bool listing = false;
     std::optional<std::set<std::string>> selection;
+    std::vector<std::string> patterns;  // a person's, with `*`
+    std::set<std::string> patterns_met;
+    bool alone = false;  // the selection is a person's, given as the program's arguments
     std::set<std::string> seen;
     std::ofstream events;
     std::filesystem::path tmp_root;
@@ -356,6 +359,55 @@ attributes inherited() {
     return s.stack.empty() ? attributes{} : s.stack.back().attrs;
 }
 
+// Whether an identifier is what a pattern says: `*` is any run of characters, the rest itself.
+// `begins`: whether an identifier that begins so could be.
+bool matches(std::string_view pattern, std::string_view id, bool begins = false) {
+    std::size_t at = 0, in = 0, star = std::string_view::npos, resumed = 0;
+    while (in < id.size()) {
+        if (at < pattern.size() && pattern[at] == '*') {
+            star = at++;
+            resumed = in;
+        } else if (at < pattern.size() && pattern[at] == id[in]) {
+            ++at;
+            ++in;
+        } else if (star != std::string_view::npos) {
+            at = star + 1;
+            in = ++resumed;
+        } else {
+            return false;
+        }
+    }
+    if (begins)
+        return true;
+    while (at < pattern.size() && pattern[at] == '*')
+        ++at;
+    return at == pattern.size();
+}
+
+// The pattern a case answers, itself or by a case it is declared in; met from then on.
+bool answers_pattern(const std::string& id) {
+    auto& s = the();
+    bool any = false;
+    for (const auto& pattern : s.patterns) {
+        bool is = matches(pattern, id);
+        for (auto slash = id.find('/'); !is && slash != std::string::npos;
+             slash = id.find('/', slash + 1))
+            is = matches(pattern, std::string_view(id).substr(0, slash));
+        if (is) {
+            s.patterns_met.insert(pattern);
+            any = true;
+        }
+    }
+    return any;
+}
+
+// Whether a case declared inside this one could answer a pattern.
+bool may_declare_pattern(const std::string& id) {
+    return std::ranges::any_of(the().patterns, [&](const std::string& pattern) {
+        return matches(pattern, id + "/", true);
+    });
+}
+
 // Whether a case is reported: it is selected, or declared inside a selected case (P4.1). A case
 // that runs only because it declares a selected one is the scope of that case (P3.4).
 bool reported(const std::string& id) {
@@ -366,7 +418,7 @@ bool reported(const std::string& id) {
         if (want == id ||
             (id.starts_with(want) && id.size() > want.size() && id[want.size()] == '/'))
             return true;
-    return false;
+    return answers_pattern(id);
 }
 
 // A case runs when it is selected, or is an ancestor or a descendant of a selected case (P4).
@@ -382,7 +434,7 @@ bool selected(const std::string& id) {
         if (id.starts_with(want) && id.size() > want.size() && id[want.size()] == '/')
             return true;
     }
-    return false;
+    return answers_pattern(id) || may_declare_pattern(id);
 }
 
 std::string sanitized(std::string_view id) {
@@ -794,6 +846,13 @@ void test::operator=(body b) {
                     skipped.push_back(want);
                     s.seen.insert(want);
                 }
+            // What a pattern would have found in it is not declared: the scope stands for it.
+            for (const auto& pattern : s.patterns)
+                if (matches(pattern, id + "/", true)) {
+                    s.patterns_met.insert(pattern);
+                    if (!std::ranges::contains(skipped, id))
+                        skipped.push_back(id);
+                }
         }
         for (const auto& one : skipped) {
             write_event({{"e", "begin"}, {"id", one}, {"t", since_start()}});
@@ -1011,11 +1070,23 @@ int report() {
         for (const auto& want : *s.selection) {
             if (s.seen.contains(want))
                 continue;
+            // A person may name a group of cases by the part of their names before a `/`.
+            if (s.alone && std::ranges::any_of(s.seen, [&](const std::string& id) {
+                    return id.size() > want.size() && id.starts_with(want) &&
+                           id[want.size()] == '/';
+                }))
+                continue;
             missing = true;
             write_event({{"e", "missing"}, {"id", want}});
             say(std::format("  FAIL {} -- no such case", want));
         }
     }
+    if (!s.listing)
+        for (const auto& pattern : s.patterns)
+            if (!s.patterns_met.contains(pattern)) {
+                missing = true;
+                say(std::format("  FAIL {} -- no such case", pattern));
+            }
     const bool failed = s.any_failed || missing;
     write_event({{"e", "done"}, {"status", failed ? "fail" : "pass"}, {"counts", s.counts}});
     if (!s.listing) {
@@ -1046,14 +1117,14 @@ int run(int argc, char** argv) {
         s.done = true;
         return it->second(std::vector<std::string>(argv + 3, argv + argc));
     }
-    std::vector<std::string> prefixes;
+    std::vector<std::string> wanted;
     bool list = false;
     for (int i = 1; i < argc; ++i) {
         std::string_view a = argv[i];
         if (a == "--list")
             list = true;
         else if (!a.starts_with("--"))
-            prefixes.emplace_back(a);
+            wanted.emplace_back(a);
     }
     if (list && !s.protocol) {
         // The cases, by identifier, for a person: run the suites in list mode with no events.
@@ -1064,9 +1135,17 @@ int run(int argc, char** argv) {
         s.done = true;
         return 0;
     }
-    if (!prefixes.empty() && !s.protocol) {
-        std::set<std::string> ids(prefixes.begin(), prefixes.end());
+    if (!wanted.empty() && !s.protocol) {
+        // A pattern is met as the cases declare themselves (a case inside a case is not listed);
+        // the rest are identifiers and names.
+        std::set<std::string> ids;
+        for (auto& want : wanted)
+            if (want.contains('*'))
+                s.patterns.push_back(std::move(want));
+            else
+                ids.insert(std::move(want));
         s.selection = std::move(ids);
+        s.alone = true;
     }
     return report();
 }

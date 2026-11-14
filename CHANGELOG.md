@@ -12,6 +12,9 @@
   nothing, and the last selects the case without them (`!`), so a case no run measured runs once.
   Measured on mcpp's CI: two suites of 1373 s and 1375 s ran their cases one after another, and
   the longest case of either takes 564 s.
+- CI builds and tests with mcpp 2026.11.14.1. 2026.11.10.1 took an emsdk from a package store
+  restored without the loader its compiler names as present (`provides no std module source`);
+  2026.11.13.1 and later restore that loader's link.
 
 ## [0.8.5] - 2026-11-14
 

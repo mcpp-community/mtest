@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0] - 2026-11-15
+
+- **A selection excludes** (SPEC-017 P4.3). A line `!<id>` of `MTEST_SELECT` leaves out that case
+  and the cases it declares; a selection of exclusions alone runs every case but those. The
+  `program` event states `"selection": ["except"]`, so a runner uses it only with a program that
+  understands it. A runner divides a long case among processes by the cases it declares, which a
+  list does not name (P3.4): each process but one selects the measured cases it was given, and the
+  last selects the case without them, so a case no run has measured still runs once. Measured on
+  mcpp's CI: two suites of 1373 s and 1375 s ran their cases one after another, and the longest
+  case of either takes 564 s.
+
 ## [0.8.5] - 2026-11-14
 
 - **An output cut at its limit says so** (mcpp-community/mtest#22). `e2e::run` keeps at most 1 MiB

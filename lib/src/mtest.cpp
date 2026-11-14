@@ -60,6 +60,8 @@ struct state {
     bool protocol = false;
     bool listing = false;
     std::optional<std::set<std::string>> selection;
+    // P4.5 (0.9.0): the cases a selection's `!<id>` lines leave out, with the cases they declare.
+    std::set<std::string> excluded;
     std::vector<std::string> patterns;  // a person's, with `*`
     std::set<std::string> patterns_met;
     bool alone = false;  // the selection is a person's, given as the program's arguments
@@ -106,13 +108,17 @@ struct state {
                         auto line = rest.substr(0, nl);
                         if (line.ends_with('\r'))
                             line.remove_suffix(1);
-                        if (!line.empty())
+                        if (line.starts_with('!') && line.size() > 1)
+                            excluded.emplace(line.substr(1));
+                        else if (!line.empty())
                             ids.emplace(line);
                         rest =
                             nl == std::string_view::npos ? std::string_view{} : rest.substr(nl + 1);
                     }
                 }
-                selection = std::move(ids);
+                // Only exclusions: every case but those.
+                if (!ids.empty() || excluded.empty())
+                    selection = std::move(ids);
             }
         }
         if (auto m = os::env::get("MTEST_MONITOR"); m && !m->empty())
@@ -327,8 +333,10 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.8.5"},
+         {"version", "0.9.0"},
          {"isolation", {"process", "case"}},
+         // P4.5: a selection's `!<id>` lines are understood.
+         {"selection", {"except"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
 
@@ -410,8 +418,18 @@ bool may_declare_pattern(const std::string& id) {
 
 // Whether a case is reported: it is selected, or declared inside a selected case (P4.1). A case
 // that runs only because it declares a selected one is the scope of that case (P3.4).
+// A case a selection leaves out (`!<id>`), or one such a case declares.
+bool excluded(const std::string& id) {
+    for (const auto& out : the().excluded)
+        if (id == out || (id.starts_with(out) && id.size() > out.size() && id[out.size()] == '/'))
+            return true;
+    return false;
+}
+
 bool reported(const std::string& id) {
     auto& s = the();
+    if (excluded(id))
+        return false;
     if (!s.selection)
         return true;
     for (const auto& want : *s.selection)
@@ -424,6 +442,8 @@ bool reported(const std::string& id) {
 // A case runs when it is selected, or is an ancestor or a descendant of a selected case (P4).
 bool selected(const std::string& id) {
     auto& s = the();
+    if (excluded(id))
+        return false;
     if (!s.selection)
         return true;
     for (const auto& want : *s.selection) {

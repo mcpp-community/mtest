@@ -115,6 +115,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-mcpp
+      - name: DIAGNOSIS (temporary) the restored emsdk
+        run: |
+          E=~/.mcpp/registry/data/xpkgs/xim-x-emsdk/6.0.9
+          ls ~/.mcpp/registry/data/xpkgs/ || true
+          ls -la $E/emscripten/cache/ || true
+          ls $E/emscripten/cache/sysroot/share/libc++/v1 2>&1 | head -5 || true
+          cat $E/emscripten/cache/sanity.txt || true
+          grep -v '^#' $E/emscripten/.emscripten || true
+          command -v python3 node || true
+          $E/emscripten/em++ --print-file-name=libc++.a; echo "rc=$?"
+          $E/emscripten/em++ -print-library-module-manifest-path; echo "rc=$?"
+          ls -la $E/bin/clang* | head -3; $E/bin/clang --version; echo "rc=$?"
       # The tests of the library that start no program themselves.
       - name: The library's tests that start no program, under node
         run: |

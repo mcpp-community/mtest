@@ -208,21 +208,26 @@ int main(int argc, char** argv) {
     // process that runs the rest names what the others run, and the cases no run measured are its.
     "a selection excludes, selects where declared, and runs the rest"_test = [] {
         auto program = events_of("list");
-        auto first = std::ranges::find_if(program, [](const json& x) { return x.value("e", "") == "program"; });
+        auto first = std::ranges::find_if(program, [](const json& x) {
+            return x.value("e", "") == "program";
+        });
         expect(fatal(first != program.end()));
         expect(eq(strings(*first, "selection"), std::vector<std::string>{"except", "optional"}));
 
         auto e = ended(events_of("run", {"conformance", "!conformance/an outer case"}));
         expect(eq(e["conformance/names its clause"], std::string("pass")));
         expect(!e.contains("conformance/an outer case")) << "an excluded case ran";
-        expect(!e.contains("conformance/an outer case/and an inner one")) << "a case it declares ran";
+        expect(!e.contains("conformance/an outer case/and an inner one"))
+            << "a case it declares ran";
         expect(eq(e["conformance"], std::string("pass")));
 
         // A case selected where it is declared: one no longer declared is not missing.
         auto maybe = events_of("run", {"?units/a unit", "?units/a case since removed"});
         expect(eq(ended(maybe)["units/a unit"], std::string("pass")));
-        expect(!std::ranges::any_of(maybe, [](const json& x) { return x.value("e", "") == "missing"; }));
-        auto done = std::ranges::find_if(maybe, [](const json& x) { return x.value("e", "") == "done"; });
+        expect(!std::ranges::any_of(maybe,
+                                    [](const json& x) { return x.value("e", "") == "missing"; }));
+        auto done =
+            std::ranges::find_if(maybe, [](const json& x) { return x.value("e", "") == "done"; });
         expect(fatal(done != maybe.end()));
         expect(eq(done->value("status", ""), std::string("pass")));
 
@@ -230,7 +235,8 @@ int main(int argc, char** argv) {
         auto all = ended(events_of("run", {"!programs", "!kept", "!scoped", "!skipped"}));
         expect(eq(all["plain/of no kind"], std::string("pass")));
         expect(eq(all["units/a unit"], std::string("pass")));
-        expect(!all.contains("programs/runs with the home") && !all.contains("kept/uses the object"));
+        expect(!all.contains("programs/runs with the home") &&
+               !all.contains("kept/uses the object"));
     };
     "a scope is reported when a statement of its own fails"_test = [] {
         auto quiet = ended(events_of("run", {"scoped/inner"}));

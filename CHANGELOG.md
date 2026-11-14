@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0] - 2026-11-15
+
+- **A selection excludes, and selects where declared** (SPEC-017 P4.3). In `MTEST_SELECT`, a line
+  `!<id>` leaves out that case and the cases it declares, and a line `?<id>` selects a case where
+  it is declared and is not `missing` where it is not; a selection of exclusions alone runs every
+  case but those. The `program` event states `"selection": ["except", "optional"]`, so a runner
+  uses them only with a program that understands them. A runner divides a long case among
+  processes by the cases it declares, which a list does not name (P3.4) and its history does: each
+  process but one selects (`?`) the measured cases it was given, so a case since removed fails
+  nothing, and the last selects the case without them (`!`), so a case no run measured runs once.
+  Measured on mcpp's CI: two suites of 1373 s and 1375 s ran their cases one after another, and
+  the longest case of either takes 564 s.
+- CI builds and tests with mcpp 2026.11.14.1. 2026.11.10.1 took an emsdk from a package store
+  restored without the loader its compiler names as present (`provides no std module source`);
+  2026.11.13.1 and later restore that loader's link.
+
 ## [0.8.5] - 2026-11-14
 
 - **An output cut at its limit says so** (mcpp-community/mtest#22). `e2e::run` keeps at most 1 MiB

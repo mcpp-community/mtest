@@ -17,7 +17,7 @@
 [package]
 namespace   = "mcpplibs"
 name        = "mtest"
-version     = "0.8.4"
+version     = "0.8.5"
 description = "The C++ test library of mtest: cases, expectations, fixtures, bench, conformance and end-to-end helpers, with no macro and no header, speaking the mtest protocol"
 license     = "Apache-2.0"
 authors     = ["mcpp-community"]

@@ -39,6 +39,8 @@ outcome run(command c) {
     o.in = c.input.empty() ? os::process::stdio::null : os::process::stdio::pipe;
     os::process::bounds limits;
     limits.hard = c.timeout;
+    limits.out_limit = c.out_limit;
+    limits.err_limit = c.err_limit;
     auto done = os::process::run(std::move(o), limits, c.input);
     if (!done) {
         r.err = std::format("{} did not start: {}", c.argv.front(), done.error().message());
@@ -47,6 +49,9 @@ outcome run(command c) {
     r.started = true;
     r.status = done->status.shell_code();
     r.timed_out = done->timed_out;
+    r.out_truncated = done->out_truncated;
+    r.err_truncated = done->err_truncated;
+    r.held_open = done->held_open;
     r.out = std::move(done->out);
     r.err = std::move(done->err);
     r.duration = done->duration;
@@ -143,6 +148,13 @@ comparison about(const outcome& r, bool held, std::string expression, std::strin
         c.actual += std::
             format("\n--- command ---\n{}\n--- stdout (tail) ---\n{}\n--- stderr (tail) ---\n{}",
                    r.line, tail(r.out), tail(r.err));
+    // An output cut at its limit is named: what a case looked for may be in the dropped part.
+    if (r.out_truncated)
+        c.actual += std::format("\n(stdout was cut at {} bytes: command::out_limit)", r.out.size());
+    if (r.err_truncated)
+        c.actual += std::format("\n(stderr was cut at {} bytes: command::err_limit)", r.err.size());
+    if (r.held_open)
+        c.actual += "\n(a process the program started held an output open after it ended)";
     return c;
 }
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.5] - 2026-11-14
+
+- **An output cut at its limit says so** (mcpp-community/mtest#22). `e2e::run` keeps at most 1 MiB
+  of a program's standard error (256 MiB of its standard output), and an outcome cut there looked
+  complete: a case that searched it could not tell an absent line from a dropped one. The outcome
+  now carries `out_truncated`, `err_truncated` and `held_open` as `mcpplibs.os` reports them; a
+  command states its own limits (`out_limit`, `err_limit`, the former values by default); and a
+  failed `succeeded` or `exited` names the output that was cut and its size. Nothing changes for an
+  output within its limit.
+
 ## [0.8.4] - 2026-11-14
 
 - **A test program links where no program can be started** (the Web). A capability that asks for a

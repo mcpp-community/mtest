@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.4] - 2026-11-14
+
+- **A test program links where no program can be started** (the Web). A capability that asks for a
+  command (`probe::command`) ran it through `mcpplibs.os`'s process functions, which every test
+  program could reach; a target whose system provides none of them -- `wasm32-emscripten`, by
+  openkal's rule that an absent capability is absent at link -- then linked no test program at all
+  (`undefined symbol: kal_process_wait`, ...), since 0.8.0. The target answers at compile time now:
+  asked for a command there, the capability is absent ("this system starts no programs"), and
+  nothing of starting one is in the program. Nothing changes where programs are started.
+
 ## [0.8.3] - 2026-11-14
 
 - **Each call measured by itself, as a loop** (`bench::laps`). `bench::each` takes the call as a

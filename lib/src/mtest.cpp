@@ -60,8 +60,10 @@ struct state {
     bool protocol = false;
     bool listing = false;
     std::optional<std::set<std::string>> selection;
-    // P4.5 (0.9.0): the cases a selection's `!<id>` lines leave out, with the cases they declare.
+    // P4.3 (0.9.0): the cases a selection's `!<id>` lines leave out, with the cases they declare,
+    // and the ids its `?<id>` lines select only where they are declared.
     std::set<std::string> excluded;
+    std::set<std::string> optional;
     std::vector<std::string> patterns;  // a person's, with `*`
     std::set<std::string> patterns_met;
     bool alone = false;  // the selection is a person's, given as the program's arguments
@@ -110,7 +112,10 @@ struct state {
                             line.remove_suffix(1);
                         if (line.starts_with('!') && line.size() > 1)
                             excluded.emplace(line.substr(1));
-                        else if (!line.empty())
+                        else if (line.starts_with('?') && line.size() > 1) {
+                            optional.emplace(line.substr(1));
+                            ids.emplace(line.substr(1));
+                        } else if (!line.empty())
                             ids.emplace(line);
                         rest =
                             nl == std::string_view::npos ? std::string_view{} : rest.substr(nl + 1);
@@ -335,8 +340,8 @@ void write_program() {
          {"framework", "mcpplibs.mtest"},
          {"version", "0.9.0"},
          {"isolation", {"process", "case"}},
-         // P4.5: a selection's `!<id>` lines are understood.
-         {"selection", {"except"}},
+         // P4.3: a selection's `!<id>` and `?<id>` lines are understood.
+         {"selection", {"except", "optional"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/lib/docs/writing-tests.md"}});
 }
 
@@ -418,7 +423,7 @@ bool may_declare_pattern(const std::string& id) {
 
 // Whether a case is reported: it is selected, or declared inside a selected case (P4.1). A case
 // that runs only because it declares a selected one is the scope of that case (P3.4).
-// A case a selection leaves out (`!<id>`), or one such a case declares.
+// A case a selection leaves out (`!<id>`, P4.3), or one such a case declares.
 bool excluded(const std::string& id) {
     for (const auto& out : the().excluded)
         if (id == out || (id.starts_with(out) && id.size() > out.size() && id[out.size()] == '/'))
@@ -1088,7 +1093,7 @@ int report() {
     bool missing = false;
     if (!s.listing && s.selection) {
         for (const auto& want : *s.selection) {
-            if (s.seen.contains(want))
+            if (s.seen.contains(want) || s.optional.contains(want))
                 continue;
             // A person may name a group of cases by the part of their names before a `/`.
             if (s.alone && std::ranges::any_of(s.seen, [&](const std::string& id) {

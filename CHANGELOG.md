@@ -2,14 +2,16 @@
 
 ## [0.9.0] - 2026-11-15
 
-- **A selection excludes** (SPEC-017 P4.3). A line `!<id>` of `MTEST_SELECT` leaves out that case
-  and the cases it declares; a selection of exclusions alone runs every case but those. The
-  `program` event states `"selection": ["except"]`, so a runner uses it only with a program that
-  understands it. A runner divides a long case among processes by the cases it declares, which a
-  list does not name (P3.4): each process but one selects the measured cases it was given, and the
-  last selects the case without them, so a case no run has measured still runs once. Measured on
-  mcpp's CI: two suites of 1373 s and 1375 s ran their cases one after another, and the longest
-  case of either takes 564 s.
+- **A selection excludes, and selects where declared** (SPEC-017 P4.3). In `MTEST_SELECT`, a line
+  `!<id>` leaves out that case and the cases it declares, and a line `?<id>` selects a case where
+  it is declared and is not `missing` where it is not; a selection of exclusions alone runs every
+  case but those. The `program` event states `"selection": ["except", "optional"]`, so a runner
+  uses them only with a program that understands them. A runner divides a long case among
+  processes by the cases it declares, which a list does not name (P3.4) and its history does: each
+  process but one selects (`?`) the measured cases it was given, so a case since removed fails
+  nothing, and the last selects the case without them (`!`), so a case no run measured runs once.
+  Measured on mcpp's CI: two suites of 1373 s and 1375 s ran their cases one after another, and
+  the longest case of either takes 564 s.
 
 ## [0.8.5] - 2026-11-14
 

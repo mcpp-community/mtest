@@ -43,12 +43,9 @@ void known(const toml::table& t, std::string_view where,
 }
 
 // The keys a program states, in `[programs.*]` and `[discover.*]` alike.
-constexpr std::initializer_list<std::string_view> kProgramKeys = {"command",   "cwd",
-                                                                  "env",       "level",
-                                                                  "resources", "sources",
-                                                                  "tags",      "timeout",
-                                                                  "isolation", "kind",
-                                                                  "split",     "skip_exit"};
+constexpr std::initializer_list<std::string_view> kProgramKeys =
+    {"command", "cwd",       "env",  "level", "resources", "sources", "tags",
+     "timeout", "isolation", "kind", "split", "skip_exit", "grace",   "timeout_record"};
 
 void read_program(const toml::table& t, program_spec& s) {
     if (auto v = t["cwd"].value<std::string>())
@@ -67,6 +64,10 @@ void read_program(const toml::table& t, program_spec& s) {
         s.tags = strings(t["tags"]);
     if (auto d = duration_of(t["timeout"]))
         s.timeout = std::chrono::duration_cast<std::chrono::seconds>(*d);
+    if (auto d = duration_of(t["grace"]))
+        s.grace = *d;
+    if (auto v = t["timeout_record"].value<bool>())
+        s.timeout_record = *v;
     if (auto v = t["isolation"].value<std::string>())
         s.isolation = *v;
     if (auto v = t["split"].value<bool>())

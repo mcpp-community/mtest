@@ -183,6 +183,10 @@ std::expected<std::vector<program_spec>, answer> programs_of(const context& ctx,
         if (auto t = text_of(p, "timeout"); !t.empty())
             if (auto d = parse_duration(t))
                 s.timeout = std::chrono::duration_cast<std::chrono::seconds>(*d);
+    for (auto& s : *programs)
+        if (auto t = text_of(p, "grace"); !t.empty())
+            if (auto d = parse_duration(t))
+                s.grace = *d;
     if (p.value("isolate", false))
         for (auto& s : *programs)
             s.isolation = "case";
@@ -825,6 +829,8 @@ answer cmd_explain(const std::filesystem::path& cwd, const json& p) {
         }
         if (c.contains("output") && !c["output"]["err_tail"].get<std::string>().empty())
             text += "  error output (end):\n" + c["output"]["err_tail"].get<std::string>() + "\n";
+        if (c.contains("timeout"))
+            text += timeout_text(timeout_info_from(c["timeout"]), "  ", 400);
         if (c.contains("diagnosis"))
             text += "  diagnosis: " + c["diagnosis"].get<std::string>() + "\n";
         text += "  again: " + c["again"].get<std::string>() + "\n";
@@ -1799,6 +1805,10 @@ json catalog() {
               {"retries", {{"type", "integer"}, {"description", "runs again of a failed case"}}},
               {"isolate", {{"type", "boolean"}, {"description", "each case in its own process"}}},
               {"timeout", {{"type", "string"}, {"description", "a duration for each program"}}},
+              {"grace",
+               {{"type", "string"},
+                {"description", "how long a program asked to end at its timeout has before it "
+                                "is ended"}}},
               {"env", {{"type", "object"}, {"description", "NAME=VALUE for the programs"}}},
               {"run_under",
                {{"type", "array"},
@@ -1958,7 +1968,7 @@ json catalog() {
         plain({{"out", {{"type", "string"}}},
                {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),
         true);
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.9.0"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.10.0"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

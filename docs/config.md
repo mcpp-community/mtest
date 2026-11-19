@@ -13,19 +13,22 @@ jobs  = 0               # 0: the machine's processors
 
 # A program of any language. `level` states the protocol's level; without it the marker decides (P2.3).
 [programs.e2e]
-command   = ["python3", "tests/e2e.py"]
-cwd       = "."
-env       = { MODE = "ci" }
-sources   = ["src/*", "tests/e2e.py"]   # a change of these affects it (affected selection)
-resources = ["serial:db"]               # what it holds alone (P7.1)
-tags      = ["slow"]
-timeout   = "10m"
-isolation = "process"                   # or "case": a process per case
-kind      = "e2e"                       # the kind of its cases that state none (default: its directory's, else unit)
-split     = true                        # whether [run] split may divide its cases among processes
-skip_exit = 77                          # a program judged by its exit status: the status that says its case did not
-                                        # apply here (skip, with the last `SKIP...` line of its output as the reason);
-                                        # unset: every status but 0 fails
+command        = ["python3", "tests/e2e.py"]
+cwd            = "."
+env            = { MODE = "ci" }
+sources        = ["src/*", "tests/e2e.py"]   # a change of these affects it (affected selection)
+resources      = ["serial:db"]               # what it holds alone (P7.1)
+tags           = ["slow"]
+timeout        = "10m"
+grace          = "2s"                        # at its timeout it is asked to end; what still runs this much later is
+                                             # ended (commands.md "Timeouts"); 2s by default
+timeout_record = true                        # its processes are recorded at its timeout and after the grace; false: no record
+isolation      = "process"                   # or "case": a process per case
+kind           = "e2e"                       # the kind of its cases that state none (default: its directory's, else unit)
+split          = true                        # whether [run] split may divide its cases among processes
+skip_exit      = 77                          # a program judged by its exit status: the status that says its case did not
+                                             # apply here (skip, with the last `SKIP...` line of its output as the reason);
+                                             # unset: every status but 0 fails
 
 [discover]
 globs = ["build/tests/*"]               # every executable that matches is a program

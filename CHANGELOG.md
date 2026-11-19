@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.10.0] - 2026-11-19
+
+- **A timeout records the program's processes, asks it to end, and then ends it.** Intermittent
+  timeouts on mcpp's CI (a test ended with status 137) left no state the first time they occurred.
+  At a program's timeout the engine now records its processes before anything else: on Linux, from
+  `/proc`, the program, every process it started and every other process of its unit, each with its
+  parent, group, command, state, the kernel function each of its threads sleeps in, its processor
+  time, what the request to end does to it (`ends`, `caught`, `ignored`) and, where the system lets
+  it be read, its kernel stack; on macOS and Windows the program alone. It then asks the program to
+  end (openkal's request: `SIGTERM` on Linux and macOS; on Windows the program is ended outright),
+  waits at most the program's grace, records what still runs, and ends the program's unit. The
+  case's reason says which ended it (`asked to end, it ended within its grace of 2s`, or `... was
+  still running after its grace of 2s, and was ended`); the record is printed under the case, kept
+  as the program's `timeout` in the run's `programs.ndjson`, given by `mtest explain`, and shown
+  below the failures of the Markdown report (docs/commands.md "Timeouts").
+- **`mtest measure` passes the request on.** It starts a program the engine measures (a program
+  judged by its exit status, on Linux and macOS), and through 0.9.0 the request ended it and not
+  the test, which its unit's end then ended outright: a test never saw the request.
+- **`grace` and `timeout_record`**, keys of `[programs.*]` and `[discover.*]` beside `timeout`, and
+  `mtest run --grace`. The grace is 2 s by default, the grace of mcpplibs.os's bounded run that the
+  engine gave through 0.9.0; `timeout_record = false` takes no record.
+- CI keeps a package store per job. The native job restored the store the Web job had saved under
+  their common key, which lacked the base GCC builds against; its first build installed it, the
+  next build found the base it had recorded changed and emptied the build directory, and the
+  fixtures `mcpp build` had made for the conformance step were gone.
+
 ## [0.9.0] - 2026-11-15
 
 - **A selection excludes, and selects where declared** (SPEC-017 P4.3). In `MTEST_SELECT`, a line

@@ -212,6 +212,30 @@ void failures(std::string& md, const std::vector<const case_result*>& cases) {
     md += "\nRepeat one with `mtest explain --case '<case>'`.\n\n";
 }
 
+// Below the failures, the processes each timeout recorded (0.10.0), once per program.
+void timeout_records(std::string& md, const std::vector<run_record>& runs,
+                     const std::vector<const case_result*>& cases) {
+    const std::set<const case_result*> in(cases.begin(), cases.end());
+    std::set<const program_result*> shown;
+    std::string blocks;
+    for (const auto& r : runs)
+        for (const auto& c : r.cases) {
+            const auto* p = c.status == "timeout" && in.contains(&c)
+                                ? timed_out_program(r, c.program, c.id)
+                                : nullptr;
+            if (!p || p->timeout->seen.empty() || !shown.insert(p).second)
+                continue;
+            blocks += std::format("<details><summary><code>{}</code>: "
+                                  "{}</summary>\n\n```text\n{}```\n\n</details>\n\n",
+                                  case_label(c.program, c.id),
+                                  p->timeout->ended == "requested" ? "it ended when asked"
+                                                                   : "it was ended after its grace",
+                                  timeout_text(*p->timeout, "", 200));
+        }
+    if (!blocks.empty())
+        md += "The processes of each program a timeout ended, as they were then:\n\n" + blocks;
+}
+
 void slowest(std::string& md, std::vector<const case_result*> cases, int top) {
     std::ranges::sort(cases, std::greater{}, [](const case_result* c) { return c->ms; });
     md += "## Slowest cases\n\n| case | kind | time | status |\n|---|---|---:|---|\n";
@@ -391,8 +415,10 @@ std::string markdown_report(const store& s, const std::vector<run_record>& runs,
         summary(md, runs, o);
     if (wants(o, "kinds"))
         kinds(md, cases);
-    if (wants(o, "failures"))
+    if (wants(o, "failures")) {
         failures(md, cases);
+        timeout_records(md, runs, cases);
+    }
     if (wants(o, "slowest"))
         slowest(md, cases, o.top);
     if (wants(o, "metrics"))

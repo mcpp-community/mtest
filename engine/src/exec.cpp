@@ -2,6 +2,7 @@ module mcpplibs.mtest.engine.exec;
 
 import std;
 import mcpplibs.os;
+import mcpplibs.mtest.engine.processes;
 
 namespace mcpplibs::mtest::engine {
 
@@ -69,6 +70,141 @@ std::filesystem::path resolve_program(const std::string& name) {
     if (auto found = os::env::find_executable(name))
         return *found;
     return p;
+}
+
+// A RUN WITHIN ITS TIMEOUT (0.10.0). mcpplibs.os's bounded run asks a program past its limit to end
+// and ends its unit after a grace, with nothing between; the engine composes the same parts with a
+// record between them, so that a hang leaves the state it hung in. The outputs, their limits and
+// their drain are that run's.
+
+// One output, read by a thread of its own in slices, so that the run can stop reading once the
+// program has ended and its outputs have had their drain.
+struct capture {
+    std::mutex lock;
+    std::string data;
+    std::size_t limit = 0;
+};
+struct readers {
+    std::mutex lock;
+    std::condition_variable changed;
+    int open = 2;
+    std::atomic<bool> stop{false};
+};
+constexpr std::chrono::milliseconds read_slice{50};
+
+void collect(std::shared_ptr<os::process::process> p, std::shared_ptr<capture> into,
+             std::shared_ptr<readers> all, bool output) {
+    while (!all->stop.load(std::memory_order_relaxed)) {
+        auto chunk = output ? p->read_output_for(read_slice) : p->read_error_for(read_slice);
+        if (!chunk || (chunk->has_value() && (*chunk)->empty()))
+            break;  // the stream failed, or ended
+        if (!chunk->has_value())
+            continue;
+        // What passes the limit is read and dropped, so that the program never waits on a full
+        // pipe.
+        std::lock_guard g(into->lock);
+        const auto room = into->limit - std::min(into->limit, into->data.size());
+        into->data.append(**chunk, 0, std::min(room, (*chunk)->size()));
+    }
+    {
+        std::lock_guard g(all->lock);
+        --all->open;
+    }
+    all->changed.notify_all();
+}
+
+struct ended_run {
+    os::process::exit_status status;
+    std::string out, err;
+    std::optional<timeout_info> timeout;  // past its limit
+};
+
+// Past its limit: its processes recorded, the program asked to end, and what still runs after its
+// grace recorded and ended with its unit. The first record precedes the request, which changes or
+// ends what it reaches.
+timeout_info end_past_limit(os::process::process& p, const program_spec& spec) {
+    timeout_info t;
+    t.limit_ms = std::chrono::duration<double, std::milli>(spec.timeout).count();
+    t.grace_ms = double(spec.grace.count());
+    if (spec.timeout_record) {
+        auto seen = processes_of(p.id());
+        t.seen = std::move(seen.seen);
+        t.processes = std::move(seen.processes);
+    }
+    p.terminate();
+    const auto within = p.wait_for(spec.grace);
+    t.ended = within && *within ? "requested" : "terminated";
+    if (spec.timeout_record) {
+        // What still runs: a process that has ended and is not yet collected runs no more.
+        t.remaining = processes_of(p.id()).processes;
+        std::erase_if(t.remaining, [](const process_info& x) {
+            return x.state == "zombie" || x.state == "dead";
+        });
+    }
+    p.end_unit();
+    return t;
+}
+
+os::result<ended_run> run_within(os::process::spawn_options o, const program_spec& spec) {
+    const os::process::bounds bounded;
+    o.out = os::process::stdio::pipe;
+    o.err = os::process::stdio::pipe;
+    o.own_unit = true;
+    auto spawned = os::process::process::spawn(o);
+    if (!spawned)
+        return std::unexpected(spawned.error());
+    auto p = std::make_shared<os::process::process>(std::move(*spawned));
+    auto out = std::make_shared<capture>();
+    out->limit = bounded.out_limit;
+    auto err = std::make_shared<capture>();
+    err->limit = bounded.err_limit;
+    auto all = std::make_shared<readers>();
+    std::thread(collect, p, out, all, true).detach();
+    std::thread(collect, p, err, all, false).detach();
+
+    ended_run r;
+    auto waited = p->wait_for(std::chrono::duration_cast<std::chrono::milliseconds>(spec.timeout));
+    if (!waited)
+        return std::unexpected(waited.error());
+    if (waited->has_value()) {
+        r.status = **waited;
+    } else {
+        r.timeout = end_past_limit(*p, spec);
+        auto ended = p->wait();
+        r.status = ended ? *ended : os::process::exit_status{-1, true};
+    }
+    {
+        std::unique_lock g(all->lock);
+        if (!all->changed.wait_for(g, bounded.drain, [&] { return all->open == 0; })) {
+            // The program has ended, and something it started holds its outputs open.
+            p->end_unit();
+            all->stop.store(true, std::memory_order_relaxed);
+            all->changed.wait_for(g, read_slice * 4, [&] { return all->open == 0; });
+        }
+    }
+    {
+        std::lock_guard g(out->lock);
+        r.out = out->data;
+    }
+    {
+        std::lock_guard g(err->lock);
+        r.err = err->data;
+    }
+    return r;
+}
+
+std::string duration_words(double ms) {
+    return std::fmod(ms, 1000) == 0 ? std::format("{}s", ms / 1000) : std::format("{}ms", ms);
+}
+
+// A case's reason for a timeout, `what`, and how the program was then ended.
+std::string timeout_reason(std::string_view what, const timeout_info& t) {
+    const auto grace = duration_words(t.grace_ms);
+    return t.ended == "requested"
+               ? std::format("{}; asked to end, it ended within its grace of {}", what, grace)
+               : std::format("{}; asked to end, it was still running after its grace of {}, "
+                             "and was ended",
+                             what, grace);
 }
 
 }  // namespace
@@ -245,6 +381,9 @@ list_program(const program_spec& spec, const std::filesystem::path& work,
 int measure(const std::filesystem::path& out, std::vector<std::string> argv) {
     if (argv.empty())
         return 2;
+    // At a timeout the engine asks this process to end, and the test is the program it starts: the
+    // request is taken over before the start and passed on, and the program ends as it chooses.
+    const bool passes_on = os::interrupt::available();
     os::process::spawn_options o;
     o.program = resolve_program(argv.front());
     o.args.assign(argv.begin() + 1, argv.end());
@@ -266,8 +405,19 @@ int measure(const std::filesystem::path& out, std::vector<std::string> argv) {
         // The account of a child is the kernel's once the child is reaped, which closing its
         // handle does.
         auto child = std::move(*p);
-        if (auto s = child.wait())
-            st = *s;
+        for (bool passed = false;;) {
+            auto s = child.wait_for(std::chrono::milliseconds{50});
+            if (!s)
+                break;
+            if (s->has_value()) {
+                st = **s;
+                break;
+            }
+            if (passes_on && !passed && os::interrupt::requested()) {
+                child.terminate();
+                passed = true;
+            }
+        }
     }
     json j = {{"source", "engine"}};
     if (auto u = os::process::resources(os::process::of::children)) {
@@ -370,10 +520,8 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
     o.env.emplace_back("MTEST_MONITOR_SAMPLE", std::to_string(request.sample_ms));
     if (request.seed)
         o.env.emplace_back("MTEST_SEED", std::to_string(*request.seed));
-    os::process::bounds limits;
-    limits.hard = std::chrono::duration_cast<std::chrono::milliseconds>(spec.timeout);
     const auto began = std::chrono::steady_clock::now();
-    auto done = os::process::run(std::move(o), limits);
+    auto done = run_within(std::move(o), spec);
     p.ms =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - began).count();
     std::filesystem::remove_all(request.work / "tmp", ec);
@@ -390,7 +538,10 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
         return out;
     }
     p.exit = done->status.shell_code();
-    p.timed_out = done->timed_out;
+    p.timed_out = done->timeout.has_value();
+    p.timeout = std::move(done->timeout);
+    // What a case that the timeout ended says of it.
+    const auto timed_out = [&](std::string_view what) { return timeout_reason(what, *p.timeout); };
     p.out_tail = tail(done->out);
     p.err_tail = tail(done->err);
     out.out = std::move(done->out);
@@ -430,7 +581,7 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
         if (c.status == "skip")
             c.reason = skip_reason(out.out, out.err, p.exit);
         else if (c.status != "pass")
-            c.reason = p.timed_out ? std::format("still running after {}", spec.timeout)
+            c.reason = p.timed_out ? timed_out(std::format("still running after {}", spec.timeout))
                                    : std::format("exit {}", p.exit);
         out.cases.push_back(std::move(c));
     } else {
@@ -448,7 +599,9 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
             if (c.status == "skip")
                 c.reason = skip_reason(out.out, out.err, p.exit);
             else if (c.status != "pass")
-                c.reason = std::format("exit {}", p.exit);
+                c.reason = p.timed_out
+                               ? timed_out(std::format("still running after {}", spec.timeout))
+                               : std::format("exit {}", p.exit);
             out.cases.push_back(std::move(c));
         } else {
             for (auto& c : r.cases) {
@@ -456,7 +609,7 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
                     // P5.4: begun and never ended -- the program ended (or was ended) first.
                     c.status = p.timed_out ? "timeout" : "fail";
                     c.reason = p.timed_out
-                                   ? "the program was still running at its timeout"
+                                   ? timed_out("the program was still running at its timeout")
                                    : std::format("the program ended (exit {}) before the case did",
                                                  p.exit);
                 }
@@ -474,7 +627,7 @@ run_outcome run_program(const program_spec& spec, const run_request& request) {
                 c.id = spec.name;
                 c.ms = p.ms;
                 c.status = p.timed_out ? "timeout" : "fail";
-                c.reason = p.timed_out ? "the program was still running at its timeout"
+                c.reason = p.timed_out ? timed_out("the program was still running at its timeout")
                                        : std::format("exit {} with no failing case{}", p.exit,
                                                      r.done ? "" : ", and no `done' event");
                 out.cases.push_back(std::move(c));

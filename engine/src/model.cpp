@@ -127,11 +127,91 @@ json to_json(const case_result& c) {
         j["started_ms"] = c.started_ms;
     return j;
 }
+
+namespace {
+
+// A process as the timeout recorded it; an empty field is one the system did not tell.
+json to_json(const process_info& p) {
+    json j = {{"id", p.id},           {"parent", p.parent}, {"group", p.group},  {"name", p.name},
+              {"command", p.command}, {"state", p.state},   {"cpu_ms", p.cpu_ms}};
+    if (!p.waiting.empty())
+        j["waiting"] = p.waiting;
+    if (!p.request.empty())
+        j["request"] = p.request;
+    if (!p.threads.empty()) {
+        j["threads"] = json::array();
+        for (const auto& t : p.threads) {
+            json one = {{"id", t.id}, {"name", t.name}, {"state", t.state}, {"cpu_ms", t.cpu_ms}};
+            if (!t.waiting.empty())
+                one["waiting"] = t.waiting;
+            j["threads"].push_back(std::move(one));
+        }
+    }
+    if (!p.stack.empty())
+        j["stack"] = p.stack;
+    return j;
+}
+
+std::vector<process_info> processes_from(const json& j, const char* key) {
+    std::vector<process_info> out;
+    auto it = j.find(key);
+    if (it == j.end() || !it->is_array())
+        return out;
+    for (const auto& e : *it) {
+        process_info p;
+        p.id = e.value("id", std::uint64_t{0});
+        p.parent = e.value("parent", std::uint64_t{0});
+        p.group = e.value("group", std::uint64_t{0});
+        p.name = str(e, "name");
+        p.command = strings<std::string>(e, "command");
+        p.state = str(e, "state");
+        p.waiting = str(e, "waiting");
+        p.request = str(e, "request");
+        p.cpu_ms = e.value("cpu_ms", 0.0);
+        p.stack = str(e, "stack");
+        if (auto t = e.find("threads"); t != e.end() && t->is_array())
+            for (const auto& x : *t)
+                p.threads.push_back({x.value("id", std::uint64_t{0}), str(x, "name"),
+                                     str(x, "state"), str(x, "waiting"), x.value("cpu_ms", 0.0)});
+        out.push_back(std::move(p));
+    }
+    return out;
+}
+
+}  // namespace
+
+json to_json(const timeout_info& t) {
+    json j = {{"limit_ms", t.limit_ms}, {"grace_ms", t.grace_ms}, {"ended", t.ended}};
+    if (!t.seen.empty()) {
+        j["seen"] = t.seen;
+        j["processes"] = json::array();
+        for (const auto& p : t.processes)
+            j["processes"].push_back(to_json(p));
+        j["remaining"] = json::array();
+        for (const auto& p : t.remaining)
+            j["remaining"].push_back(to_json(p));
+    }
+    return j;
+}
+
+timeout_info timeout_info_from(const json& j) {
+    timeout_info t;
+    t.limit_ms = j.value("limit_ms", 0.0);
+    t.grace_ms = j.value("grace_ms", 0.0);
+    t.ended = str(j, "ended");
+    t.seen = str(j, "seen");
+    t.processes = processes_from(j, "processes");
+    t.remaining = processes_from(j, "remaining");
+    return t;
+}
+
 json to_json(const program_result& p) {
     json j = {{"name", p.name},     {"argv", p.argv}, {"cwd", p.cwd}, {"level", p.level},
               {"status", p.status}, {"exit", p.exit}, {"ms", p.ms}};
     if (p.timed_out)
         j["timed_out"] = true;
+    if (p.timeout)
+        j["timeout"] = to_json(*p.timeout);
     if (!p.out_tail.empty())
         j["out_tail"] = p.out_tail;
     if (!p.err_tail.empty())
@@ -276,6 +356,8 @@ program_result program_result_from(const json& j) {
     p.exit = j.value("exit", 0);
     p.ms = j.value("ms", 0.0);
     p.timed_out = j.value("timed_out", false);
+    if (auto t = j.find("timeout"); t != j.end() && t->is_object())
+        p.timeout = timeout_info_from(*t);
     p.out_tail = str(j, "out_tail");
     p.err_tail = str(j, "err_tail");
     p.error = str(j, "error");

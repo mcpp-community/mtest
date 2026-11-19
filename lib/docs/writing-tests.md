@@ -84,7 +84,7 @@ isolation holds for everything inside; the others are the innermost one stated.
 | `clause{"P3.1"}` | a specification clause the case covers | forms the conformance matrix |
 | `resource{"serial:db"}`, `resource{"machine"}` | what it holds exclusively | never runs two holders of one `serial:` group, nor a `machine` case beside another, at once |
 | `artifact{"file:data/x.txt"}` | what it reads | selects it when that changes |
-| `timeout{std::chrono::seconds{90}}` | how long it may run | ends the process that runs it at that time |
+| `timeout{std::chrono::seconds{90}}` | how long it may run | ends the process that runs it at that time; `mtest` first records its processes and asks it to end ([docs/commands.md](../../docs/commands.md) "Timeouts") |
 | `isolate{}` | that it runs in a process of its own | starts one for it |
 | `retries{2}` | that a failure may be retried | runs it again, alone; one that then passes is `flaky` |
 | `diagnose{.env = {{"APP_LOG", "debug"}}}` | how to look at a failure | runs a failing case once more with that environment and keeps the output (`mtest explain`) |

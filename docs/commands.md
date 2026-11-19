@@ -36,7 +36,7 @@ nothing; a built program's own listing is the authority (`manifest/src/manifest.
 
 | Command | Does |
 |---|---|
-| `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--env K=V`, `--run-under CMD` (every start of a program, its listing included: a runner such as an emulator or a machine of the program's system), `--monitor LEVEL` (P10), `--group G` (runs reported together); `--junit`, `--html`, `--report-json FILE`, `--md FILE`; `--coverage` measures the coverage map. A program's cases are divided among workers that would otherwise idle (`[run] split`), and programs run together within the machine's memory (`[run] memory`) |
+| `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--grace 2s` (below), `--env K=V`, `--run-under CMD` (every start of a program, its listing included: a runner such as an emulator or a machine of the program's system), `--monitor LEVEL` (P10), `--group G` (runs reported together); `--junit`, `--html`, `--report-json FILE`, `--md FILE`; `--coverage` measures the coverage map. A program's cases are divided among workers that would otherwise idle (`[run] split`), and programs run together within the machine's memory (`[run] memory`) |
 | `run --resume RUN` | the selection, less the cases RUN judged: their results are carried into the new run, so an interrupted long run (a bench over a matrix) ends as one whole run; a case RUN could not start runs again |
 | `rerun` | the cases that failed in the last run |
 | `smoke` | the `smoke` set |
@@ -48,6 +48,35 @@ nothing; a built program's own listing is the authority (`manifest/src/manifest.
 A program runs by the protocol when it carries the marker or declares its level; otherwise its exit
 status is its one result. Cases tagged `flaky`, and quarantined ones, are retried alone up to
 `--retries`; one that then passes is `flaky`. A quarantined case's failure does not fail the run.
+
+### Timeouts
+
+A program still running at its timeout (`timeout`, `--timeout`; a case's own `timeout` where a
+process runs that case alone) is first asked to end and then ended, and its processes are recorded
+before the request, so that a hang leaves the state it hung in:
+
+1. **The record.** On Linux, from `/proc`: the program, every process it started, and every other
+   process of its unit (the process group it leads, which a process it started keeps after the
+   program has ended). Each process states its parent, its group, its command, its state, the kernel
+   function it sleeps in, its processor time, what the request to end does to it (`ends`, `caught`,
+   `ignored`), each of its threads with its state and its kernel function, and, where the system lets
+   it be read, its kernel stack. Where the system lists no other process to the engine (macOS,
+   Windows, a `/proc` the engine cannot read), the record holds the program alone, with its
+   processor time, and says so.
+2. **The request.** openkal's request to end a program: `SIGTERM` on Linux and macOS, which a
+   program may handle or ignore; on Windows the program is ended outright. The request reaches the
+   program the engine started; `mtest measure`, which starts a program the engine measures, passes
+   it on. What the program started receives it from the program, or not at all.
+3. **The grace.** The engine waits for the program at most its `grace` (a key of `[programs.*]` and
+   `[discover.*]`, [config.md](config.md); `--grace`; 2 s by default).
+4. **The end.** What still runs in the program's unit is recorded again and ended.
+
+The case's reason says how the program ended: `asked to end, it ended within its grace of 2s`, or
+`asked to end, it was still running after its grace of 2s, and was ended`. The record is printed
+under the case, kept in the run's `programs.ndjson` as the program's `timeout` (`limit_ms`,
+`grace_ms`, `ended`, `seen`, `processes`, `remaining`), given by `mtest explain`, and shown below the
+failures of the Markdown report. A program that states `timeout_record = false` is asked to end and
+ended in the same way, with no record.
 
 ## Asking
 

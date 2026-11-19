@@ -50,6 +50,13 @@ json json_of(const e2e::outcome& r) {
     return j;
 }
 
+// Whether a timeout's record holds every process of a program's unit here: Linux lists its
+// processes in /proc, where the engine, as this program, reads it.
+bool sees_the_tree() {
+    return mcpplibs::os::host() == mcpplibs::os::platform::linux &&
+           std::filesystem::exists("/proc/self/stat");
+}
+
 // A protocol script: the cases given as `id:status`, each with a function that does what its status
 // says.
 std::string script(std::initializer_list<std::string_view> cases, std::string_view extra = {}) {
@@ -112,6 +119,80 @@ int main() {
         auto root = project({{"hang.sh", "sleep 30\n"}});
         auto j = json_of(mtest(root, {"run", "--json", "--timeout", "1s", "bash hang.sh"}));
         expect(eq(j["counts"].value("timeout", 0), 1));
+    };
+    "a timeout records the program's processes, then asks it to end"_test[kind::e2e][tag{"slow"}] =
+        [] {
+            // bash ends on the request; the `sleep` it started does not receive it, and is ended
+            // with the program's unit. A grace that long is not waited for by a program that ends.
+            auto root = project({{"hang.sh", "sleep 30\n"}});
+            auto r = mtest(root, {"run", "--timeout", "1s", "--grace", "60s", "bash hang.sh"});
+            expect(contains(r.out, "asked to end, it ended within its grace of 60s")) << r.out;
+            auto j = json_of(mtest(root, {"explain", "--json"}));
+            auto t = j["cases"][0]["timeout"];
+            expect(fatal(t.is_object())) << j.dump();
+            expect(eq(t.value("ended", ""), std::string("requested"))) << t.dump();
+            expect(eq(t.value("grace_ms", 0.0), 60000.0)) << t.dump();
+            if (!sees_the_tree()) {
+                expect(eq(t.value("seen", ""), std::string("program"))) << t.dump();
+                expect(le(t["processes"].size(), std::size_t(1))) << t.dump();
+                return;
+            }
+            expect(eq(t.value("seen", ""), std::string("tree"))) << t.dump();
+            expect(contains(r.out, "processes at the timeout:")) << r.out;
+            const auto& seen = t["processes"];
+            const auto sleeping = std::find_if(seen.begin(), seen.end(), [](const json& p) {
+                return p.value("name", "") == "sleep";
+            });
+            expect(fatal(sleeping != seen.end())) << t.dump();
+            expect(eq(sleeping->value("state", ""), std::string("sleeping"))) << t.dump();
+            expect(eq(sleeping->value("request", ""), std::string("ends"))) << t.dump();
+            expect(contains(t["remaining"].dump(), "\"sleep\"")) << t.dump();
+        };
+    "a program that ignores the request to end is ended after its grace"_test[kind::e2e][tag{
+        "slow"}] = [] {
+        auto root =
+            project({{"stubborn.sh", "trap '' TERM\nsleep 30\n"},
+                     {"mtest.toml", "[programs.stubborn]\ncommand = [\"bash\", "
+                                    "\"stubborn.sh\"]\ntimeout = \"1s\"\ngrace = \"1s\"\n"}});
+        const auto began = std::chrono::steady_clock::now();
+        auto r = mtest(root, {"run"});
+        const std::chrono::duration<double> took = std::chrono::steady_clock::now() - began;
+        auto j = json_of(mtest(root, {"explain", "--json"}));
+        auto t = j["cases"][0]["timeout"];
+        expect(fatal(t.is_object())) << j.dump();
+        expect(eq(j["cases"][0].value("status", ""), std::string("timeout")));
+        // openkal's request to end a program is TerminateProcess on Windows, which no
+        // program declines.
+        if (mcpplibs::os::host() == mcpplibs::os::platform::windows) {
+            expect(eq(t.value("ended", ""), std::string("requested"))) << t.dump();
+            return;
+        }
+        expect(eq(t.value("ended", ""), std::string("terminated"))) << t.dump();
+        expect(ge(took.count(), 2.0)) << "the timeout, then the grace";
+        expect(contains(r.out, "still running after its grace of 1s, and was ended")) << r.out;
+        if (!sees_the_tree())
+            return;
+        // bash, and the `sleep` that inherits its disposition, ignore the request.
+        const auto& left = t["remaining"];
+        const auto ignoring = std::count_if(left.begin(), left.end(), [](const json& p) {
+            return p.value("request", "") == "ignored";
+        });
+        expect(ge(ignoring, 2)) << t.dump();
+    };
+    "a protocol program's case says how its timeout ended it; timeout_record = false records "
+    "nothing"_test[kind::e2e][tag{"slow"}] = [] {
+        auto root =
+            project({{"t.sh", script({"quick:pass", "stuck:hang"}, "hang() { sleep 30; }\n")},
+                     {"mtest.toml", "[programs.t]\ncommand = [\"bash\", \"t.sh\"]\ntimeout = "
+                                    "\"1s\"\ntimeout_record = false\n"}});
+        auto j = json_of(mtest(root, {"run", "--json"}));
+        expect(eq(j["counts"].value("timeout", 0), 1)) << j.dump();
+        expect(eq(j["counts"].value("pass", 0), 1)) << j.dump();
+        expect(contains(j["failing"][0].value("why", ""), "asked to end")) << j.dump();
+        auto e = json_of(mtest(root, {"explain", "--json"}));
+        auto t = e["cases"][0]["timeout"];
+        expect(fatal(t.is_object())) << e.dump();
+        expect(!t.contains("seen") && !t.contains("processes")) << t.dump();
     };
     "a program that does not start is the machine's failure, not the test's"_test[kind::e2e] = [] {
         auto root = project({{"x.txt", ""}});

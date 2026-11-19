@@ -43,7 +43,90 @@ std::string shell_quote(std::string_view t) {
     return out + "'";
 }
 
+// `sleeping in do_wait, ignores the request to end, 3 ms of processor time`.
+std::string facts_of(std::string_view state, std::string_view waiting, std::string_view request,
+                     double cpu_ms) {
+    std::string out;
+    if (!state.empty())
+        out = waiting.empty() ? std::string(state) : std::format("{} in {}", state, waiting);
+    if (request == "ignored" || request == "caught")
+        out += std::format("{}{} the request to end", out.empty() ? "" : ", ",
+                           request == "ignored" ? "ignores" : "handles");
+    return out + std::format("{}{:.0f} ms of processor time", out.empty() ? "" : ", ", cpu_ms);
+}
+
+std::string process_line(const process_info& p) {
+    std::string command;
+    for (const auto& word : p.command)
+        command += (command.empty() ? "" : " ") + word;
+    if (command.empty())
+        command = p.name;
+    // A compiler's command line is the record's, not the terminal's.
+    constexpr std::size_t shown = 160;
+    if (command.size() > shown)
+        command = command.substr(0, shown) + " ...";
+    return std::format("{}{}{}: {}", p.id, command.empty() ? "" : " ", command,
+                       facts_of(p.state, p.waiting, p.request, p.cpu_ms));
+}
+
+// Each process under the one that started it, with its threads and its kernel stack.
+void add_processes(std::vector<std::string>& lines, const std::vector<process_info>& processes,
+                   const std::string& indent) {
+    std::map<std::uint64_t, std::size_t> depth;
+    for (const auto& p : processes) {
+        const auto parent = depth.find(p.parent);
+        const auto d = parent == depth.end() ? std::size_t{0} : parent->second + 1;
+        depth[p.id] = d;
+        const auto at = indent + std::string(2 * d, ' ');
+        lines.push_back(at + process_line(p));
+        for (const auto& t : p.threads)
+            lines.push_back(std::format("{}  thread {} {}: {}", at, t.id, t.name,
+                                        facts_of(t.state, t.waiting, {}, t.cpu_ms)));
+        if (p.stack.empty())
+            continue;
+        for (auto part : std::views::split(std::string_view(p.stack), '\n'))
+            lines.push_back(std::format("{}  {}", at, std::string_view(part.begin(), part.end())));
+    }
+}
+
 }  // namespace
+
+const program_result* timed_out_program(const run_record& r, std::string_view program,
+                                        std::string_view id) {
+    const program_result* any = nullptr;
+    for (const auto& p : r.programs) {
+        if (p.name != program || !p.timeout)
+            continue;
+        if (p.select.empty() || std::ranges::find(p.select, id) != p.select.end())
+            return &p;
+        any = &p;
+    }
+    return any;
+}
+
+std::string timeout_text(const timeout_info& t, std::string_view indent, std::size_t most) {
+    if (t.seen.empty())
+        return {};
+    const std::string at(indent);
+    std::vector<std::string> lines;
+    lines.push_back(at + (t.seen == "tree" ? "processes at the timeout:"
+                                           : "the program at the timeout (this system lists no "
+                                             "other process to mtest):"));
+    add_processes(lines, t.processes, at + "  ");
+    if (!t.remaining.empty()) {
+        lines.push_back(at + (t.ended == "requested"
+                                  ? "left running by the program, and ended with its unit:"
+                                  : "still running after the grace, and ended:"));
+        add_processes(lines, t.remaining, at + "  ");
+    }
+    std::string out;
+    for (std::size_t i = 0; i < lines.size() && i < most; ++i)
+        out += lines[i] + "\n";
+    if (lines.size() > most)
+        out += std::format("{}... {} more lines: the whole record is in `mtest explain --json`\n",
+                           at, lines.size() - most);
+    return out;
+}
 
 std::string reproduce_command(std::string_view program, std::string_view id) {
     return std::format("mtest run --program {} --case {}", shell_quote(program), shell_quote(id));
@@ -76,6 +159,8 @@ std::string summary_text(const run_record& r, bool verbose) {
         auto it = r.counts.find(k);
         return it == r.counts.end() ? 0 : it->second;
     };
+    // A program's processes at its timeout, under the first of its cases the timeout ended.
+    std::set<const program_result*> recorded;
     for (const auto& c : r.cases) {
         if (!failing(c.status) && c.status != "infra" && !verbose)
             continue;
@@ -90,6 +175,9 @@ std::string summary_text(const run_record& r, bool verbose) {
             if (!f.expected.empty() || !f.actual.empty())
                 out += std::format("      expected {}\n      actual   {}\n", f.expected, f.actual);
         }
+        if (const auto* p = c.status == "timeout" ? timed_out_program(r, c.program, c.id) : nullptr;
+            p && recorded.insert(p).second)
+            out += timeout_text(*p->timeout, "    ", 40);
         if (failing(c.status))
             out += std::format("    again: {}\n", again(c));
     }
@@ -221,6 +309,10 @@ std::expected<json, std::string> explain(const store& s, const run_record& r,
                                   {"cwd", p.cwd},
                                   {"level", p.level},
                                   {"exit", p.exit}};
+        // How its timeout ended it, and the processes recorded then.
+        if (const auto* p =
+                c->status == "timeout" ? timed_out_program(r, c->program, c->id) : nullptr)
+            item["timeout"] = to_json(*p->timeout);
         // The case's recent history: a new failure, one that keeps failing, or one that changes.
         json recent = json::array();
         auto all = runs(s);

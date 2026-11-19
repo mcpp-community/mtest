@@ -20,6 +20,11 @@ struct program_spec {
     std::vector<std::string> sources;    // paths whose change affects it (affected selection)
     std::vector<std::string> tags;
     std::chrono::seconds timeout{300};
+    // At its timeout it is asked to end, and what still runs `grace` later is ended (0.10.0); the
+    // default is the grace of mcpplibs.os's bounded run, which the engine gave through 0.9.0. With
+    // `timeout_record`, its processes are recorded at the timeout and after the grace.
+    std::chrono::milliseconds grace{std::chrono::seconds{2}};
+    bool timeout_record = true;
     std::string isolation = "process";  // "process" or "case"
     std::string origin = "config";      // "given" (the command line), "config", "discover", "host"
     // The kind of an L0 program's one case and of a case that states none: stated in mtest.toml,
@@ -118,6 +123,41 @@ struct case_result {
     double started_ms = -1;
 };
 
+// A thread of a process, as the engine saw it at a timeout (0.10.0).
+struct thread_info {
+    std::uint64_t id = 0;
+    std::string name, state;
+    std::string waiting;  // the kernel function it sleeps in (Linux: wchan); empty: not told
+    double cpu_ms = 0;
+};
+
+// A process of a program's unit, as the engine saw it at a timeout (0.10.0). What the system does
+// not tell, or does not let the engine read, is empty.
+struct process_info {
+    std::uint64_t id = 0, parent = 0, group = 0;
+    std::string name;
+    std::vector<std::string> command;
+    std::string state;    // running, sleeping, waiting (uninterruptible), stopped, zombie, ...
+    std::string waiting;  // as its first thread's
+    std::string request;  // what the request to end does to it: ends, caught, ignored
+    double cpu_ms = 0;
+    std::vector<thread_info> threads;  // when it has more than one
+    std::string stack;                 // the kernel's stack of its first thread, where readable
+};
+
+// How a program past its timeout was ended (0.10.0): its processes were recorded, it was asked to
+// end, and what still ran after its grace was recorded and ended.
+struct timeout_info {
+    double limit_ms = 0, grace_ms = 0;
+    std::string ended;  // "requested": it ended within its grace; "terminated": ended after it
+    // "tree": the program, the processes it started and the rest of its unit (Linux); "program":
+    // the program alone, where the system lists no other process to the engine; empty: not recorded
+    // (`timeout_record = false`).
+    std::string seen;
+    std::vector<process_info> processes;  // at the timeout, before the request
+    std::vector<process_info> remaining;  // after the grace, before the unit was ended
+};
+
 struct program_result {
     std::string name;
     std::vector<std::string> argv;
@@ -127,9 +167,10 @@ struct program_result {
     int exit = 0;
     double ms = 0;
     bool timed_out = false;
-    std::string out_tail, err_tail;  // the last part of each output
-    std::string error;               // why it did not run, for an infra status
-    std::string origin = "config";   // as program_spec's: how the program is named again
+    std::optional<timeout_info> timeout;  // how it was ended at its timeout, and its processes
+    std::string out_tail, err_tail;       // the last part of each output
+    std::string error;                    // why it did not run, for an infra status
+    std::string origin = "config";        // as program_spec's: how the program is named again
     // When it started, in milliseconds after the run began, and what it held: the run's timeline.
     double started_ms = 0;
     std::vector<std::string> resources;
@@ -179,6 +220,7 @@ std::vector<bound_info> bounds_from(const json& j);
 json to_json(const failure_info& f);
 json to_json(const metric_info& m);
 json to_json(const case_result& c);
+json to_json(const timeout_info& t);
 json to_json(const program_result& p);
 json to_json(const run_record& r);  // without programs and cases (run.json)
 json to_json(const fixture_run& f);
@@ -186,6 +228,7 @@ fixture_run fixture_run_from(const json& j);
 
 case_info case_info_from(const json& j);
 case_result case_result_from(const json& j);
+timeout_info timeout_info_from(const json& j);
 program_result program_result_from(const json& j);
 run_record run_record_from(const json& j);
 

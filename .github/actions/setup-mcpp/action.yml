@@ -28,14 +28,20 @@ runs:
     # Linux package is linked against (its interpreter and run paths) are links there, into the
     # packages. A store restored without it holds programs that do not start, and was taken for
     # installed (the emsdk compiler, 0.8.4).
+    #
+    # One store per job: a job restores what a job of its own saved. The native job of 0.10.0's pull
+    # request restored the store the Web job had saved first under their common key, which lacked
+    # the base GCC builds against (glibc, the Linux headers); its first build installed it, the next
+    # build found the base it had recorded changed and emptied the build directory, and the
+    # fixtures `mcpp build` had made for the conformance step were gone.
     - name: Cache the mcpp package store
       uses: actions/cache@v5
       with:
         path: |
           ~/.mcpp/registry/data/xpkgs
           ~/.mcpp/registry/abi
-        key: mcpp-store-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-${{ hashFiles('**/mcpp.toml') }}
-        restore-keys: mcpp-store-${{ runner.os }}-${{ runner.arch }}-${{ env.MCPP_VERSION }}-
+        key: mcpp-store-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ env.MCPP_VERSION }}-${{ hashFiles('**/mcpp.toml') }}
+        restore-keys: mcpp-store-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ env.MCPP_VERSION }}-
     - name: Install mcpp
       shell: bash
       run: |

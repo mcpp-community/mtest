@@ -21,6 +21,10 @@
 - **`grace` and `timeout_record`**, keys of `[programs.*]` and `[discover.*]` beside `timeout`, and
   `mtest run --grace`. The grace is 2 s by default, the grace of mcpplibs.os's bounded run that the
   engine gave through 0.9.0; `timeout_record = false` takes no record.
+- CI keeps a package store per job. The native job restored the store the Web job had saved under
+  their common key, which lacked the base GCC builds against; its first build installed it, the
+  next build found the base it had recorded changed and emptied the build directory, and the
+  fixtures `mcpp build` had made for the conformance step were gone.
 
 ## [0.9.0] - 2026-11-15
 

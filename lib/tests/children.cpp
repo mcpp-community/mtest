@@ -12,6 +12,12 @@ child echo{"echo", [](std::vector<std::string> args) {
                return static_cast<int>(args.size()) + 3;
            }};
 
+// Sleeps for its first argument's count of seconds.
+child sleeper{"sleeper", [](std::vector<std::string> args) {
+                  std::this_thread::sleep_for(std::chrono::seconds(std::stoul(args.at(0))));
+                  return 0;
+              }};
+
 // Writes its first argument's count of bytes to standard error, and one line to standard output.
 child loud{"loud", [](std::vector<std::string> args) {
                std::print(std::cerr, "{}", std::string(std::stoul(args.at(0)), 'e'));
@@ -42,6 +48,26 @@ UTest children{"children", [] {
                        auto whole = e2e::run({.argv = child_command("loud", bytes)});
                        expect(eq(whole.err.size(), std::size_t{65536}));
                        expect(!whole.err_truncated);
+                   };
+                   // 0.11.1: a command is held to what its case has left of its `timeout`.
+                   "a command ends when its case's time does"_test[timeout{
+                       std::chrono::seconds{10}}] = [] {
+                       const auto left = time_left();
+                       expect(fatal(left.has_value()));
+                       expect(le(left->count(), 10000LL));
+                       const std::vector<std::string> secs{"30"};
+                       auto o = e2e::run({.argv = child_command("sleeper", secs),
+                                          .timeout = std::chrono::seconds{60}});
+                       expect(o.timed_out);
+                       expect(o.case_limit);
+                       expect(lt(o.duration.count(), 10000LL))
+                           << "it did not leave the case time of its own";
+                       expect(e2e::succeeded(o).actual.contains("the time its case had left"));
+                   };
+                   "a case that states no time leaves the command its own"_test = [] {
+                       expect(!time_left().has_value());
+                       auto o = e2e::run({.argv = child_command("echo", {})});
+                       expect(!o.case_limit);
                    };
                    "a name no file declares is refused"_test = [] {
                        auto argv = self_command();

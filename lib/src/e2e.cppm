@@ -40,6 +40,8 @@ struct outcome {
     bool out_truncated = false;
     bool err_truncated = false;
     bool held_open = false;
+    // Its timeout was what its case had left, not the command's own (0.11.1).
+    bool case_limit = false;
     std::string out, err;
     std::chrono::milliseconds duration{0};
     std::string line;  // the command as a POSIX shell line, to repeat it by hand (0.7.0)

@@ -846,6 +846,11 @@ private:
 std::uint64_t seed();
 // The identifier of the case that runs now; empty outside a case.
 std::string current_case();
+// What the running case has left of the time it may run: the earliest end of its own `timeout` and
+// of each scope's around it, each counted from when it began; nothing when none states one, or
+// outside a case (0.11.1). mcpplibs.mtest.e2e holds each command to it, less what ending the
+// command takes and a tenth (at most five seconds) the case keeps for its report.
+std::optional<std::chrono::milliseconds> time_left();
 // A file the case produced, reported with the case (P5.2 `artifact`).
 void produced(const std::filesystem::path& file, std::string_view kind = "file");
 

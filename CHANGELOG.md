@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.1] - 2026-11-21
+
+- **A command is held to what its case has left.** `time_left()` states what the running case has
+  left of its `timeout`, the earliest end of its own and of each scope's around it, each counted
+  from when it began; nothing when none states one. `e2e::run` holds a command to it, less what ending
+  the command takes (its grace and drain) and a tenth (at most five seconds) the case keeps for its
+  report: a command that would outlast its case ends
+  while the case can still say so, with the outputs it wrote, and the outcome's `case_limit` and
+  the failure's text (`the time its case had left`) say why. A command of a case that states no
+  time keeps its own limit. Source-compatible with 0.11.0; the engine changes only the version
+  it states, which the five packages share.
+
 ## [0.11.0] - 2026-11-21
 
 What a test system needs to see the cost of the tests it runs (SPEC-017 v2.5; mcpp's test and CI

@@ -133,7 +133,7 @@ struct case_result {
     // Its processor time: the `cpu.user` and `cpu.sys` metrics it reported (P6.6), else the time
     // its program used while it ran alone in it; negative when not known (0.11.0).
     double cpu_ms = -1;
-    std::vector<step_info> steps;       // P5.6 (0.11.0)
+    std::vector<step_info> steps;        // P5.6 (0.11.0)
     std::vector<std::string> exercised;  // the items of the product's surface it used, sorted
     // The time it may take, as the runner applied it (SPEC-017 O5); negative when not known.
     double limit_ms = -1;
@@ -223,7 +223,7 @@ struct run_record {
     std::string system, arch, machine, commit, set, selection;
     int processors = 0;
     std::uint64_t memory = 0;
-    int budget = 0;  // O11: the slots of the run's budget; 0: none (0.11.0)
+    int budget = 0;     // O11: the slots of the run's budget; 0: none (0.11.0)
     int jitter_ms = 0;  // O12: the most a program waited at a contention point
     std::uint64_t jitter_seed = 0;
     double ms = 0;

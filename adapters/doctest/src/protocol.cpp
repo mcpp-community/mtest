@@ -60,7 +60,8 @@ std::string id_of(const doctest::TestCaseData& t) {
 
 const auto began = std::chrono::steady_clock::now();
 long long ms_since(std::chrono::steady_clock::time_point at) {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - at)
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                 at)
         .count();
 }
 
@@ -70,12 +71,9 @@ public:
     void report_query(const doctest::QueryData& q) override {
         for (unsigned i = 0; i < q.num_data; ++i) {
             const auto& t = *q.data[i];
-            event e = {{"e", "case"},
-                       {"id", id_of(t)},
-                       {"name", t.m_name},
-                       {"file", t.m_file.c_str()},
-                       {"line", t.m_line},
-                       {"kind", "unit"}};
+            event e = {{"e", "case"},      {"id", id_of(t)},
+                       {"name", t.m_name}, {"file", t.m_file.c_str()},
+                       {"line", t.m_line}, {"kind", "unit"}};
             if (t.m_skip) {
                 e["expect"] = "skip";
                 e["reason"] = t.m_description && *t.m_description ? t.m_description : "skipped";
@@ -94,14 +92,16 @@ public:
     void test_case_end(const doctest::CurrentTestCaseStats& st) override {
         const std::string status = st.testCaseSuccess ? "pass" : "fail";
         ++counts()[status];
-        report().write({{"e", "end"}, {"id", current_}, {"status", status}, {"ms", ms_since(started_)}});
+        report().write(
+            {{"e", "end"}, {"id", current_}, {"status", status}, {"ms", ms_since(started_)}});
     }
     void test_case_exception(const doctest::TestCaseException& e) override {
         report().write({{"e", "failure"},
                         {"id", current_},
                         {"file", ""},
                         {"line", 0},
-                        {"message", std::string(e.is_crash ? "crashed: " : "threw: ") + e.error_string.c_str()},
+                        {"message", std::string(e.is_crash ? "crashed: " : "threw: ") +
+                                        e.error_string.c_str()},
                         {"fatal", true}});
     }
     void subcase_start(const doctest::SubcaseSignature&) override {}
@@ -129,10 +129,12 @@ public:
         // A case a selection left out is not reported; one its decorator skipped is.
         if (!selected().empty() && !selected().contains(id))
             return;
-        const std::string reason = t.m_description && *t.m_description ? t.m_description : "skipped";
+        const std::string reason =
+            t.m_description && *t.m_description ? t.m_description : "skipped";
         ++counts()["skip"];
         report().write({{"e", "begin"}, {"id", id}, {"t", ms_since(began)}});
-        report().write({{"e", "end"}, {"id", id}, {"status", "skip"}, {"ms", 0}, {"reason", reason}});
+        report().write(
+            {{"e", "end"}, {"id", id}, {"status", "skip"}, {"ms", 0}, {"reason", reason}});
     }
 private:
     std::string current_;
@@ -155,14 +157,15 @@ int mcpplibs_mtest_doctest_main(int argc, char** argv) {
     const char* volatile keep = mcpplibs_mtest_doctest_marker;
     (void)keep;
     report().out.open(path, std::ios::app | std::ios::binary);
-    report().write({{"e", "program"},
-                    {"protocol", 1},
-                    {"level", 1},
-                    {"framework", "doctest"},
-                    {"version", "0.11.0"},
-                    {"isolation", {"process", "case"}},
-                    {"guide", "https://github.com/mcpp-community/mtest/blob/main/adapters/doctest/docs/"
-                              "writing-tests.md"}});
+    report().write(
+        {{"e", "program"},
+         {"protocol", 1},
+         {"level", 1},
+         {"framework", "doctest"},
+         {"version", "0.11.0"},
+         {"isolation", {"process", "case"}},
+         {"guide", "https://github.com/mcpp-community/mtest/blob/main/adapters/doctest/docs/"
+                   "writing-tests.md"}});
     // The list is the registry's: doctest's own listing leaves out a case its decorator skips.
     if (env("MTEST_MODE") == "list") {
         std::vector<const doctest::TestCaseData*> all;

@@ -291,9 +291,10 @@ std::string show_signed(long long value);
 std::string show_unsigned(unsigned long long value);
 std::string show_floating(double value, bool single);
 template <class T>
-inline constexpr bool is_character = std::is_same_v<T, char> || std::is_same_v<T, wchar_t>
-    || std::is_same_v<T, char8_t> || std::is_same_v<T, char16_t> || std::is_same_v<T, char32_t>
-    || std::is_same_v<T, signed char> || std::is_same_v<T, unsigned char>;
+inline constexpr bool is_character =
+    std::is_same_v<T, char> || std::is_same_v<T, wchar_t> || std::is_same_v<T, char8_t> ||
+    std::is_same_v<T, char16_t> || std::is_same_v<T, char32_t> || std::is_same_v<T, signed char> ||
+    std::is_same_v<T, unsigned char>;
 template <class T>
 std::string show(const T& value) {
     using U = std::remove_cvref_t<T>;
@@ -331,7 +332,13 @@ comparison compare(bool held, const char* op, const A& a, const B& b) {
 // A number or a truth value, compared in the library (0.11.0): integers by their values whatever
 // their signedness (std::cmp_equal), a floating value with another number as double.
 struct operand {
-    enum class of : unsigned char { signed_integer, unsigned_integer, floating, single, boolean } kind;
+    enum class of : unsigned char {
+        signed_integer,
+        unsigned_integer,
+        floating,
+        single,
+        boolean
+    } kind;
     long long s = 0;
     unsigned long long u = 0;
     double d = 0;
@@ -339,8 +346,9 @@ struct operand {
 enum class relation : unsigned char { eq, ne, lt, le, gt, ge };
 comparison relate(const operand& a, relation r, const operand& b);
 template <class T>
-inline constexpr bool is_operand = std::is_same_v<T, bool> || std::is_same_v<T, float>
-    || std::is_same_v<T, double> || (std::is_integral_v<T> && !is_character<T>);
+inline constexpr bool is_operand =
+    std::is_same_v<T, bool> || std::is_same_v<T, float> || std::is_same_v<T, double> ||
+    (std::is_integral_v<T> && !is_character<T>);
 template <class T>
 operand operand_of(const T& v) {
     if constexpr (std::is_same_v<T, bool>)
@@ -355,7 +363,8 @@ operand operand_of(const T& v) {
         return {operand::of::unsigned_integer, 0, static_cast<unsigned long long>(v), 0};
 }
 template <class A, class B>
-inline constexpr bool both_operands = is_operand<std::remove_cvref_t<A>> && is_operand<std::remove_cvref_t<B>>;
+inline constexpr bool both_operands =
+    is_operand<std::remove_cvref_t<A>> && is_operand<std::remove_cvref_t<B>>;
 }  // namespace detail
 
 template <class A, class B>
@@ -501,7 +510,8 @@ struct body {
     requires std::invocable<F&> && std::is_void_v<std::invoke_result_t<F&>>
     body(F&& f, std::source_location w = std::source_location::current())
         : call([](void* o) { (*static_cast<std::remove_reference_t<F>*>(o))(); }),
-          object(const_cast<void*>(static_cast<const volatile void*>(std::addressof(f)))), where(w) {}
+          object(const_cast<void*>(static_cast<const volatile void*>(std::addressof(f)))),
+          where(w) {}
     void run() const {
         call(object);
     }
@@ -602,7 +612,8 @@ struct name_here {
 
 namespace detail {
 std::string name_of(const char* data, std::size_t size);
-void add_suite(std::string name, std::source_location where, attributes attrs, std::function<void()> f);
+void add_suite(std::string name, std::source_location where, attributes attrs,
+               std::function<void()> f);
 // A name (NUL-terminated when `size` is all ones), its place, its kind (-1: none) and its body.
 void add_plain(const char* name, std::size_t size, std::source_location where, int k, void (*f)());
 template <class... A>
@@ -618,7 +629,8 @@ void declare_suite(name_here name, int k, A&&... args) {
                   "a body returns nothing: a case ends at its end, at `return;`, at skip() or "
                   "at fail()");
     [&]<std::size_t... I>(std::index_sequence<I...>) {
-        (apply(attrs, std::remove_cvref_t<std::tuple_element_t<I, std::tuple<A...>>>(std::get<I>(all))),
+        (apply(attrs,
+               std::remove_cvref_t<std::tuple_element_t<I, std::tuple<A...>>>(std::get<I>(all))),
          ...);
     }(std::make_index_sequence<n - 1>{});
     add_suite(name_of(name.data, name.size), name.where, std::move(attrs),
@@ -669,13 +681,15 @@ namespace detail {
 template <class F>
 inline constexpr bool plain_body = std::is_convertible_v<F, void (*)()>;
 template <class... A>
-inline constexpr bool one_plain_body = sizeof...(A) == 1 && (plain_body<std::remove_cvref_t<A>> && ...);
+inline constexpr bool one_plain_body =
+    sizeof...(A) == 1 && (plain_body<std::remove_cvref_t<A>> && ...);
 // The arguments of a declaration with attributes: what the plain form's own calls pass (a place)
 // is none of them, so the declaration's overloads are set aside by their constraints before a
 // name's conversion is examined, which would load std::string_view into the file.
 template <class... A>
-inline constexpr bool declared_form = sizeof...(A) >= 1 && !one_plain_body<A...>
-    && (!std::is_same_v<std::remove_cvref_t<A>, std::source_location> && ...);
+inline constexpr bool declared_form =
+    sizeof...(A) >= 1 && !one_plain_body<A...> &&
+    (!std::is_same_v<std::remove_cvref_t<A>, std::source_location> && ...);
 }  // namespace detail
 
 class Suite {

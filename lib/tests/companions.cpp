@@ -239,7 +239,8 @@ int main(int argc, char** argv) {
     };
     "a golden comparison reads the text with its redactions applied"_test = [] {
         const auto root = e2e::tree({{"g.txt", "built in <time> at <root>/out, <digest>\n"}});
-        const auto text = std::format("built in 12.5 ms at {}/out, 0123abcd\n", root.generic_string());
+        const auto text =
+            std::format("built in 12.5 ms at {}/out, 0123abcd\n", root.generic_string());
         std::vector<e2e::redaction> rules = e2e::redactions::paths(root);
         for (const auto& r : e2e::redactions::durations())
             rules.push_back(r);

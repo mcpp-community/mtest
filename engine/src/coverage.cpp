@@ -9,8 +9,8 @@ namespace os = mcpplibs::os;
 
 namespace {
 
-constexpr std::uint32_t kGcdaMagic = 0x67636461;  // "gcda"
-constexpr std::uint32_t kArcsTag = 0x01a10000;    // GCOV_TAG_COUNTER_BASE: the arc counters
+constexpr std::uint32_t kGcdaMagic = 0x67636461;    // "gcda"
+constexpr std::uint32_t kArcsTag = 0x01a10000;      // GCOV_TAG_COUNTER_BASE: the arc counters
 constexpr std::uint32_t kFunctionTag = 0x01000000;  // GCOV_TAG_FUNCTION: ident, checksums
 
 std::uint32_t swapped(std::uint32_t v) {
@@ -105,7 +105,8 @@ double median_of(std::vector<double> v) {
     return v.size() % 2 ? v[v.size() / 2] : (v[v.size() / 2 - 1] + v[v.size() / 2]) / 2;
 }
 
-std::pair<std::size_t, double> spread_over(const std::map<std::string, std::vector<std::string>>& by_case) {
+std::pair<std::size_t, double>
+spread_over(const std::map<std::string, std::vector<std::string>>& by_case) {
     std::map<std::string, std::size_t> count;
     for (const auto& [_, items] : by_case)
         for (const auto& item : items)
@@ -213,12 +214,8 @@ void write_coverage(const std::filesystem::path& file, const coverage_map& m) {
     json functions = json::object();
     for (const auto& [k, fns] : m.functions)
         functions[k] = fns;
-    json j = {{"format", kCoverageFormat},
-              {"commit", m.commit},
-              {"time", m.time},
-              {"epoch", m.epoch},
-              {"cases", cases},
-              {"functions", functions}};
+    json j = {{"format", kCoverageFormat}, {"commit", m.commit}, {"time", m.time},
+              {"epoch", m.epoch},          {"cases", cases},     {"functions", functions}};
     std::error_code ec;
     std::filesystem::create_directories(file.parent_path(), ec);
     const auto tmp = file.string() + ".tmp";

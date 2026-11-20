@@ -20,8 +20,11 @@ int main() {
     "placed"_test[only{architecture::wasm32}] = [] {};
     "bounded"_test[at_most{"elapsed", 0.1}] = [] { metric("elapsed", 0.5, "s"); };
     "steps"_test = [] {
-        step({.name = "build", .began = std::chrono::steady_clock::now(),
-              .took = std::chrono::milliseconds{3}, .status = 0, .build = "b1"});
+        step({.name = "build",
+              .began = std::chrono::steady_clock::now(),
+              .took = std::chrono::milliseconds{3},
+              .status = 0,
+              .build = "b1"});
         exercise({"command build", "flag build --target"});
     };
     return report();

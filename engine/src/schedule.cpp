@@ -558,7 +558,8 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
     const auto outer_budget = os::env::get("MTEST_BUDGET");
     const auto outer_held = os::env::get("MTEST_BUDGET_HELD");
     const bool nested = outer_budget && !outer_budget->empty();
-    const auto budget_dir = nested ? os::fs::from_utf8(*outer_budget) : s.dir / "work" / rec.id / "budget";
+    const auto budget_dir =
+        nested ? os::fs::from_utf8(*outer_budget) : s.dir / "work" / rec.id / "budget";
     if (!nested) {
         std::filesystem::create_directories(budget_dir);
         for (int i = 0; i < rec.jobs; ++i)
@@ -576,7 +577,8 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
         std::ranges::sort(slots);
         for (const auto& f : slots)
             if (outer_held.value_or("") != os::fs::utf8(f))
-                if (auto l = os::fs::lock::acquire(f, os::fs::lock::kind::exclusive, false); l && l->held())
+                if (auto l = os::fs::lock::acquire(f, os::fs::lock::kind::exclusive, false);
+                    l && l->held())
                     return {f, std::move(*l)};
         if (slots.empty())
             return {{}, os::fs::lock{}};

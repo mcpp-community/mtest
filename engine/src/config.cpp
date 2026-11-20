@@ -240,9 +240,9 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
         return std::unexpected(std::format("{}: {}", os::fs::utf8(file), e.description()));
     }
     known(t, "mtest.toml",
-          {"project", "programs", "discover", "host", "sets", "policy", "retry", "regression",
-           "store", "trace", "cases", "coverage", "static", "run", "monitor", "report", "fixtures",
-           "capabilities", "ci", "budget", "ledger"},
+          {"project",    "programs", "discover", "host",         "sets",     "policy", "retry",
+           "regression", "store",    "trace",    "cases",        "coverage", "static", "run",
+           "monitor",    "report",   "fixtures", "capabilities", "ci",       "budget", "ledger"},
           c);
     if (auto p = t["project"].as_table()) {
         known(*p, "project", {"store", "jobs"}, c);
@@ -482,7 +482,8 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
             waiver one{(*w)[key].value_or(std::string{}), (*w)["reason"].value_or(std::string{})};
             if (one.what.empty() || one.reason.empty())
                 return std::unexpected(
-                    std::format("{}.waiver needs `{}` and `reason`: a waiver says why", where, key));
+                    std::format("{}.waiver needs `{}` and `reason`: a waiver says why", where,
+                                key));
             out.push_back(std::move(one));
         }
         return out;
@@ -510,9 +511,11 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
             l.evidence = (*lt)["evidence"].value_or(std::string("clauses"));
             if (l.evidence != "clauses" && l.evidence != "exercised")
                 return std::unexpected(
-                    std::format("{}.evidence is `clauses` or `exercised`, not `{}`", where, l.evidence));
+                    std::format("{}.evidence is `clauses` or `exercised`, not `{}`", where,
+                                l.evidence));
             if (l.file.empty() == l.command.empty())
-                return std::unexpected(std::format("{} states one source: `file` or `command`", where));
+                return std::unexpected(
+                    std::format("{} states one source: `file` or `command`", where));
             auto w = waivers_of((*lt)["waiver"], where, "item");
             if (!w)
                 return std::unexpected(w.error());

@@ -266,47 +266,57 @@ int main() {
         expect(!over["pass"].get<bool>());
         expect(contains(over["reasons"][0].get<std::string>(), "fail"));
     };
-    "a case over its processor budget fails the gate unless a waiver names it"_test[kind::e2e] = [] {
-        const std::string slow = script({"slow:spend", "light:pass"},
-                                        "spend() { mtest_metric cpu.user 5000 ms; }\n");
-        auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[budget]\ncase_cpu = \"1s\"\n"},
-                             {"b.sh", slow}});
+    "a case over its processor budget fails the gate unless a waiver names it"_test[kind::
+                                                                                        e2e] = [] {
+        const std::string slow =
+            script({"slow:spend", "light:pass"}, "spend() { mtest_metric cpu.user 5000 ms; }\n");
+        auto root = project(
+            {{"mtest.toml",
+              "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[budget]\ncase_cpu = \"1s\"\n"},
+             {"b.sh", slow}});
         (void)mtest(root, {"run"});
         auto over = json_of(mtest(root, {"gate", "--set", "full", "--json"}));
         expect(!over["pass"].get<bool>()) << over.dump();
         expect(contains(over.dump(), "over the case budget")) << over.dump();
-        (void)mcpplibs::os::fs::write(root / "mtest.toml",
-            "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[budget]\ncase_cpu = \"1s\"\n"
-            "[[budget.waiver]]\ncase = \"b::slow\"\nreason = \"it builds a toolchain\"\n");
+        (void)mcpplibs::os::fs::
+            write(root / "mtest.toml",
+                  "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[budget]\ncase_cpu = \"1s\"\n"
+                  "[[budget.waiver]]\ncase = \"b::slow\"\nreason = \"it builds a toolchain\"\n");
         auto waived = json_of(mtest(root, {"gate", "--set", "full", "--json"}));
         expect(waived["pass"].get<bool>()) << waived.dump();
-        (void)mcpplibs::os::fs::write(root / "mtest.toml",
-            "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[budget]\ncase_cpu = \"10s\"\n"
-            "[[budget.waiver]]\ncase = \"b::slow\"\nreason = \"it builds a toolchain\"\n");
+        (void)mcpplibs::os::fs::
+            write(root / "mtest.toml",
+                  "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[budget]\ncase_cpu = \"10s\"\n"
+                  "[[budget.waiver]]\ncase = \"b::slow\"\nreason = \"it builds a toolchain\"\n");
         auto stale = json_of(mtest(root, {"gate", "--set", "full", "--json"}));
         expect(!stale["pass"].get<bool>()) << stale.dump();
         expect(contains(stale.dump(), "excuses nothing")) << stale.dump();
     };
-    "a ledger's requirement is met by a passing case's clause or excused by a waiver"_test[kind::e2e] = [] {
-        auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[ledger.spec]\nfile = \"reqs.txt\"\n"},
-                             {"reqs.txt", "# the clauses\nR1\nR2\n"},
-                             {"b.sh", script({"a:ok --clause R1"})}});
-        (void)mtest(root, {"run"});
-        auto missing = json_of(mtest(root, {"gate", "--set", "full", "--json"}));
-        expect(!missing["pass"].get<bool>()) << missing.dump();
-        expect(contains(missing.dump(), "R2 has no passing case")) << missing.dump();
-        expect(!contains(missing.dump(), "R1 has no").held) << missing.dump();
-        (void)mcpplibs::os::fs::write(root / "mtest.toml",
-            "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[ledger.spec]\nfile = \"reqs.txt\"\n"
-            "[[ledger.spec.waiver]]\nitem = \"R2\"\nreason = \"not implemented yet\"\n");
-        auto excused = json_of(mtest(root, {"gate", "--set", "full", "--json"}));
-        expect(excused["pass"].get<bool>()) << excused.dump();
-    };
+    "a ledger's requirement is met by a passing case's clause or excused by a waiver"_test
+        [kind::e2e] = [] {
+            auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", "
+                                                "\"b.sh\"]\n[ledger.spec]\nfile = \"reqs.txt\"\n"},
+                                 {"reqs.txt", "# the clauses\nR1\nR2\n"},
+                                 {"b.sh", script({"a:ok --clause R1"})}});
+            (void)mtest(root, {"run"});
+            auto missing = json_of(mtest(root, {"gate", "--set", "full", "--json"}));
+            expect(!missing["pass"].get<bool>()) << missing.dump();
+            expect(contains(missing.dump(), "R2 has no passing case")) << missing.dump();
+            expect(!contains(missing.dump(), "R1 has no").held) << missing.dump();
+            (void)mcpplibs::os::fs::
+                write(root / "mtest.toml",
+                      "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[ledger.spec]\nfile = "
+                      "\"reqs.txt\"\n"
+                      "[[ledger.spec.waiver]]\nitem = \"R2\"\nreason = \"not implemented yet\"\n");
+            auto excused = json_of(mtest(root, {"gate", "--set", "full", "--json"}));
+            expect(excused["pass"].get<bool>()) << excused.dump();
+        };
     "a program is told the run's budget and the slot held for it"_test[kind::e2e] = [] {
-        auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n"},
-                             {"b.sh", script({"budget:told"},
-                                             "told() { [ -d \"$MTEST_BUDGET\" ] && [ -f \"$MTEST_BUDGET_HELD\" ] "
-                                             "|| mtest_eq told untold; }\n")}});
+        auto root = project(
+            {{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n"},
+             {"b.sh", script({"budget:told"},
+                             "told() { [ -d \"$MTEST_BUDGET\" ] && [ -f \"$MTEST_BUDGET_HELD\" ] "
+                             "|| mtest_eq told untold; }\n")}});
         auto r = mtest(root, {"run", "--jobs", "2"});
         expect(e2e::succeeded(r)) << r.out << r.err;
         std::optional<json> run;
@@ -317,10 +327,11 @@ int main() {
         expect(eq(run->value("budget", 0), 2)) << run->dump();
     };
     "jitter is stated to the programs and recorded with its seed"_test[kind::e2e] = [] {
-        auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n"},
-                             {"b.sh", script({"j:told"},
-                                             "told() { [ \"$MTEST_JITTER\" = 5 ] && [ -n \"$MTEST_JITTER_SEED\" ] "
-                                             "|| mtest_eq told untold; }\n")}});
+        auto root = project(
+            {{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n"},
+             {"b.sh", script({"j:told"},
+                             "told() { [ \"$MTEST_JITTER\" = 5 ] && [ -n \"$MTEST_JITTER_SEED\" ] "
+                             "|| mtest_eq told untold; }\n")}});
         auto r = mtest(root, {"run", "--jitter", "5", "--jitter-seed", "7"});
         expect(e2e::succeeded(r)) << r.out << r.err;
         std::optional<json> run;
@@ -329,7 +340,8 @@ int main() {
                 run = json::parse(*mcpplibs::os::fs::read(e.path()), nullptr, false);
         expect(fatal(run.has_value()));
         expect(eq((*run)["jitter"].value("max_ms", 0), 5)) << run->dump();
-        expect(eq((*run)["jitter"].value("seed", std::uint64_t{0}), std::uint64_t{7})) << run->dump();
+        expect(eq((*run)["jitter"].value("seed", std::uint64_t{0}), std::uint64_t{7}))
+            << run->dump();
     };
     "a run records the machine's class, its processors and memory"_test[kind::e2e] = [] {
         auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n"},
@@ -853,20 +865,22 @@ printf ')" + header +
         expect(contains(g.out, "flowchart LR"));
         expect(contains(g.out, "class n0,n1 crit")) << g.out;
     };
-    "a report gives the builds a host recorded and the cases near their limit"_test[kind::e2e] = [] {
-        auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\ntimeout = \"1s\"\n"},
-                             {"b.sh", script({"near:nap"}, "nap() { sleep 0.9; }\n")}});
+    "a report gives the builds a host recorded and the cases near their limit"_test[kind::
+                                                                                        e2e] = [] {
+        auto root = project(
+            {{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\ntimeout = \"1s\"\n"},
+             {"b.sh", script({"near:nap"}, "nap() { sleep 0.9; }\n")}});
         (void)mtest(root, {"run"});
         std::filesystem::path dir;
         for (const auto& e : std::filesystem::recursive_directory_iterator(root / ".mtest"))
             if (e.path().filename() == "run.json")
                 dir = e.path().parent_path();
         expect(fatal(!dir.empty()));
-        (void)mcpplibs::os::fs::write(
-            dir / "builds.ndjson",
-            "{\"build\":\"b1\",\"output\":\"obj/big.o\",\"package\":\"app\",\"started_ms\":0,"
-            "\"ms\":4000,\"cpu_ms\":3900}\n"
-            "{\"build\":\"b1\",\"package\":\"dep\",\"cached\":true,\"units\":12}\n");
+        (void)mcpplibs::os::fs::
+            write(dir / "builds.ndjson",
+                  "{\"build\":\"b1\",\"output\":\"obj/big.o\",\"package\":\"app\",\"started_ms\":0,"
+                  "\"ms\":4000,\"cpu_ms\":3900}\n"
+                  "{\"build\":\"b1\",\"package\":\"dep\",\"cached\":true,\"units\":12}\n");
         auto r = mtest(root, {"report", "--format", "md", "--sections", "builds,margin"});
         expect(contains(r.out, "## Builds")) << r.out;
         expect(contains(r.out, "obj/big.o")) << r.out;

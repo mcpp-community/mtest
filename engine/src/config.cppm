@@ -92,9 +92,9 @@ struct monitor_spec {
 
 // `[report]`: what `mtest report --format md` writes when the command does not say.
 struct report_spec {
-    std::vector<std::string> sections{"summary", "failures", "slowest", "steps",  "builds",
-                                      "margin",  "budget",   "ledgers", "metrics", "resources",
-                                      "path",    "gantt"};
+    std::vector<std::string> sections{"summary", "failures",  "slowest", "steps",
+                                      "builds",  "margin",    "budget",  "ledgers",
+                                      "metrics", "resources", "path",    "gantt"};
     std::string scope = "run";  // run, program:<name>, kind:<kind>, group
     int top = 10;               // rows of the ranked tables
     int max_nodes = 60;         // nodes of a drawn graph

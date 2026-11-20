@@ -341,7 +341,8 @@ answer cmd_run(const std::filesystem::path& cwd, const json& p,
     if (p.contains("seed") && p["seed"].is_number_unsigned())
         o.seed = p["seed"].get<std::uint64_t>();
     o.jitter_ms = std::max(0, p.value("jitter", 0));
-    if (p.contains("jitter_seed") && p["jitter_seed"].is_number_integer() && p["jitter_seed"].get<std::int64_t>() >= 0)
+    if (p.contains("jitter_seed") && p["jitter_seed"].is_number_integer() &&
+        p["jitter_seed"].get<std::int64_t>() >= 0)
         o.jitter_seed = p["jitter_seed"].get<std::uint64_t>();
     o.run_under = strings(p, "run_under");
     if (auto e = p.find("env"); e != p.end() && e->is_object())
@@ -435,9 +436,11 @@ answer cmd_coverage(const std::filesystem::path& cwd, const json& p) {
                  {"median_file_share", sp.median_file_share},
                  {"median_function_share", sp.median_function_share},
                  {"conclusion",
-                  std::format("of {} case(s), the median file is executed by {:.0f}% and the median "
-                              "function by {:.0f}%",
-                              sp.cases, sp.median_file_share * 100, sp.median_function_share * 100)}},
+                  std::
+                      format("of {} case(s), the median file is executed by {:.0f}% and the median "
+                             "function by {:.0f}%",
+                             sp.cases, sp.median_file_share * 100,
+                             sp.median_function_share * 100)}},
                 std::format("{} case(s); {} file(s), median share {:.1f}%; {} function(s), median "
                             "share {:.1f}%\n",
                             sp.cases, sp.files, sp.median_file_share * 100, sp.functions,

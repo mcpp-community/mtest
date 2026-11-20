@@ -157,8 +157,8 @@ void summary(std::string& md, const std::vector<run_record>& runs, const report_
         wall = std::max(wall, r.ms);
         md += std::format("| `{}` | {} | {}-{} | {} | `{}` | {} | {} | {} | {} | {} | {} |\n", r.id,
                           r.status == "pass" ? "pass" : "**" + r.status + "**", r.system, r.arch,
-                          r.machine.empty() ? "-" : r.machine,
-                          r.commit.substr(0, 10), cases, n["pass"] + n["xfail"] + n["flaky"],
+                          r.machine.empty() ? "-" : r.machine, r.commit.substr(0, 10), cases,
+                          n["pass"] + n["xfail"] + n["flaky"],
                           n["fail"] + n["xpass"] + n["timeout"], n["skip"], sec(r.ms), r.jobs);
     }
     if (runs.size() > 1) {
@@ -191,8 +191,9 @@ void steps_section(std::string& md, const std::vector<const case_result*>& cases
     for (std::size_t i = 0; i < rows.size() && int(i) < top; ++i) {
         const auto& st = *rows[i].st;
         md += std::format("| `{}` | `{}` | {} | {} | {} | {} |\n",
-                          case_label(rows[i].c->program, rows[i].c->id), cell(st.name, 80), sec(st.ms),
-                          st.cpu_ms ? sec(*st.cpu_ms) : "-", st.status ? std::to_string(*st.status) : "-",
+                          case_label(rows[i].c->program, rows[i].c->id), cell(st.name, 80),
+                          sec(st.ms), st.cpu_ms ? sec(*st.cpu_ms) : "-",
+                          st.status ? std::to_string(*st.status) : "-",
                           st.build.empty() ? "-" : "`" + st.build + "`");
     }
     md += "\n";
@@ -218,11 +219,12 @@ void builds_section(std::string& md, const std::vector<run_record>& runs, int to
     if (ran.empty() && cached_packages == 0)
         return;
     std::ranges::sort(ran, std::greater{}, [](const build_edge* b) { return b->ms; });
-    md += std::format("## Builds\n\n{} edge(s) ran, {} of edge time, {} of processor time; the cache "
-                      "served {} package(s), {} unit(s).\n\n"
-                      "| edge | package | program | time | processor | largest resident set |\n"
-                      "|---|---|---|---:|---:|---:|\n",
-                      ran.size(), sec(total), sec(cpu), cached_packages, cached_units);
+    md +=
+        std::format("## Builds\n\n{} edge(s) ran, {} of edge time, {} of processor time; the cache "
+                    "served {} package(s), {} unit(s).\n\n"
+                    "| edge | package | program | time | processor | largest resident set |\n"
+                    "|---|---|---|---:|---:|---:|\n",
+                    ran.size(), sec(total), sec(cpu), cached_packages, cached_units);
     for (std::size_t i = 0; i < ran.size() && int(i) < top; ++i)
         md += std::format("| `{}` | {} | {} | {} | {} | {} |\n", cell(ran[i]->output, 80),
                           ran[i]->package.empty() ? "-" : ran[i]->package,
@@ -239,9 +241,9 @@ void margin_section(std::string& md, const std::vector<run_record>& runs, const 
     for (const auto& r : runs)
         for (const auto& c : r.cases)
             if (in_scope(o, c) && c.limit_ms > 0 && c.ms > 0.8 * c.limit_ms)
-                rows += std::format("| `{}` | {} | {} | {:.0f}% | {} |\n", case_label(c.program, c.id),
-                                    sec(c.ms), sec(c.limit_ms), 100 * c.ms / c.limit_ms,
-                                    r.machine.empty() ? "-" : r.machine);
+                rows += std::format("| `{}` | {} | {} | {:.0f}% | {} |\n",
+                                    case_label(c.program, c.id), sec(c.ms), sec(c.limit_ms),
+                                    100 * c.ms / c.limit_ms, r.machine.empty() ? "-" : r.machine);
     if (rows.empty())
         return;
     md += "## Margin\n\nCases that took more than four fifths of their time limit.\n\n"
@@ -263,11 +265,13 @@ void budget_section(std::string& md, const run_record& r, const report_options& 
                               sec(x.value("cpu_ms", 0.0)), sec(x.value("limit_ms", 0.0)),
                               x.value("waived", false) ? "yes" : "**no**");
         else
-            md += std::format("| `{}` | - | - | a waiver that excuses nothing |\n", x.value("case", ""));
+            md += std::format("| `{}` | - | - | a waiver that excuses nothing |\n",
+                              x.value("case", ""));
     md += "\n";
 }
 
-void ledgers_section(std::string& md, const store& s, const run_record& r, const report_options& o) {
+void ledgers_section(std::string& md, const store& s, const run_record& r,
+                     const report_options& o) {
     if (!o.cfg || o.cfg->ledgers.empty())
         return;
     md += "## Ledgers\n\n| ledger | evidence | requirements | met | waived | missing |\n"
@@ -275,7 +279,8 @@ void ledgers_section(std::string& md, const store& s, const run_record& r, const
     std::string missing;
     for (const auto& l : ledger_table(*o.cfg, s, r)) {
         if (l.contains("error")) {
-            md += std::format("| {} | - | - | - | - | {} |\n", l.value("ledger", ""), l.value("error", ""));
+            md += std::format("| {} | - | - | - | - | {} |\n", l.value("ledger", ""),
+                              l.value("error", ""));
             continue;
         }
         md += std::format("| {} | {} | {} | {} | {} | {} |\n", l.value("ledger", ""),

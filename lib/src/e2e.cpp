@@ -30,7 +30,7 @@ diagnostic_policy current_policy() {
     if (policy)
         return *policy;
     return os::env::get("MTEST_DIAGNOSTICS").value_or("") == "report" ? diagnostic_policy::report
-                                                                       : diagnostic_policy::enforce;
+                                                                      : diagnostic_policy::enforce;
 }
 
 bool matches_any(const std::string& line, const std::vector<std::string>& patterns) {
@@ -168,14 +168,16 @@ outcome run(command c) {
     limits.out_limit = c.out_limit;
     limits.err_limit = c.err_limit;
     step_record st;
-    st.name = !c.step.empty() ? c.step : (r.line.size() > 200 ? r.line.substr(0, 200) + "..." : r.line);
+    st.name =
+        !c.step.empty() ? c.step : (r.line.size() > 200 ? r.line.substr(0, 200) + "..." : r.line);
     st.began = std::chrono::steady_clock::now();
     const auto before = os::process::resources(os::process::of::children);
     auto done = os::process::run(std::move(o), limits, c.input);
     st.took = std::chrono::steady_clock::now() - st.began;
     if (const auto after = os::process::resources(os::process::of::children); before && after)
-        st.cpu_ms = std::chrono::duration<double, std::milli>((after->user + after->system)
-                                                              - (before->user + before->system)).count();
+        st.cpu_ms = std::chrono::duration<double, std::milli>((after->user + after->system) -
+                                                              (before->user + before->system))
+                        .count();
     if (done)
         st.status = done->status.shell_code();
     step(st);
@@ -265,11 +267,13 @@ std::vector<redaction> redactions::paths(const std::filesystem::path& root, std:
     return out;
 }
 const std::vector<redaction>& redactions::durations() {
-    static const std::vector<redaction> r = {{R"(\b[0-9]+(\.[0-9]+)?\s?(ns|us|µs|ms|s|m)\b)", "<time>"}};
+    static const std::vector<redaction> r = {
+        {R"(\b[0-9]+(\.[0-9]+)?\s?(ns|us|µs|ms|s|m)\b)", "<time>"}};
     return r;
 }
 const std::vector<redaction>& redactions::sizes() {
-    static const std::vector<redaction> r = {{R"(\b[0-9]+(\.[0-9]+)?\s?(B|KB|KiB|MB|MiB|GB|GiB)\b)", "<size>"}};
+    static const std::vector<redaction> r = {
+        {R"(\b[0-9]+(\.[0-9]+)?\s?(B|KB|KiB|MB|MiB|GB|GiB)\b)", "<size>"}};
     return r;
 }
 const std::vector<redaction>& redactions::digests() {
@@ -295,7 +299,8 @@ comparison golden(const std::filesystem::path& file, std::string_view raw,
             // The update says what it changed, so that a review reads the change, not the file.
             std::println(std::cerr, "mtest: golden {} {}: {}", os::fs::utf8(file),
                          before ? "updated" : "written",
-                         before ? update_summary(*before, text) : std::format("{} lines", lines_of(text).size()));
+                         before ? update_summary(*before, text)
+                                : std::format("{} lines", lines_of(text).size()));
         }
         return c;
     }

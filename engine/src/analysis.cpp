@@ -354,13 +354,15 @@ std::expected<std::vector<std::string>, std::string> requirements(const config& 
     if (!l.file.empty()) {
         auto f = os::fs::read(l.file.is_absolute() ? l.file : c.root / l.file);
         if (!f)
-            return std::unexpected(std::format("ledger {}: {} cannot be read", l.name, os::fs::utf8(l.file)));
+            return std::unexpected(
+                std::format("ledger {}: {} cannot be read", l.name, os::fs::utf8(l.file)));
         text = std::move(*f);
     } else {
         std::vector<std::string> argv;
         for (auto word : l.command) {
             // `${NAME}`: the variable's value.
-            for (std::size_t at = word.find("${"); at != std::string::npos; at = word.find("${", at)) {
+            for (std::size_t at = word.find("${"); at != std::string::npos;
+                 at = word.find("${", at)) {
                 const auto end = word.find('}', at);
                 if (end == std::string::npos)
                     break;
@@ -376,8 +378,9 @@ std::expected<std::vector<std::string>, std::string> requirements(const config& 
         o.cwd = c.root;
         auto done = os::process::run(std::move(o), os::process::bounds{});
         if (!done || !done->status.success())
-            return std::unexpected(std::format("ledger {}: `{}` did not give its requirements{}", l.name,
-                                               argv.front(), done ? ": " + done->err.substr(0, 200) : ""));
+            return std::unexpected(std::format("ledger {}: `{}` did not give its requirements{}",
+                                               l.name, argv.front(),
+                                               done ? ": " + done->err.substr(0, 200) : ""));
         text = std::move(done->out);
     }
     std::vector<std::string> out;
@@ -425,7 +428,9 @@ json ledger_table(const config& c, const store& s, const run_record& r) {
                 missing.push_back(req);
         }
         for (const auto& w : l.waivers)
-            if (std::ranges::none_of(*reqs, [&](const std::string& req) { return glob_match(w.what, req); }))
+            if (std::ranges::none_of(*reqs, [&](const std::string& req) {
+                    return glob_match(w.what, req);
+                }))
                 stale.push_back(w.what);
         one["requirements"] = reqs->size();
         one["met"] = met;
@@ -455,7 +460,8 @@ json budget_overruns(const config& c, const run_record& r) {
                        {"waived", waived(c.budget.waivers, key)}});
     }
     for (const auto& w : c.budget.waivers)
-        if (std::ranges::none_of(over, [&](const std::string& k) { return glob_match(w.what, k); }) &&
+        if (std::ranges::none_of(over,
+                                 [&](const std::string& k) { return glob_match(w.what, k); }) &&
             std::ranges::any_of(r.cases, [&](const case_result& cr) {
                 return cr.cpu_ms >= 0 && glob_match(w.what, cr.program + "::" + cr.id);
             }))
@@ -467,9 +473,10 @@ json gate(const config& c, const store& s, const run_record& r, std::string_view
     json reasons = json::array();
     for (const auto& o : budget_overruns(c, r)) {
         if (o.value("stale_waiver", false))
-            reasons.push_back(std::format("budget waiver for {} excuses nothing: the case is within "
-                                          "its budget, remove the waiver",
-                                          o.value("case", "")));
+            reasons.push_back(
+                std::format("budget waiver for {} excuses nothing: the case is within "
+                            "its budget, remove the waiver",
+                            o.value("case", "")));
         else if (!o.value("waived", false))
             reasons.push_back(std::format("{} took {:.1f} s of processor time on {}, over the case "
                                           "budget of {:.0f} s -- make it cheaper or waive it with "

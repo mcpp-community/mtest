@@ -731,8 +731,8 @@ detail::operand as_double(const detail::operand& o) {
 // -1, 0 or 1: a below, equal to or above b, by value.
 int order(const detail::operand& a, const detail::operand& b) {
     using of = detail::operand::of;
-    const bool floating = a.kind == of::floating || a.kind == of::single || b.kind == of::floating
-        || b.kind == of::single;
+    const bool floating = a.kind == of::floating || a.kind == of::single ||
+                          b.kind == of::floating || b.kind == of::single;
     if (floating) {
         const double x = as_double(a).d, y = as_double(b).d;
         return x < y ? -1 : (y < x ? 1 : 0);
@@ -749,11 +749,16 @@ int order(const detail::operand& a, const detail::operand& b) {
 std::string shown(const detail::operand& o) {
     using of = detail::operand::of;
     switch (o.kind) {
-        case of::boolean: return o.s ? "true" : "false";
-        case of::signed_integer: return detail::show_signed(o.s);
-        case of::unsigned_integer: return detail::show_unsigned(o.u);
-        case of::single: return detail::show_floating(o.d, true);
-        case of::floating: return detail::show_floating(o.d, false);
+        case of::boolean:
+            return o.s ? "true" : "false";
+        case of::signed_integer:
+            return detail::show_signed(o.s);
+        case of::unsigned_integer:
+            return detail::show_unsigned(o.u);
+        case of::single:
+            return detail::show_floating(o.d, true);
+        case of::floating:
+            return detail::show_floating(o.d, false);
     }
     return {};
 }
@@ -766,12 +771,24 @@ comparison detail::relate(const operand& a, relation r, const operand& b) {
     static constexpr const char* ops[] = {"==", "!=", "<", "<=", ">", ">="};
     comparison c;
     switch (r) {
-        case relation::eq: c.held = o == 0; break;
-        case relation::ne: c.held = o != 0; break;
-        case relation::lt: c.held = o == -1; break;
-        case relation::le: c.held = o == -1 || o == 0; break;
-        case relation::gt: c.held = o == 1; break;
-        case relation::ge: c.held = o == 1 || o == 0; break;
+        case relation::eq:
+            c.held = o == 0;
+            break;
+        case relation::ne:
+            c.held = o != 0;
+            break;
+        case relation::lt:
+            c.held = o == -1;
+            break;
+        case relation::le:
+            c.held = o == -1 || o == 0;
+            break;
+        case relation::gt:
+            c.held = o == 1;
+            break;
+        case relation::ge:
+            c.held = o == 1 || o == 0;
+            break;
     }
     if (!c.held) {
         c.actual = shown(a);
@@ -1127,7 +1144,8 @@ void detail::add_plain(const char* name, std::size_t size, std::source_location 
 // ---- a case declared in a body ------------------------------------------------------
 
 test::test(std::string_view name) : state_(new state{std::string(name), {}}) {}
-test::test(std::string_view name, attributes attrs) : state_(new state{std::string(name), std::move(attrs)}) {}
+test::test(std::string_view name, attributes attrs)
+    : state_(new state{std::string(name), std::move(attrs)}) {}
 test::test(const char* name, std::size_t size) : state_(new state{std::string(name, size), {}}) {}
 test::test(test&& o) noexcept : state_(std::exchange(o.state_, nullptr)) {}
 test::~test() {

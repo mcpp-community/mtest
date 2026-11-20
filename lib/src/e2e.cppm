@@ -73,7 +73,8 @@ struct redaction {
 };
 struct redactions {
     // A directory, in both of its spellings (native and generic).
-    static std::vector<redaction> paths(const std::filesystem::path& root, std::string with = "<root>");
+    static std::vector<redaction> paths(const std::filesystem::path& root,
+                                        std::string with = "<root>");
     static const std::vector<redaction>& durations();  // 12ms, 1.5 s
     static const std::vector<redaction>& sizes();      // 4 KiB, 120 B
     static const std::vector<redaction>& digests();    // 8 to 64 lowercase hexadecimal digits

@@ -22,8 +22,8 @@ struct report_options {
 
 // Every section a report knows, in the order it writes them.
 inline constexpr std::string_view kSections[] = {
-    "summary", "kinds",   "failures", "slowest", "steps", "builds", "margin", "budget",
-    "ledgers", "metrics", "resources", "flaky",  "trend", "path",   "graph",  "gantt",
+    "summary", "kinds",   "failures",  "slowest", "steps", "builds", "margin", "budget",
+    "ledgers", "metrics", "resources", "flaky",   "trend", "path",   "graph",  "gantt",
 };
 
 std::string markdown_report(const store& s, const std::vector<run_record>& runs,

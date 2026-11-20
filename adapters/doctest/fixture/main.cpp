@@ -1,6 +1,6 @@
 // The conformance fixture of the doctest adapter (spec/conformance.md), level 1: the cases doctest
-// can state, named `<suite>/<name>` (`conformance/passes`), with no tags, kinds or metrics. doctest's
-// implementation and the main are the adapter's (src/protocol.cpp, src/main.cpp).
+// can state, named `<suite>/<name>` (`conformance/passes`), with no tags, kinds or metrics.
+// doctest's implementation and the main are the adapter's (src/protocol.cpp, src/main.cpp).
 #include <doctest/doctest.h>
 
 TEST_SUITE("conformance") {

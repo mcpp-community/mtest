@@ -211,6 +211,9 @@ struct run_record {
     std::string system, arch, machine, commit, set, selection;
     int processors = 0;
     std::uint64_t memory = 0;
+    int budget = 0;  // O11: the slots of the run's budget; 0: none (0.11.0)
+    int jitter_ms = 0;  // O12: the most a program waited at a contention point
+    std::uint64_t jitter_seed = 0;
     double ms = 0;
     int jobs = 1;
     std::vector<program_result> programs;

@@ -285,6 +285,8 @@ std::string machine_class() {
 json to_json(const run_record& r) {
     return {{"schema", "mtest.run/1"},  {"id", r.id},
             {"processors", r.processors}, {"memory", r.memory},
+            {"budget", r.budget},
+            {"jitter", r.jitter_ms > 0 ? json{{"max_ms", r.jitter_ms}, {"seed", r.jitter_seed}} : json()},
             {"started", r.started},     {"finished", r.finished},
             {"status", r.status},       {"system", r.system},
             {"arch", r.arch},           {"machine", r.machine},
@@ -439,6 +441,11 @@ run_record run_record_from(const json& j) {
     r.machine = str(j, "machine");
     r.processors = j.value("processors", 0);
     r.memory = j.value("memory", std::uint64_t{0});
+    r.budget = j.value("budget", 0);
+    if (auto jt = j.find("jitter"); jt != j.end() && jt->is_object()) {
+        r.jitter_ms = jt->value("max_ms", 0);
+        r.jitter_seed = jt->value("seed", std::uint64_t{0});
+    }
     r.commit = str(j, "commit");
     r.set = str(j, "set");
     r.selection = str(j, "selection");

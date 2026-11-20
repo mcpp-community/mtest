@@ -25,6 +25,10 @@ struct execute_options {
     // `--coverage`: each program writes its `.gcda` files below a directory of its own here
     // (`GCOV_PREFIX`), and `coverage_cases` receives the cases each directory serves.
     std::optional<std::filesystem::path> coverage_dir;
+    // O12 (0.11.0): the most a program waits at a contention point, and the seed of the waits;
+    // zero: none. A run with jitter is a search for an order defect, never a verdict to merge by.
+    int jitter_ms = 0;
+    std::optional<std::uint64_t> jitter_seed;
     int coverage_strip = 0;
     std::map<std::filesystem::path, std::vector<std::string>>* coverage_cases = nullptr;
 };

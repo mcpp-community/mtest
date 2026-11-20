@@ -778,6 +778,12 @@ std::filesystem::path temp_dir();
 //
 // Its making is reported with the case that caused it (P5.2 `fixture`: the name, how long it took),
 // so that a runner sees what a suite's cases share and what sharing saves.
+// A POINT WHERE AN ORDER IS NOT FIXED (SPEC-017 O12, 0.11.0): under a runner's jitter
+// (MTEST_JITTER, MTEST_JITTER_SEED) the program waits here a random time up to the stated
+// milliseconds, the same for the same seed; elsewhere nothing happens. A case begins at one, and
+// a shared object is made at one; a test declares its own where threads or processes race.
+void contention_point();
+
 namespace detail {
 void made_shared(std::string_view name, double ms);
 }
@@ -800,6 +806,7 @@ public:
 
     T& operator*() {
         if (!value_) {
+            contention_point();
             const auto began = std::chrono::steady_clock::now();
             value_ = make_();
             detail::made_shared(name_, std::chrono::duration<double, std::milli>(

@@ -340,6 +340,9 @@ answer cmd_run(const std::filesystem::path& cwd, const json& p,
     o.jobs = p.value("jobs", 0);
     if (p.contains("seed") && p["seed"].is_number_unsigned())
         o.seed = p["seed"].get<std::uint64_t>();
+    o.jitter_ms = std::max(0, p.value("jitter", 0));
+    if (p.contains("jitter_seed") && p["jitter_seed"].is_number_integer() && p["jitter_seed"].get<std::int64_t>() >= 0)
+        o.jitter_seed = p["jitter_seed"].get<std::uint64_t>();
     o.run_under = strings(p, "run_under");
     if (auto e = p.find("env"); e != p.end() && e->is_object())
         for (auto& item_ : e->items())
@@ -1798,6 +1801,11 @@ json catalog() {
         "record, its failures and a conclusion.",
         with({{"jobs", {{"type", "integer"}, {"description", "programs at once"}}},
               {"seed", {{"type", "integer"}, {"description", "the seed of anything random"}}},
+              {"jitter",
+               {{"type", "integer"},
+                {"description", "the most milliseconds a program waits at a contention point "
+                                "(SPEC-017 O12): a search for an order defect, never a verdict"}}},
+              {"jitter_seed", {{"type", "integer"}, {"description", "the seed of the waits"}}},
               {"fail_fast", {{"type", "boolean"}, {"description", "stop at the first failure"}}},
               {"resume",
                {{"type", "string"},

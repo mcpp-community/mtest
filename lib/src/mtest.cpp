@@ -1043,6 +1043,7 @@ void test::operator=(body b) {
     const auto level = std::max(s.monitor, attrs.monitoring.value_or(mtest::monitor_level::off));
     const auto use = own ? mark_use(level) : use_mark{};
     g.unlock();
+    contention_point();
     try {
         b.run();
     } catch (const fatal_signal&) {
@@ -1363,6 +1364,31 @@ void produced(const std::filesystem::path& file, std::string_view kind) {
                  {"id", current_case()},
                  {"path", os::fs::generic_utf8(file)},
                  {"kind", kind}});
+}
+
+void contention_point() {
+    struct jitter {
+        int max_ms = 0;
+        std::mt19937_64 random;
+        std::mutex lock;
+        jitter() {
+            const auto max = os::env::get("MTEST_JITTER").value_or("");
+            std::from_chars(max.data(), max.data() + max.size(), max_ms);
+            std::uint64_t seed = 0;
+            const auto given = os::env::get("MTEST_JITTER_SEED").value_or("");
+            std::from_chars(given.data(), given.data() + given.size(), seed);
+            random.seed(seed);
+        }
+    };
+    static jitter j;
+    if (j.max_ms <= 0)
+        return;
+    int wait = 0;
+    {
+        std::lock_guard g(j.lock);
+        wait = std::uniform_int_distribution<int>(0, j.max_ms)(j.random);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{wait});
 }
 
 void at_case_end(std::string_view key, std::function<void()> check) {

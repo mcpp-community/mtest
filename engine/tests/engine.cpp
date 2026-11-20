@@ -302,6 +302,35 @@ int main() {
         auto excused = json_of(mtest(root, {"gate", "--set", "full", "--json"}));
         expect(excused["pass"].get<bool>()) << excused.dump();
     };
+    "a program is told the run's budget and the slot held for it"_test[kind::e2e] = [] {
+        auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n"},
+                             {"b.sh", script({"budget:told"},
+                                             "told() { [ -d \"$MTEST_BUDGET\" ] && [ -f \"$MTEST_BUDGET_HELD\" ] "
+                                             "|| mtest_eq told untold; }\n")}});
+        auto r = mtest(root, {"run", "--jobs", "2"});
+        expect(e2e::succeeded(r)) << r.out << r.err;
+        std::optional<json> run;
+        for (const auto& e : std::filesystem::recursive_directory_iterator(root / ".mtest"))
+            if (e.path().filename() == "run.json")
+                run = json::parse(*mcpplibs::os::fs::read(e.path()), nullptr, false);
+        expect(fatal(run.has_value()));
+        expect(eq(run->value("budget", 0), 2)) << run->dump();
+    };
+    "jitter is stated to the programs and recorded with its seed"_test[kind::e2e] = [] {
+        auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n"},
+                             {"b.sh", script({"j:told"},
+                                             "told() { [ \"$MTEST_JITTER\" = 5 ] && [ -n \"$MTEST_JITTER_SEED\" ] "
+                                             "|| mtest_eq told untold; }\n")}});
+        auto r = mtest(root, {"run", "--jitter", "5", "--jitter-seed", "7"});
+        expect(e2e::succeeded(r)) << r.out << r.err;
+        std::optional<json> run;
+        for (const auto& e : std::filesystem::recursive_directory_iterator(root / ".mtest"))
+            if (e.path().filename() == "run.json")
+                run = json::parse(*mcpplibs::os::fs::read(e.path()), nullptr, false);
+        expect(fatal(run.has_value()));
+        expect(eq((*run)["jitter"].value("max_ms", 0), 5)) << run->dump();
+        expect(eq((*run)["jitter"].value("seed", std::uint64_t{0}), std::uint64_t{7})) << run->dump();
+    };
     "a run records the machine's class, its processors and memory"_test[kind::e2e] = [] {
         auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n"},
                              {"b.sh", script({"a:pass"})}});

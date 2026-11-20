@@ -43,6 +43,8 @@ struct running_case {
     bool capturing = false;
     // Checks made at its end, before its verdict, by key (at_case_end, 0.11.0).
     std::vector<std::pair<std::string, std::function<void()>>> end_checks;
+    // When it began: its `timeout` counts from here (time_left, 0.11.1).
+    clock::time_point began = clock::now();
 };
 
 // The expectations that held, in the whole program: a case's share is the difference over its
@@ -1375,6 +1377,18 @@ std::string current_case() {
     auto& s = the();
     std::lock_guard g(s.lock);
     return s.stack.empty() || s.stack.back().scope ? std::string{} : s.stack.back().id;
+}
+
+std::optional<std::chrono::milliseconds> time_left() {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    std::optional<clock::time_point> deadline;
+    for (const auto& r : s.stack)
+        if (r.attrs.limit && (!deadline || r.began + *r.attrs.limit < *deadline))
+            deadline = r.began + *r.attrs.limit;
+    if (!deadline) return std::nullopt;
+    const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - clock::now());
+    return (std::max)(left, std::chrono::milliseconds{0});
 }
 
 void produced(const std::filesystem::path& file, std::string_view kind) {

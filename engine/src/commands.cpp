@@ -2009,7 +2009,7 @@ json catalog() {
         plain({{"out", {{"type", "string"}}},
                {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),
         true);
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.11.0"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.11.1"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

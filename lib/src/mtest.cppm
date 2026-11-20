@@ -283,63 +283,125 @@ struct comparison {
 };
 
 namespace detail {
+// THE COMMON KINDS ARE SHOWN AND COMPARED BY THE LIBRARY ITSELF (0.11.0). A file's first use of
+// std::format makes GCC load and instantiate its machinery, 0.5 s of a file of one case; the
+// library's own functions are compiled once, in the library.
+std::string show_text(std::string_view text);
+std::string show_signed(long long value);
+std::string show_unsigned(unsigned long long value);
+std::string show_floating(double value, bool single);
+template <class T>
+inline constexpr bool is_character = std::is_same_v<T, char> || std::is_same_v<T, wchar_t>
+    || std::is_same_v<T, char8_t> || std::is_same_v<T, char16_t> || std::is_same_v<T, char32_t>
+    || std::is_same_v<T, signed char> || std::is_same_v<T, unsigned char>;
 template <class T>
 std::string show(const T& value) {
-    if constexpr (std::is_same_v<std::remove_cvref_t<T>, bool>)
+    using U = std::remove_cvref_t<T>;
+    if constexpr (std::is_same_v<U, bool>)
         return value ? "true" : "false";
+    else if constexpr (std::is_same_v<U, float> || std::is_same_v<U, double>)
+        return show_floating(value, std::is_same_v<U, float>);
+    else if constexpr (std::is_integral_v<U> && !is_character<U> && std::is_signed_v<U>)
+        return show_signed(value);
+    else if constexpr (std::is_integral_v<U> && !is_character<U>)
+        return show_unsigned(value);
     else if constexpr (std::is_convertible_v<const T&, std::string_view>)
-        return std::format("\"{}\"", std::string_view(value));
+        return show_text(std::string_view(value));
     else if constexpr (std::formattable<T, char>)
         return std::format("{}", value);
     else if constexpr (requires { std::to_underlying(value); })
-        return std::format("{}", std::to_underlying(value));
+        return show_signed(static_cast<long long>(std::to_underlying(value)));
     else
-        return std::format("<{} bytes>", sizeof(T));
+        return "<" + show_unsigned(sizeof(T)) + " bytes>";
 }
+// The text of a failed comparison: "a op b".
+void describe(comparison& c, const char* op);
 template <class A, class B>
-comparison compare(bool held, std::string_view op, const A& a, const B& b) {
+comparison compare(bool held, const char* op, const A& a, const B& b) {
     comparison c;
     c.held = held;
     if (!held) {
         c.actual = show(a);
         c.expected = show(b);
-        c.expression = std::format("{} {} {}", c.actual, op, c.expected);
+        describe(c, op);
     }
     return c;
 }
+
+// A number or a truth value, compared in the library (0.11.0): integers by their values whatever
+// their signedness (std::cmp_equal), a floating value with another number as double.
+struct operand {
+    enum class of : unsigned char { signed_integer, unsigned_integer, floating, single, boolean } kind;
+    long long s = 0;
+    unsigned long long u = 0;
+    double d = 0;
+};
+enum class relation : unsigned char { eq, ne, lt, le, gt, ge };
+comparison relate(const operand& a, relation r, const operand& b);
+template <class T>
+inline constexpr bool is_operand = std::is_same_v<T, bool> || std::is_same_v<T, float>
+    || std::is_same_v<T, double> || (std::is_integral_v<T> && !is_character<T>);
+template <class T>
+operand operand_of(const T& v) {
+    if constexpr (std::is_same_v<T, bool>)
+        return {operand::of::boolean, v ? 1 : 0, 0, 0};
+    else if constexpr (std::is_same_v<T, float>)
+        return {operand::of::single, 0, 0, v};
+    else if constexpr (std::is_same_v<T, double>)
+        return {operand::of::floating, 0, 0, v};
+    else if constexpr (std::is_signed_v<T>)
+        return {operand::of::signed_integer, static_cast<long long>(v), 0, 0};
+    else
+        return {operand::of::unsigned_integer, 0, static_cast<unsigned long long>(v), 0};
+}
+template <class A, class B>
+inline constexpr bool both_operands = is_operand<std::remove_cvref_t<A>> && is_operand<std::remove_cvref_t<B>>;
 }  // namespace detail
 
 template <class A, class B>
 comparison eq(const A& a, const B& b) {
-    return detail::compare(a == b, "==", a, b);
+    if constexpr (detail::both_operands<A, B>)
+        return detail::relate(detail::operand_of(a), detail::relation::eq, detail::operand_of(b));
+    else
+        return detail::compare(a == b, "==", a, b);
 }
 template <class A, class B>
 comparison ne(const A& a, const B& b) {
-    return detail::compare(a != b, "!=", a, b);
+    if constexpr (detail::both_operands<A, B>)
+        return detail::relate(detail::operand_of(a), detail::relation::ne, detail::operand_of(b));
+    else
+        return detail::compare(a != b, "!=", a, b);
 }
 template <class A, class B>
 comparison lt(const A& a, const B& b) {
-    return detail::compare(a < b, "<", a, b);
+    if constexpr (detail::both_operands<A, B>)
+        return detail::relate(detail::operand_of(a), detail::relation::lt, detail::operand_of(b));
+    else
+        return detail::compare(a < b, "<", a, b);
 }
 template <class A, class B>
 comparison le(const A& a, const B& b) {
-    return detail::compare(a <= b, "<=", a, b);
+    if constexpr (detail::both_operands<A, B>)
+        return detail::relate(detail::operand_of(a), detail::relation::le, detail::operand_of(b));
+    else
+        return detail::compare(a <= b, "<=", a, b);
 }
 template <class A, class B>
 comparison gt(const A& a, const B& b) {
-    return detail::compare(a > b, ">", a, b);
+    if constexpr (detail::both_operands<A, B>)
+        return detail::relate(detail::operand_of(a), detail::relation::gt, detail::operand_of(b));
+    else
+        return detail::compare(a > b, ">", a, b);
 }
 template <class A, class B>
 comparison ge(const A& a, const B& b) {
-    return detail::compare(a >= b, ">=", a, b);
+    if constexpr (detail::both_operands<A, B>)
+        return detail::relate(detail::operand_of(a), detail::relation::ge, detail::operand_of(b));
+    else
+        return detail::compare(a >= b, ">=", a, b);
 }
 // |a - b| <= tolerance.
-inline comparison near(double a, double b, double tolerance) {
-    auto c = detail::compare(std::abs(a - b) <= tolerance, "~", a, b);
-    if (!c.held)
-        c.expression += std::format(" (tolerance {})", tolerance);
-    return c;
-}
+comparison near(double a, double b, double tolerance);
 // `text` contains `part`.
 comparison contains(std::string_view text, std::string_view part);
 // `body` throws an exception of type E (any exception for E = void).
@@ -427,15 +489,22 @@ expectation expect(fatal_condition value,
 
 // ---- cases ------------------------------------------------------------------
 
-// A case's body, with the place it was written.
+// A case's body, with the place it was written. The callable is the one the declaration names; a
+// case runs while it is declared, so the body refers to it and does not own it (0.11.0: an owning
+// std::function made every file instantiate it, a quarter of a second under GCC).
 struct body {
-    std::function<void()> run;
+    void (*call)(void*) = nullptr;
+    void* object = nullptr;
     std::source_location where;
     // A body returns nothing: a case ends at its end, at `return;`, at skip() or at fail().
     template <class F>
     requires std::invocable<F&> && std::is_void_v<std::invoke_result_t<F&>>
-    body(F f, std::source_location w = std::source_location::current())
-        : run(std::move(f)), where(w) {}
+    body(F&& f, std::source_location w = std::source_location::current())
+        : call([](void* o) { (*static_cast<std::remove_reference_t<F>*>(o))(); }),
+          object(const_cast<void*>(static_cast<const volatile void*>(std::addressof(f)))), where(w) {}
+    void run() const {
+        call(object);
+    }
 };
 
 // A case of several values: "x"_test = values{1, 2, 3} | [](int v) { ... };
@@ -463,13 +532,20 @@ parameterized<T, F> operator|(values<T> v, F f) {
     return {std::move(v.items), std::move(f), v.where};
 }
 
+// A case declared inside another's body, by `"name"_test = [&] { ... };`. Its name and attributes
+// are the library's (0.11.0): a file that declares a case makes no std::string of its own.
 class test {
 public:
-    explicit test(std::string_view name) : name_(name) {}
-    test(std::string_view name, attributes attrs) : name_(name), attrs_(std::move(attrs)) {}
+    explicit test(std::string_view name);
+    test(std::string_view name, attributes attrs);
+    test(const char* name, std::size_t size);
+    test(test&&) noexcept;
+    test(const test&) = delete;
+    test& operator=(const test&) = delete;
+    ~test();
     template <attribute A>
     test& operator[](A a) {
-        apply(attrs_, std::move(a));
+        apply(attrs(), std::move(a));
         return *this;
     }
 
@@ -485,31 +561,86 @@ public:
                 else
                     return std::to_string(i);
             }();
-            test one(std::format("{}/{}", name_, label));
-            one.attrs_ = attrs_;
+            test one(std::string(name()) + "/" + label, attrs());
             auto& f = p.f;
-            one.operator=(body([&f, &item] { std::invoke(f, item); }, p.where));
+            auto run = [&f, &item] { std::invoke(f, item); };
+            one.operator=(body(run, p.where));
         }
     }
 private:
-    std::string name_;
-    attributes attrs_;
+    struct state;
+    attributes& attrs();
+    std::string_view name() const;
+    state* state_ = nullptr;
 };
 
 inline test operator""_test(const char* name, std::size_t size) {
-    return test(std::string_view(name, size));
+    return test(name, size);
 }
 
 // A name and the place it is written: the first argument of a suite, converted where the suite is
-// declared, so that the suite's case is reported at its declaration.
+// declared, so that the suite's case is reported at its declaration. A literal is kept as its
+// characters, without std::string_view (0.11.0), so that a file declaring a suite loads no more of
+// the standard library than the suite needs.
 struct name_here {
-    std::string_view name;
+    const char* data = nullptr;
+    std::size_t size = 0;  // all ones: up to the terminating NUL
     std::source_location where;
     template <class S>
-    requires std::convertible_to<const S&, std::string_view>
-    name_here(const S& n, std::source_location w = std::source_location::current())
-        : name(n), where(w) {}
+    requires std::is_array_v<S> || std::convertible_to<const S&, std::string_view>
+    name_here(const S& n, std::source_location w = std::source_location::current()) : where(w) {
+        if constexpr (std::is_array_v<S>) {
+            data = n;
+            size = static_cast<std::size_t>(-1);
+        } else {
+            const std::string_view v(n);
+            data = v.data();
+            size = v.size();
+        }
+    }
 };
+
+namespace detail {
+std::string name_of(const char* data, std::size_t size);
+void add_suite(std::string name, std::source_location where, attributes attrs, std::function<void()> f);
+// A name (NUL-terminated when `size` is all ones), its place, its kind (-1: none) and its body.
+void add_plain(const char* name, std::size_t size, std::source_location where, int k, void (*f)());
+template <class... A>
+void declare_suite(name_here name, int k, A&&... args) {
+    attributes attrs;
+    if (k >= 0)
+        attrs.kind = static_cast<mtest::kind>(k);
+    constexpr std::size_t n = sizeof...(A);
+    auto all = std::forward_as_tuple(std::forward<A>(args)...);
+    using body_type = std::remove_cvref_t<std::tuple_element_t<n - 1, std::tuple<A...>>>;
+    static_assert(std::invocable<body_type&>, "a suite ends with its body: [] { ... }");
+    static_assert(std::is_void_v<std::invoke_result_t<body_type&>>,
+                  "a body returns nothing: a case ends at its end, at `return;`, at skip() or "
+                  "at fail()");
+    [&]<std::size_t... I>(std::index_sequence<I...>) {
+        (apply(attrs, std::remove_cvref_t<std::tuple_element_t<I, std::tuple<A...>>>(std::get<I>(all))),
+         ...);
+    }(std::make_index_sequence<n - 1>{});
+    add_suite(name_of(name.data, name.size), name.where, std::move(attrs),
+              std::function<void()>(std::get<n - 1>(all)));
+}
+template <class S>
+void declare_plain(const S& name, int k, void (*f)(), std::source_location where) {
+    if constexpr (std::is_array_v<S>) {
+        add_plain(name, static_cast<std::size_t>(-1), where, k, f);
+    } else {
+        const std::string_view n(name);
+        add_plain(n.data(), n.size(), where, k, f);
+    }
+}
+template <class F>
+void declare_unnamed(F f, std::source_location where) {
+    static_assert(std::is_void_v<std::invoke_result_t<F&>>,
+                  "a body returns nothing: a case ends at its end, at `return;`, at skip() or "
+                  "at fail()");
+    add_suite({}, where, attributes{}, std::function<void()>(std::move(f)));
+}
+}  // namespace detail
 
 // A case declared by an object at namespace scope:
 //
@@ -532,70 +663,82 @@ struct name_here {
 // kind each. A suite without a name is no case: its body runs when the program does, and declares
 // cases of its own scope:
 //   Suite all = [] { "a"_test = [] { ... }; };
+namespace detail {
+// A body that captures nothing, which a suite at namespace scope always is: the library keeps a
+// pointer to it, and a file that declares a suite of a name and a body instantiates nothing else.
+template <class F>
+inline constexpr bool plain_body = std::is_convertible_v<F, void (*)()>;
+template <class... A>
+inline constexpr bool one_plain_body = sizeof...(A) == 1 && (plain_body<std::remove_cvref_t<A>> && ...);
+// The arguments of a declaration with attributes: what the plain form's own calls pass (a place)
+// is none of them, so the declaration's overloads are set aside by their constraints before a
+// name's conversion is examined, which would load std::string_view into the file.
+template <class... A>
+inline constexpr bool declared_form = sizeof...(A) >= 1 && !one_plain_body<A...>
+    && (!std::is_same_v<std::remove_cvref_t<A>, std::source_location> && ...);
+}  // namespace detail
+
 class Suite {
 public:
     template <class... A>
-    requires(sizeof...(A) >= 1)
+    requires detail::declared_form<A...>
     Suite(name_here name, A&&... args) {
-        declare(name, attributes{}, std::forward<A>(args)...);
+        detail::declare_suite(name, -1, std::forward<A>(args)...);
+    }
+    template <class S, class F>
+    requires detail::plain_body<F>
+    Suite(const S& name, F f, std::source_location where = std::source_location::current()) {
+        detail::declare_plain(name, -1, f, where);
     }
     template <class F>
     requires std::invocable<F&>
     Suite(F f, std::source_location where = std::source_location::current()) {
-        static_assert(std::is_void_v<std::invoke_result_t<F&>>,
-                      "a body returns nothing: a case ends at its end, at `return;`, at skip() or "
-                      "at fail()");
-        add({}, where, attributes{}, std::function<void()>(std::move(f)));
+        detail::declare_unnamed(std::move(f), where);
     }
 protected:
     template <class... A>
+    requires detail::declared_form<A...>
     Suite(mtest::kind k, name_here name, A&&... args) {
-        attributes base;
-        base.kind = k;
-        declare(name, std::move(base), std::forward<A>(args)...);
+        detail::declare_suite(name, static_cast<int>(k), std::forward<A>(args)...);
     }
-private:
-    template <class... A>
-    void declare(name_here name, attributes attrs, A&&... args) {
-        constexpr std::size_t n = sizeof...(A);
-        auto all = std::forward_as_tuple(std::forward<A>(args)...);
-        using body_type = std::remove_cvref_t<std::tuple_element_t<n - 1, std::tuple<A...>>>;
-        static_assert(std::invocable<body_type&>, "a suite ends with its body: [] { ... }");
-        static_assert(std::is_void_v<std::invoke_result_t<body_type&>>,
-                      "a body returns nothing: a case ends at its end, at `return;`, at skip() or "
-                      "at fail()");
-        [&]<std::size_t... I>(std::index_sequence<I...>) {
-            (apply(attrs, std::remove_cvref_t<std::tuple_element_t<I, std::tuple<A...>>>(
-                              std::get<I>(all))),
-             ...);
-        }(std::make_index_sequence<n - 1>{});
-        add(std::string(name.name), name.where, std::move(attrs),
-            std::function<void()>(std::get<n - 1>(all)));
+    template <class S>
+    Suite(mtest::kind k, const S& name, void (*f)(), std::source_location where) {
+        detail::declare_plain(name, static_cast<int>(k), f, where);
     }
-    static void add(std::string name, std::source_location where, attributes attrs,
-                    std::function<void()> f);
 };
 
 // Unit tests: a part of a program on its own.
 class UTest : public Suite {
 public:
     template <class... A>
-    requires(sizeof...(A) >= 1)
+    requires detail::declared_form<A...>
     UTest(name_here name, A&&... args) : Suite(kind::unit, name, std::forward<A>(args)...) {}
+    template <class S, class F>
+    requires detail::plain_body<F>
+    UTest(const S& name, F f, std::source_location where = std::source_location::current())
+        : Suite(kind::unit, name, static_cast<void (*)()>(f), where) {}
 };
 // Conformance to a specification (P6.4): cases that name the clauses they cover.
 class CTS : public Suite {
 public:
     template <class... A>
-    requires(sizeof...(A) >= 1)
+    requires detail::declared_form<A...>
     CTS(name_here name, A&&... args) : Suite(kind::cts, name, std::forward<A>(args)...) {}
+    template <class S, class F>
+    requires detail::plain_body<F>
+    CTS(const S& name, F f, std::source_location where = std::source_location::current())
+        : Suite(kind::cts, name, static_cast<void (*)()>(f), where) {}
 };
 // End-to-end tests: programs under test, run as their users run them (mcpplibs.mtest.e2e).
 class E2E : public Suite {
 public:
     template <class... A>
-    requires(sizeof...(A) >= 1)
+    requires detail::declared_form<A...>
     E2E(name_here name, A&&... args) : Suite(kind::e2e, name, std::forward<A>(args)...) {}
+    template <class S, class F>
+    requires detail::plain_body<F>
+    E2E(const S& name, F f, std::source_location where = std::source_location::current())
+        : Suite(kind::e2e, name, static_cast<void (*)()>(f), where) {}
 };
 // Measurements (mcpplibs.mtest.bench). A measurement means something only on a machine nothing
 // else uses, so a Bench holds `machine` (P7.1).

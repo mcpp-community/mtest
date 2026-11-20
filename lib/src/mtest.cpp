@@ -695,6 +695,97 @@ void run_suites() {
 
 // ---- expectations ------------------------------------------------------------
 
+std::string detail::show_text(std::string_view text) {
+    std::string out;
+    out.reserve(text.size() + 2);
+    out += '"';
+    out += text;
+    out += '"';
+    return out;
+}
+std::string detail::show_signed(long long value) {
+    return std::to_string(value);
+}
+std::string detail::show_unsigned(unsigned long long value) {
+    return std::to_string(value);
+}
+std::string detail::show_floating(double value, bool single) {
+    return single ? std::format("{}", static_cast<float>(value)) : std::format("{}", value);
+}
+void detail::describe(comparison& c, const char* op) {
+    c.expression = c.actual + " " + op + " " + c.expected;
+}
+
+namespace {
+detail::operand as_double(const detail::operand& o) {
+    using of = detail::operand::of;
+    detail::operand d = o;
+    if (o.kind == of::signed_integer || o.kind == of::boolean)
+        d.d = static_cast<double>(o.s);
+    else if (o.kind == of::unsigned_integer)
+        d.d = static_cast<double>(o.u);
+    return d;
+}
+// -1, 0 or 1: a below, equal to or above b, by value.
+int order(const detail::operand& a, const detail::operand& b) {
+    using of = detail::operand::of;
+    const bool floating = a.kind == of::floating || a.kind == of::single || b.kind == of::floating
+        || b.kind == of::single;
+    if (floating) {
+        const double x = as_double(a).d, y = as_double(b).d;
+        return x < y ? -1 : (y < x ? 1 : 0);
+    }
+    const bool ua = a.kind == of::unsigned_integer, ub = b.kind == of::unsigned_integer;
+    if (ua && ub)
+        return a.u < b.u ? -1 : (b.u < a.u ? 1 : 0);
+    if (ua)
+        return std::cmp_less(a.u, b.s) ? -1 : (std::cmp_less(b.s, a.u) ? 1 : 0);
+    if (ub)
+        return std::cmp_less(a.s, b.u) ? -1 : (std::cmp_less(b.u, a.s) ? 1 : 0);
+    return a.s < b.s ? -1 : (b.s < a.s ? 1 : 0);
+}
+std::string shown(const detail::operand& o) {
+    using of = detail::operand::of;
+    switch (o.kind) {
+        case of::boolean: return o.s ? "true" : "false";
+        case of::signed_integer: return detail::show_signed(o.s);
+        case of::unsigned_integer: return detail::show_unsigned(o.u);
+        case of::single: return detail::show_floating(o.d, true);
+        case of::floating: return detail::show_floating(o.d, false);
+    }
+    return {};
+}
+}  // namespace
+
+// A comparison of two numbers or truth values. NaN is unordered: every relation but `!=` fails.
+comparison detail::relate(const operand& a, relation r, const operand& b) {
+    const bool nan = std::isnan(as_double(a).d) || std::isnan(as_double(b).d);
+    const int o = nan ? 2 : order(a, b);
+    static constexpr const char* ops[] = {"==", "!=", "<", "<=", ">", ">="};
+    comparison c;
+    switch (r) {
+        case relation::eq: c.held = o == 0; break;
+        case relation::ne: c.held = o != 0; break;
+        case relation::lt: c.held = o == -1; break;
+        case relation::le: c.held = o == -1 || o == 0; break;
+        case relation::gt: c.held = o == 1; break;
+        case relation::ge: c.held = o == 1 || o == 0; break;
+    }
+    if (!c.held) {
+        c.actual = shown(a);
+        c.expected = shown(b);
+        describe(c, ops[static_cast<int>(r)]);
+    }
+    return c;
+}
+
+comparison near(double a, double b, double tolerance) {
+    auto c = detail::compare(std::abs(a - b) <= tolerance, "~", a, b);
+    if (!c.held)
+        c.expression += std::format(" (tolerance {})", tolerance);
+    return c;
+}
+
 comparison contains(std::string_view text, std::string_view part) {
     comparison c;
     c.held = text.find(part) != std::string_view::npos;
@@ -745,12 +836,17 @@ void fail(std::string message, std::source_location where) {
 
 // ---- cases --------------------------------------------------------------------
 
+struct test::state {
+    std::string name;
+    attributes attrs;
+};
+
 void test::operator=(body b) {
     auto& s = the();
     std::unique_lock g(s.lock);
     write_program();
-    const std::string id = full_id(name_);
-    attributes attrs = within(inherited(), attrs_);
+    const std::string id = full_id(state_->name);
+    attributes attrs = within(inherited(), state_->attrs);
     attrs.skip = skip_reason(attrs);
     s.seen.insert(id);
     s.clauses.insert(attrs.clauses.begin(), attrs.clauses.end());
@@ -758,7 +854,7 @@ void test::operator=(body b) {
     if (s.listing) {
         event ev = {{"e", "case"},
                     {"id", id},
-                    {"name", name_},
+                    {"name", state_->name},
                     {"file", file},
                     {"line", b.where.line()}};
         // A kind no attribute states is the runner's to give (the program's, by its directory).
@@ -982,9 +1078,37 @@ void test::operator=(body b) {
         begin_capture(s.stack.back());
 }
 
-void Suite::add(std::string name, std::source_location where, attributes attrs,
-                std::function<void()> f) {
+void detail::add_suite(std::string name, std::source_location where, attributes attrs,
+                       std::function<void()> f) {
     the().suites.push_back({std::move(name), where, std::move(attrs), std::move(f)});
+}
+
+std::string detail::name_of(const char* data, std::size_t size) {
+    return size == static_cast<std::size_t>(-1) ? std::string(data) : std::string(data, size);
+}
+
+void detail::add_plain(const char* name, std::size_t size, std::source_location where, int k,
+                       void (*f)()) {
+    attributes attrs;
+    if (k >= 0)
+        attrs.kind = static_cast<mtest::kind>(k);
+    add_suite(name_of(name, size), where, std::move(attrs), std::function<void()>(f));
+}
+
+// ---- a case declared in a body ------------------------------------------------------
+
+test::test(std::string_view name) : state_(new state{std::string(name), {}}) {}
+test::test(std::string_view name, attributes attrs) : state_(new state{std::string(name), std::move(attrs)}) {}
+test::test(const char* name, std::size_t size) : state_(new state{std::string(name, size), {}}) {}
+test::test(test&& o) noexcept : state_(std::exchange(o.state_, nullptr)) {}
+test::~test() {
+    delete state_;
+}
+attributes& test::attrs() {
+    return state_->attrs;
+}
+std::string_view test::name() const {
+    return state_->name;
 }
 
 namespace {

@@ -163,18 +163,20 @@ outcome run(command c) {
     for (auto& kv : c.env)
         o.env.push_back(std::move(kv));
     o.in = c.input.empty() ? os::process::stdio::null : os::process::stdio::pipe;
+    os::process::bounds limits;
     // A command is held to what its case has left (0.11.1): one that would outlast the case ends
     // while the case can still say so, with the outputs it wrote, instead of with the program the
-    // runner ends at its limit. A tenth of what is left, at most five seconds, stays the case's own
-    // for its report.
+    // runner ends at its limit. What ending it takes -- the grace after asking it to end, the
+    // drain of its outputs -- comes off first, and a tenth of what is left, at most five seconds,
+    // stays the case's own for its report.
     if (const auto left = time_left()) {
-        const auto keep = (std::min)(*left / 10, std::chrono::milliseconds{5000});
+        const auto keep =
+            (std::min)(*left / 10, std::chrono::milliseconds{5000}) + limits.grace + limits.drain;
         if (const auto usable = *left - keep; usable < c.timeout) {
             c.timeout = (std::max)(usable, std::chrono::milliseconds{1});
             r.case_limit = true;
         }
     }
-    os::process::bounds limits;
     limits.hard = c.timeout;
     limits.out_limit = c.out_limit;
     limits.err_limit = c.err_limit;

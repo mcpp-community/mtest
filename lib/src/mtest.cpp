@@ -342,7 +342,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.11.0"},
+         {"version", "0.11.1"},
          {"isolation", {"process", "case"}},
          // P4.3: a selection's `!<id>` and `?<id>` lines are understood.
          {"selection", {"except", "optional"}},
@@ -1386,8 +1386,10 @@ std::optional<std::chrono::milliseconds> time_left() {
     for (const auto& r : s.stack)
         if (r.attrs.limit && (!deadline || r.began + *r.attrs.limit < *deadline))
             deadline = r.began + *r.attrs.limit;
-    if (!deadline) return std::nullopt;
-    const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - clock::now());
+    if (!deadline)
+        return std::nullopt;
+    const auto left =
+        std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - clock::now());
     return (std::max)(left, std::chrono::milliseconds{0});
 }
 

@@ -50,16 +50,18 @@ UTest children{"children", [] {
                        expect(!whole.err_truncated);
                    };
                    // 0.11.1: a command is held to what its case has left of its `timeout`.
-                   "a command ends when its case's time does"_test[timeout{std::chrono::seconds{5}}] = [] {
+                   "a command ends when its case's time does"_test[timeout{
+                       std::chrono::seconds{10}}] = [] {
                        const auto left = time_left();
                        expect(fatal(left.has_value()));
-                       expect(le(left->count(), 5000LL));
+                       expect(le(left->count(), 10000LL));
                        const std::vector<std::string> secs{"30"};
                        auto o = e2e::run({.argv = child_command("sleeper", secs),
                                           .timeout = std::chrono::seconds{60}});
                        expect(o.timed_out);
                        expect(o.case_limit);
-                       expect(lt(o.duration.count(), 5000LL)) << "it did not leave the case time of its own";
+                       expect(lt(o.duration.count(), 10000LL))
+                           << "it did not leave the case time of its own";
                        expect(e2e::succeeded(o).actual.contains("the time its case had left"));
                    };
                    "a case that states no time leaves the command its own"_test = [] {

@@ -53,7 +53,7 @@ E2E cli{"cli", resource{"serial:home"}, timeout{std::chrono::minutes{2}}, [] { /
   The entry enters the child before any case; the copy runs no case and reports nothing. The files of
   one directory are then one program (mcpp `[test] programs = "directory"`) however many of them start
   copies.
-- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.10.0"`.
+- The manifest names the library once: `[dev-dependencies] mcpplibs.mtest = "0.11.0"`.
 - Identifiers are stable: a selection, a history and a shard name a case by them.
 
 ## Expectations
@@ -182,6 +182,20 @@ expect(e2e::contains(r.err, "warning"));
   the cut. A case that looks for text in a long output raises the limit, or checks the flag first.
 - `e2e::tree({{path, content}...})` writes a directory of files; `e2e::golden(file, text)` compares
   with a golden file (`MTEST_GOLDEN=update` writes it).
+- `e2e::golden(file, text, rules)` applies redactions first (`e2e::redactions::paths(root)`,
+  `durations()`, `sizes()`, `digests()`, or `{pattern, with}` of one's own), so a contract's whole
+  output is compared without what differs from run to run; an update prints what it changed by line.
+- **A run is a step of the case** (P5.6): its name (`command::step`, else its words), status, time
+  and the processor time of the programs it ran are in the case's record. A kit that runs its
+  commands another way writes `step({...})`; `exercise({"command build", ...})` states the items of
+  the product's surface a case used, which a ledger reads (`[ledger.*]`, evidence `exercised`).
+- **The end of a case checks what its programs did** (0.11.0): a process a program left running,
+  holding an output open, fails the case; so does a line of their output that matches a pattern the
+  project declares diagnostic (`e2e::diagnostics({R"(^warning:)"})`) and no pattern the case
+  declares (`e2e::expect_diagnostic(R"(^warning: x)")`), or a declared pattern no line matched. A
+  project migrating to the check runs under `MTEST_DIAGNOSTICS=report` (or
+  `e2e::diagnostics_policy(e2e::diagnostic_policy::report)`): the lines are printed and counted
+  (`diagnostics.undeclared`), and nothing fails.
 - **A session** drives a program whose input depends on what it wrote: a serial console, a
   debugger, a login, a read-eval-print loop.
 
@@ -257,6 +271,13 @@ E2E fetch{"fetch", uses{"index"}, resource{"port"}, [] {
 - A **component** names the pools of resources it brings: a resource with a capacity, held by at
   most that many cases at once.
 - What a case shares only with the cases of its own program is a `shared<T>` (above).
+
+## Contention points
+
+`contention_point()` marks a place where the order of threads or processes is not fixed. Under a
+runner's jitter (`mtest run --jitter MS`, SPEC-017 O12) the program waits there a random time up to
+MS, the same for the same seed; elsewhere nothing happens. A case begins at one, and a shared object
+is made at one.
 
 ## Use of the machine
 

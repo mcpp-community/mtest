@@ -30,7 +30,7 @@ protocol. This file states the core ideas and rules; the design and its record a
 | `manifest` | the static case manifest: the cases a source file declares, read from its text | nothing |
 | `engine` | the `mtest` command and its service | `manifest`, `mcpplibs.os`, `mcpplibs.cmdline`, JSON, TOML |
 | `conformance` | the protocol's conformance suite | `lib` |
-| `adapters/*` | GoogleTest, Bash, Python | the framework adapted, JSON |
+| `adapters/*` | GoogleTest, doctest, Bash, Python | the framework adapted, JSON |
 | `capi` | `include/mtest.h` for any language with a C FFI | JSON |
 
 ## Code
@@ -42,7 +42,7 @@ protocol. This file states the core ideas and rules; the design and its record a
 - Format by [.clang-format](.clang-format) (the same as mcpp's); CI checks it with the pinned
   clang-format.
 - No macros: modules, `inline constexpr`, `if constexpr`, `std::source_location`. Headers appear
-  where a library is only a header: GoogleTest's in its adapter (with nlohmann/json's beside it), and
+  where a library is only a header: GoogleTest's and doctest's in their adapters (with nlohmann/json's beside them), and
   the C ABI's `include/mtest.h`.
 - Names are readable words; loops nest at most two deep (a helper otherwise).
 - Comments and documents are declarative and concise; they carry no local path, user name or

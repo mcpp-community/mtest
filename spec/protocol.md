@@ -1,6 +1,6 @@
 # The mtest test protocol, version 1
 
-**Status:** the normative text is the mcpp test spec, SPEC-017 v2.0
+**Status:** the normative text is the mcpp test spec, SPEC-017 (v2.5 from mtest 0.11.0)
 ([mcpp docs/specs/test.md](https://github.com/mcpp-community/mcpp/blob/main/docs/specs/test.md)),
 from mtest 0.6.0 (2026-11-10). The spec keeps this protocol's clause numbers, P1 to P12, so a test,
 a conformance report or a document that names `P3.2` names the same clause there; it adds the base
@@ -23,6 +23,8 @@ on the spec; this list says which of its clauses mtest's parts answer, and since
 | O7 `usage` | the program's `usage` at its end, and the cases' use at `MTEST_MONITOR` (P10) | 0.5.0 |
 | P3.3, places and capabilities | a `case` event states `only` and `except` (the platforms and architectures of `only{}`, `except{}`), `capabilities` (each `capability` the case requires, as the program answered it), and the `reason` of a case it lists skipped; the program skips a case outside its places or lacking a capability, whichever runner starts it | 0.8.0 |
 | B2: P4.3 | a selection's `!<id>` lines leave out a case and the cases it declares, and its `?<id>` lines select a case where it is declared and are not `missing` elsewhere; the `program` event states `selection: ["except", "optional"]` | 0.9.0 |
+| P5.6 | `step()` writes a `step` event and `exercise()` an `exercise` event of the running case; `e2e::run` writes a step for each command it runs | 0.11.0 |
+| O12 `jitter` | `contention_point()` waits a random time up to `MTEST_JITTER`, the same for the same `MTEST_JITTER_SEED`; a case begins and a shared object is made at one | 0.11.0 |
 | O8 `output` | each case's output, kept while it runs under a runner and stated as `output` events; a case declared inside another keeps its own. Where the system cannot rearrange the program's streams (an ok image), no output is kept for a case, the spec's fallback | 0.6.0 |
 
 ## The engine (`mtest`)
@@ -36,6 +38,10 @@ on the spec; this list says which of its clauses mtest's parts answer, and since
 | O6 | serves run fixtures once per run (P11.2, P11.3) | 0.5.0 |
 | O7 | measures a program that reports no use from a process of its own (P10.4) | 0.5.0 |
 | P3.3, places | skips a listed case outside its `only` and `except`, and one its program lists skipped with a `reason`, without starting it; takes the program's answers for the capabilities it names (no `[capabilities]` entry needed) and records them in the run; `mtest ci coverage` requires a case to pass on each of its places that a collected run covered | 0.8.0 |
+| P5.6, runner side | reads `step` and `exercise` events into the case's record (`steps`, `exercised`), with the case's `cpu_ms` and `limit_ms`; reads a host's `builds.ndjson` | 0.11.0 |
+| P12.4 | a run records the machine's class (`machine`: the processor's model, else `<arch>/<processors>`), `processors` and `memory`; estimates prefer the same class | 0.11.0 |
+| O11 `budget` | a run makes a budget of a slot file per job; each worker holds one and states it (`MTEST_BUDGET`, `MTEST_BUDGET_HELD`); inside another runner's budget it uses that one | 0.11.0 |
+| O12 `jitter` | `mtest run --jitter MS [--jitter-seed N]` states it to the programs and records it | 0.11.0 |
 | O9 `session` | `mtest serve` answers `test/plan`, `test/run`, `test/add`, `test/cancel`, `test/status` and `shutdown`, and states `test/build`, `test/case`, `test/program`, `test/run`; it builds nothing, and starts each program from the launch mcpp gives (B5) | 0.6.0 |
 
 ## The adapters and the C ABI
@@ -43,6 +49,7 @@ on the spec; this list says which of its clauses mtest's parts answer, and since
 | Part | Level | Clauses |
 |---|---|---|
 | `mcpplibs.mtest.gtest` (GoogleTest) | L1 | B2 |
+| `mcpplibs.mtest.doctest` (doctest, 0.11.0) | L1 | B2 |
 | the Bash and Python adapters (`adapters/script`) | L3 | B2, O4, O5 ([docs/adapters.md](../docs/adapters.md)) |
 | `mcpplibs.mtest.capi` (C ABI) | L3 | B2, O4, O5 |
 

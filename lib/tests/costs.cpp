@@ -1,7 +1,9 @@
 // What the library costs a program (mtest design record of mcpp, 2026-11-20 §3.4 and §5.12), as
 // measurements with bounds: the run time of an expectation, and what the protocol adds to a case
-// when a runner keeps each case's output. They hold the machine (Bench), and a bound that fails
-// names a regression of the library, not of the program.
+// when a runner keeps each case's output. They hold the machine (Bench). A bound holds on every row
+// of CI and names a regression of the library's order of magnitude: the protocol took 2 ms a case
+// through 0.10.0 and takes 0.075 to 0.21 ms (a workstation, a hosted runner); an expectation takes
+// 228 ns natively and 1,036 ns in an ok image.
 import std;
 import mcpplibs.mtest;
 import mcpplibs.mtest.bench;
@@ -23,7 +25,7 @@ UTest many{"many", [] {
                    test(std::format("case {}", i)) = [] { expect(eq(1, 1)); };
            }};
 
-Bench assertions{"an expectation's run time", at_most{"expectation_ns", 600}, [] {
+Bench assertions{"an expectation's run time", at_most{"expectation_ns", 3000}, [] {
                      constexpr int n = 1'000'000;
                      const auto began = std::chrono::steady_clock::now();
                      for (int i = 0; i < n; ++i)
@@ -34,7 +36,7 @@ Bench assertions{"an expectation's run time", at_most{"expectation_ns", 600}, []
                      metric("expectation_ns", ns / n, "ns");
                  }};
 
-Bench protocol{"what the protocol adds to a case", at_most{"case_overhead_ms", 0.2}, [] {
+Bench protocol{"what the protocol adds to a case", at_most{"case_overhead_ms", 1.0}, [] {
                    const auto dir = temp_dir() / "costs";
                    std::filesystem::create_directories(dir);
                    const auto report = dir / "report.ndjson";

@@ -242,7 +242,7 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
     known(t, "mtest.toml",
           {"project", "programs", "discover", "host", "sets", "policy", "retry", "regression",
            "store", "trace", "cases", "coverage", "static", "run", "monitor", "report", "fixtures",
-           "capabilities", "ci"},
+           "capabilities", "ci", "budget", "ledger"},
           c);
     if (auto p = t["project"].as_table()) {
         known(*p, "project", {"store", "jobs"}, c);
@@ -466,6 +466,59 @@ std::expected<config, std::string> load_config(const std::filesystem::path& dir)
                 c.ci_plan.unknown = *d;
         }
     }
+    // Waivers: `[[budget.waiver]]` and `[[ledger.<name>.waiver]]`, each a `case` or an `item` and
+    // its `reason`.
+    auto waivers_of = [&](toml::node_view<toml::node> n, std::string_view where,
+                          std::string_view key) -> std::expected<std::vector<waiver>, std::string> {
+        std::vector<waiver> out;
+        auto a = n.as_array();
+        if (!a)
+            return out;
+        for (auto& e : *a) {
+            auto w = e.as_table();
+            if (!w)
+                return std::unexpected(std::format("{}.waiver must be an array of tables", where));
+            known(*w, std::format("{}.waiver", where), {std::string(key), "reason"}, c);
+            waiver one{(*w)[key].value_or(std::string{}), (*w)["reason"].value_or(std::string{})};
+            if (one.what.empty() || one.reason.empty())
+                return std::unexpected(
+                    std::format("{}.waiver needs `{}` and `reason`: a waiver says why", where, key));
+            out.push_back(std::move(one));
+        }
+        return out;
+    };
+    if (auto b = t["budget"].as_table()) {
+        known(*b, "budget", {"case_cpu", "waiver"}, c);
+        c.budget.case_cpu = duration_of((*b)["case_cpu"]);
+        auto w = waivers_of((*b)["waiver"], "budget", "case");
+        if (!w)
+            return std::unexpected(w.error());
+        c.budget.waivers = std::move(*w);
+    }
+    if (auto ls = t["ledger"].as_table())
+        for (const auto& [name, node] : *ls) {
+            auto lt = node.as_table();
+            if (!lt)
+                return std::unexpected(std::format("ledger.{} must be a table", name.str()));
+            const auto where = std::format("ledger.{}", name.str());
+            known(*lt, where, {"file", "command", "evidence", "waiver"}, c);
+            ledger_spec l;
+            l.name = std::string(name.str());
+            if (auto f = (*lt)["file"].value<std::string>())
+                l.file = os::fs::from_utf8(*f);
+            l.command = strings((*lt)["command"]);
+            l.evidence = (*lt)["evidence"].value_or(std::string("clauses"));
+            if (l.evidence != "clauses" && l.evidence != "exercised")
+                return std::unexpected(
+                    std::format("{}.evidence is `clauses` or `exercised`, not `{}`", where, l.evidence));
+            if (l.file.empty() == l.command.empty())
+                return std::unexpected(std::format("{} states one source: `file` or `command`", where));
+            auto w = waivers_of((*lt)["waiver"], where, "item");
+            if (!w)
+                return std::unexpected(w.error());
+            l.waivers = std::move(*w);
+            c.ledgers.push_back(std::move(l));
+        }
     if (auto fs = t["fixtures"].as_table())
         for (const auto& [name, node] : *fs) {
             auto ft = node.as_table();

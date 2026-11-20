@@ -461,8 +461,13 @@ struct history {
     std::set<std::string> failed_recently;  // within regression_days
 };
 
+// A duration measured on a machine of this one's class is preferred to one measured on another:
+// hosted runners of one label are processors that differ by up to 1.6 times (P12.4, 0.11.0). A
+// case measured only elsewhere keeps that measurement.
 history read_history(const config& c, const store& s) {
     history h;
+    std::map<std::string, double> elsewhere;
+    const auto here = machine_class();
     const auto all = runs(s);
     const auto cutoff =
         std::format("{:%Y%m%d}",
@@ -478,10 +483,12 @@ history read_history(const config& c, const store& s) {
         for (const auto& pr : r->programs)
             if (pr.usage && pr.usage->peak_bytes && !h.peak.contains(pr.name))
                 h.peak[pr.name] = *pr.usage->peak_bytes;
+        const bool same = r->machine.empty() || r->machine == here;
         for (const auto& cr : r->cases) {
             const auto key = cr.program + "::" + cr.id;
-            if (!h.ms.contains(key))
-                h.ms[key] = cr.ms;
+            auto& into = same ? h.ms : elsewhere;
+            if (!into.contains(key))
+                into[key] = cr.ms;
             if (failing(cr.status)) {
                 h.failed_recently.insert(key);
                 if (last)
@@ -489,6 +496,8 @@ history read_history(const config& c, const store& s) {
             }
         }
     }
+    for (auto& [key, ms] : elsewhere)
+        h.ms.try_emplace(key, ms);
     return h;
 }
 

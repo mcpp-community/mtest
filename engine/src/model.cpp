@@ -1,8 +1,11 @@
 module mcpplibs.mtest.engine.model;
 
 import std;
+import mcpplibs.os;
 
 namespace mcpplibs::mtest::engine {
+
+namespace os = mcpplibs::os;
 
 namespace {
 template <class T>
@@ -273,8 +276,15 @@ fixture_run fixture_run_from(const json& j) {
     return {str(j, "name"),           str(j, "program"),        j.value("started_ms", 0.0),
             j.value("ready_ms", 0.0), j.value("ended_ms", 0.0), str(j, "status")};
 }
+std::string machine_class() {
+    if (auto model = os::machine::processor_model(); model && !model->empty())
+        return *model;
+    return std::format("{}/{}", os::machine::arch(), os::machine::processors().logical);
+}
+
 json to_json(const run_record& r) {
     return {{"schema", "mtest.run/1"},  {"id", r.id},
+            {"processors", r.processors}, {"memory", r.memory},
             {"started", r.started},     {"finished", r.finished},
             {"status", r.status},       {"system", r.system},
             {"arch", r.arch},           {"machine", r.machine},
@@ -427,6 +437,8 @@ run_record run_record_from(const json& j) {
     r.system = str(j, "system");
     r.arch = str(j, "arch");
     r.machine = str(j, "machine");
+    r.processors = j.value("processors", 0);
+    r.memory = j.value("memory", std::uint64_t{0});
     r.commit = str(j, "commit");
     r.set = str(j, "set");
     r.selection = str(j, "selection");

@@ -144,6 +144,34 @@ struct ci_plan_spec {
     std::chrono::milliseconds unknown{std::chrono::seconds{30}};  // a case with no history
 };
 
+// A case excused from a rule of the gate, with its reason (0.11.0): a waiver names a case (a glob
+// over `<program>::<case>`) or an item of a ledger, and only shrinks -- one that excuses nothing
+// fails the gate.
+struct waiver {
+    std::string what;
+    std::string reason;
+};
+
+// `[budget]` (0.11.0): the processor time a case may take, judged by `mtest gate` from the
+// case's `cpu_ms` (P12.4); a case over it fails the gate unless a waiver names it.
+struct budget_spec {
+    std::optional<std::chrono::milliseconds> case_cpu;
+    std::vector<waiver> waivers;
+};
+
+// `[ledger.<name>]` (0.11.0): requirements, one per line of a file or of a command's output, each
+// of which a passing case must cover -- by a clause it states (`evidence = "clauses"`, P6.4) or
+// by an item of the product's surface it used (`evidence = "exercised"`, P5.6) -- or a waiver
+// must excuse. `mtest gate` judges it over the run and the runs of its group; `mtest report`
+// writes its table.
+struct ledger_spec {
+    std::string name;
+    std::filesystem::path file;
+    std::vector<std::string> command;  // `${NAME}` is the variable's value
+    std::string evidence = "clauses";
+    std::vector<waiver> waivers;
+};
+
 struct config {
     std::filesystem::path root;  // the directory of mtest.toml, or the working directory
     std::filesystem::path store = ".mtest";
@@ -172,6 +200,8 @@ struct config {
     capabilities_spec capabilities;
     ci_coverage_spec ci_coverage;
     ci_plan_spec ci_plan;
+    budget_spec budget;
+    std::vector<ledger_spec> ledgers;
     std::vector<std::string> warnings;  // keys this engine does not know
 };
 

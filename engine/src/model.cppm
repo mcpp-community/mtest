@@ -206,7 +206,11 @@ struct run_record {
     std::string id;
     std::string started, finished;  // ISO 8601, UTC
     std::string status;             // pass fail infra cancelled
+    // `machine`: the machine's class (P12.4, 0.11.0), the processor's model, else
+    // `<arch>/<processors>`; durations are compared within a class.
     std::string system, arch, machine, commit, set, selection;
+    int processors = 0;
+    std::uint64_t memory = 0;
     double ms = 0;
     int jobs = 1;
     std::vector<program_result> programs;
@@ -224,6 +228,10 @@ struct run_record {
     // The run whose results this one carries for the cases it did not run again (`--resume`).
     std::string resumed;
 };
+
+// This machine's class (P12.4): the processor's model as the system names it, else the
+// architecture and the number of processors.
+std::string machine_class();
 
 // JSON as text, a byte that is not UTF-8 (a program's output in a Windows code page) written as
 // U+FFFD rather than refused.

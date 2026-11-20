@@ -406,7 +406,9 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
     rec.started = now_iso();
     rec.system = std::string(os::name(os::host()));
     rec.arch = std::string(os::name(os::ARCH));
-    rec.machine = os::env::get("HOSTNAME").value_or(os::env::get("COMPUTERNAME").value_or(""));
+    rec.machine = machine_class();
+    rec.processors = int(os::machine::processors().logical);
+    rec.memory = os::machine::memory().value_or(0);
     rec.commit = git_commit(c.root);
     rec.set = o.set;
     rec.selection = o.selection;

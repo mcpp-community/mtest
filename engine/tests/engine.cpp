@@ -597,6 +597,11 @@ printf ')" + header +
         expect(eq(run["status"].get<std::string>(), std::string("pass"))) << run.dump();
         auto map = json_of(mtest(root, {"coverage", "--json"}));
         expect(eq(map["cases"]["t::t"], json::array({"a.c"}))) << map.dump();
+        // The function whose arcs ran, by its ident (0.11.0), and how widely the cases share it.
+        expect(eq(map["functions"]["t::t"], json::array({"a.c#1"}))) << map.dump();
+        auto spread = json_of(mtest(root, {"coverage", "spread", "--json"}));
+        expect(eq(spread["functions"].get<int>(), 1)) << spread.dump();
+        expect(near(spread["median_function_share"].get<double>(), 1.0, 1e-9)) << spread.dump();
     };
     "a run under --coverage maps each case to the sources it executed"_test[kind::e2e] = [] {
         // GCC's own `.gcda` files, where a plain `gcc` builds a program here.

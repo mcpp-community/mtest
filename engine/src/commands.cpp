@@ -421,8 +421,30 @@ answer cmd_coverage(const std::filesystem::path& cwd, const json& p) {
                 std::format("coverage map of {} taken in: {} case(s)\n", m->commit.substr(0, 12),
                             m->cases.size())};
     }
+    if (action == "spread") {
+        // How widely the cases share what they executed: the measure that decides whether a
+        // selection at a finer granularity selects fewer cases (0.11.0).
+        auto m = read_coverage(file);
+        if (!m)
+            return usage(m.error());
+        const auto sp = spread_of(*m);
+        return {0,
+                {{"cases", sp.cases},
+                 {"files", sp.files},
+                 {"functions", sp.functions},
+                 {"median_file_share", sp.median_file_share},
+                 {"median_function_share", sp.median_function_share},
+                 {"conclusion",
+                  std::format("of {} case(s), the median file is executed by {:.0f}% and the median "
+                              "function by {:.0f}%",
+                              sp.cases, sp.median_file_share * 100, sp.median_function_share * 100)}},
+                std::format("{} case(s); {} file(s), median share {:.1f}%; {} function(s), median "
+                            "share {:.1f}%\n",
+                            sp.cases, sp.files, sp.median_file_share * 100, sp.functions,
+                            sp.median_function_share * 100)};
+    }
     if (!action.empty() && action != "show")
-        return usage(std::format("coverage {}: the actions are show and import", action));
+        return usage(std::format("coverage {}: the actions are show, import and spread", action));
     auto m = read_coverage(file);
     if (!m)
         return {0,
@@ -434,18 +456,24 @@ answer cmd_coverage(const std::filesystem::path& cwd, const json& p) {
     std::string text = std::format("coverage map of {} at {}{}\n", m->commit.substr(0, 12), m->time,
                                    fresh ? "" : " (older than [coverage] max_age: not read)");
     const auto only = strings(p, "case");
+    json functions = json::object();
     for (const auto& [k, files] : m->cases) {
         if (!only.empty() &&
             !std::ranges::any_of(only, [&](const std::string& g) { return glob_match(g, k); }))
             continue;
         cases[k] = files;
-        text += std::format("{}: {} file(s)\n", k, files.size());
+        const auto fns = m->functions.find(k);
+        if (fns != m->functions.end())
+            functions[k] = fns->second;
+        text += std::format("{}: {} file(s), {} function(s)\n", k, files.size(),
+                            fns == m->functions.end() ? 0 : fns->second.size());
     }
     return {0,
             {{"commit", m->commit},
              {"time", m->time},
              {"fresh", fresh},
              {"cases", cases},
+             {"functions", functions},
              {"conclusion",
               std::format("{} case(s) mapped at {}{}", m->cases.size(), m->commit.substr(0, 12),
                           fresh ? "" : "; older than max_age")}},
@@ -1923,8 +1951,9 @@ json catalog() {
                {"until", {{"type", "string"}}}}),
         true);
     add("coverage",
-        "The coverage map affected selection reads: show it, or import one (a CI artifact).",
-        plain({{"action", {{"enum", {"show", "import"}}}},
+        "The coverage map affected selection reads: show it, import one (a CI artifact), or "
+        "measure how widely its cases share files and functions (spread).",
+        plain({{"action", {{"enum", {"show", "import", "spread"}}}},
                {"from", {{"type", "string"}, {"description", "import: a coverage map file"}}},
                {"case", {{"type", "array"}, {"items", {{"type", "string"}}}}}}));
     add("store", "The store: gc, verify, or import another store.",

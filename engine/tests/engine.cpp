@@ -853,6 +853,27 @@ printf ')" + header +
         expect(contains(g.out, "flowchart LR"));
         expect(contains(g.out, "class n0,n1 crit")) << g.out;
     };
+    "a report gives the builds a host recorded and the cases near their limit"_test[kind::e2e] = [] {
+        auto root = project({{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\ntimeout = \"1s\"\n"},
+                             {"b.sh", script({"near:nap"}, "nap() { sleep 0.9; }\n")}});
+        (void)mtest(root, {"run"});
+        std::filesystem::path dir;
+        for (const auto& e : std::filesystem::recursive_directory_iterator(root / ".mtest"))
+            if (e.path().filename() == "run.json")
+                dir = e.path().parent_path();
+        expect(fatal(!dir.empty()));
+        (void)mcpplibs::os::fs::write(
+            dir / "builds.ndjson",
+            "{\"build\":\"b1\",\"output\":\"obj/big.o\",\"package\":\"app\",\"started_ms\":0,"
+            "\"ms\":4000,\"cpu_ms\":3900}\n"
+            "{\"build\":\"b1\",\"package\":\"dep\",\"cached\":true,\"units\":12}\n");
+        auto r = mtest(root, {"report", "--format", "md", "--sections", "builds,margin"});
+        expect(contains(r.out, "## Builds")) << r.out;
+        expect(contains(r.out, "obj/big.o")) << r.out;
+        expect(contains(r.out, "12 unit(s)")) << r.out;
+        expect(contains(r.out, "## Margin")) << r.out;
+        expect(contains(r.out, "b::near")) << r.out;
+    };
     "a markdown report has the sections asked for, with mermaid"_test[kind::e2e] = [] {
         auto root = project({{"a.sh", "exit 0\n"}, {"b.sh", "echo broken >&2; exit 3\n"}});
         (void)mtest(root, {"run", "--json", "bash a.sh", "bash b.sh"});

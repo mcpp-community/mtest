@@ -723,6 +723,7 @@ report_options report_options_of(const context& ctx, const json& p) {
     o.top = p.value("top", ctx.cfg.report.top);
     o.max_nodes = p.value("max_nodes", ctx.cfg.report.max_nodes);
     o.title = text_of(p, "title");
+    o.cfg = &ctx.cfg;
     return o;
 }
 

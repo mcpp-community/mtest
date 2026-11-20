@@ -145,7 +145,26 @@ json to_json(const case_result& c) {
     }
     if (!c.exercised.empty())
         j["exercised"] = c.exercised;
+    if (c.limit_ms >= 0)
+        j["limit_ms"] = c.limit_ms;
     return j;
+}
+
+build_edge build_edge_from(const json& j) {
+    build_edge b;
+    b.build = str(j, "build");
+    b.output = str(j, "output");
+    b.package = str(j, "package");
+    b.program = str(j, "program");
+    b.started_ms = j.value("started_ms", 0.0);
+    b.ms = j.value("ms", 0.0);
+    if (auto it = j.find("cpu_ms"); it != j.end() && it->is_number())
+        b.cpu_ms = it->get<double>();
+    if (auto it = j.find("peak_bytes"); it != j.end() && it->is_number())
+        b.peak_bytes = it->get<double>();
+    b.cached = j.value("cached", false);
+    b.units = j.value("units", 0);
+    return b;
 }
 
 namespace {
@@ -389,6 +408,7 @@ case_result case_result_from(const json& j) {
         for (const auto& st : *it)
             c.steps.push_back(step_from(st));
     c.exercised = strings<std::string>(j, "exercised");
+    c.limit_ms = j.value("limit_ms", -1.0);
     c.started_ms = j.value("started_ms", -1.0);
     return c;
 }

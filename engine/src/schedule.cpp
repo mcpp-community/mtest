@@ -750,6 +750,10 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
                     cr.only = ci->info.only;
                     cr.except = ci->info.except;
                     cr.bounds = ci->info.bounds;
+                    if (ci->info.timeout > 0)
+                        cr.limit_ms = ci->info.timeout * 1000;
+                    else if (info->program.timeout.count() > 0)
+                        cr.limit_ms = double(info->program.timeout.count()) * 1000;
                     judge_bounds(cr, ci->info.stated_bounds);
                     expected_to_fail(cr, ci->info.expect_fail);
                 } else if (cr.kind.empty()) {

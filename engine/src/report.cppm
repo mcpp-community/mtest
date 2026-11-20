@@ -16,12 +16,14 @@ struct report_options {
     int top = 10;
     int max_nodes = 60;
     std::string title;  // empty: "mtest report"
+    // The configuration, for the sections it judges (budget, ledgers); none: those are left out.
+    const config* cfg = nullptr;
 };
 
 // Every section a report knows, in the order it writes them.
 inline constexpr std::string_view kSections[] = {
-    "summary", "kinds", "failures", "slowest", "metrics", "resources",
-    "flaky",   "trend", "path",     "graph",   "gantt",
+    "summary", "kinds",   "failures", "slowest", "steps", "builds", "margin", "budget",
+    "ledgers", "metrics", "resources", "flaky",  "trend", "path",   "graph",  "gantt",
 };
 
 std::string markdown_report(const store& s, const std::vector<run_record>& runs,

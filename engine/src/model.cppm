@@ -135,6 +135,18 @@ struct case_result {
     double cpu_ms = -1;
     std::vector<step_info> steps;       // P5.6 (0.11.0)
     std::vector<std::string> exercised;  // the items of the product's surface it used, sorted
+    // The time it may take, as the runner applied it (SPEC-017 O5); negative when not known.
+    double limit_ms = -1;
+};
+
+// A build the runner made for a run (B4 `builds.ndjson`, 0.11.0): an edge it ran, or a package the
+// cache served (`cached`, with its `units`).
+struct build_edge {
+    std::string build, output, package, program;
+    double started_ms = 0, ms = 0;
+    std::optional<double> cpu_ms, peak_bytes;
+    bool cached = false;
+    int units = 0;
 };
 
 // A thread of a process, as the engine saw it at a timeout (0.10.0).
@@ -219,6 +231,7 @@ struct run_record {
     std::vector<program_result> programs;
     std::vector<case_result> cases;
     std::vector<fixture_run> fixtures;
+    std::vector<build_edge> builds;  // read from a host's builds.ndjson (0.11.0)
     std::map<std::string, int> counts;
     // Runs of one group are parts of one whole (the jobs of a CI run, MTEST_GROUP), reported
     // together.
@@ -253,6 +266,7 @@ fixture_run fixture_run_from(const json& j);
 
 case_info case_info_from(const json& j);
 step_info step_from(const json& j);
+build_edge build_edge_from(const json& j);
 case_result case_result_from(const json& j);
 timeout_info timeout_info_from(const json& j);
 program_result program_result_from(const json& j);

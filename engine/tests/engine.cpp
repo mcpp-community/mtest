@@ -868,8 +868,9 @@ printf ')" + header +
     "a report gives the builds a host recorded and the cases near their limit"_test[kind::
                                                                                         e2e] = [] {
         auto root = project(
-            {{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\ntimeout = \"1s\"\n"},
-             {"b.sh", script({"near:nap"}, "nap() { sleep 0.9; }\n")}});
+            // The case takes 85% of its limit; the rest is for a slow host's shell to start.
+            {{"mtest.toml", "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\ntimeout = \"4s\"\n"},
+             {"b.sh", script({"near:nap"}, "nap() { sleep 3.4; }\n")}});
         (void)mtest(root, {"run"});
         std::filesystem::path dir;
         for (const auto& e : std::filesystem::recursive_directory_iterator(root / ".mtest"))

@@ -41,6 +41,8 @@ struct running_case {
     std::optional<os::stdio::capture> out_capture, err_capture;
     std::string out_text, err_text;
     bool capturing = false;
+    // Checks made at its end, before its verdict, by key (at_case_end, 0.11.0).
+    std::vector<std::pair<std::string, std::function<void()>>> end_checks;
 };
 
 // The expectations that held, in the whole program: a case's share is the difference over its
@@ -836,6 +838,30 @@ void fail(std::string message, std::source_location where) {
 
 // ---- cases --------------------------------------------------------------------
 
+namespace {
+// The running case's end checks, run without the lock: each may record a failure of the case.
+void run_end_checks(std::source_location where) {
+    auto& s = the();
+    std::vector<std::pair<std::string, std::function<void()>>> checks;
+    {
+        std::lock_guard g(s.lock);
+        if (s.stack.empty())
+            return;
+        checks = std::move(s.stack.back().end_checks);
+        s.stack.back().end_checks.clear();
+    }
+    for (auto& [key, check] : checks) {
+        try {
+            check();
+        } catch (const fatal_signal&) {
+        } catch (const std::exception& e) {
+            record_failure(std::format("the end check {} threw: {}", key, e.what()), where, nullptr,
+                           false);
+        }
+    }
+}
+}  // namespace
+
 struct test::state {
     std::string name;
     attributes attrs;
@@ -1030,6 +1056,8 @@ void test::operator=(body b) {
         record_failure("an exception that is not a std::exception escaped the case", b.where,
                        nullptr, false);
     }
+    if (status != "skip")
+        run_end_checks(b.where);
     g.lock();
     // A case that declared cases is judged by them; one that declared none, by its own metrics.
     if (status != "skip" && s.stack.back().declared == 0)
@@ -1335,6 +1363,42 @@ void produced(const std::filesystem::path& file, std::string_view kind) {
                  {"id", current_case()},
                  {"path", os::fs::generic_utf8(file)},
                  {"kind", kind}});
+}
+
+void at_case_end(std::string_view key, std::function<void()> check) {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    for (auto it = s.stack.rbegin(); it != s.stack.rend(); ++it) {
+        if (it->scope)
+            continue;
+        for (const auto& [k, _] : it->end_checks)
+            if (k == key)
+                return;
+        it->end_checks.emplace_back(std::string(key), std::move(check));
+        return;
+    }
+}
+
+void step(const step_record& r) {
+    const auto at = std::chrono::duration<double, std::milli>(r.began - the().began).count();
+    event ev = {{"e", "step"},
+                {"id", current_case()},
+                {"name", r.name},
+                {"t", at < 0 ? 0.0 : at},
+                {"ms", std::chrono::duration<double, std::milli>(r.took).count()}};
+    if (r.cpu_ms)
+        ev["cpu_ms"] = *r.cpu_ms;
+    if (r.status)
+        ev["status"] = *r.status;
+    if (!r.build.empty())
+        ev["build"] = r.build;
+    write_event(ev);
+}
+
+void exercise(const std::vector<std::string>& items) {
+    if (items.empty())
+        return;
+    write_event({{"e", "exercise"}, {"id", current_case()}, {"items", items}});
 }
 
 void metric(std::string_view name, double value, std::string_view unit,

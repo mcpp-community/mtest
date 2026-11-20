@@ -827,6 +827,28 @@ std::uint64_t seed();
 std::string current_case();
 // A file the case produced, reported with the case (P5.2 `artifact`).
 void produced(const std::filesystem::path& file, std::string_view kind = "file");
+
+// A STEP OF THE RUNNING CASE (P5.6, 0.11.0): one command an end-to-end case ran, when it began, how
+// long it took, the processor time of the programs it ran, their exit status, and the record of
+// the build it was, when it was one. mcpplibs.mtest.e2e writes one for each command it runs; a kit
+// that runs its commands another way writes its own. A step is a record and never a verdict.
+struct step_record {
+    std::string name;
+    std::chrono::steady_clock::time_point began;
+    std::chrono::nanoseconds took{0};
+    std::optional<double> cpu_ms;
+    std::optional<int> status;
+    std::string build;
+};
+void step(const step_record& s);
+// A check the running case makes at its end, before its verdict, once per `key` (0.11.0): a
+// failure it records is the case's. mcpplibs.mtest.e2e checks the processes and the diagnostic
+// lines of the programs a case ran this way.
+void at_case_end(std::string_view key, std::function<void()> check);
+// Items of the product's surface the running case used, in the product's own words (`command
+// build`, `flag build --target`, `key build.sources`): the evidence a ledger of the surface reads
+// (P5.6, 0.11.0).
+void exercise(const std::vector<std::string>& items);
 // A metric of the current case (P6). `samples` may be empty.
 void metric(std::string_view name, double value, std::string_view unit,
             std::span<const double> samples = {}, std::string_view better = "lower");

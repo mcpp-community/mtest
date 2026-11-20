@@ -103,6 +103,15 @@ struct metric_info {
     std::vector<double> samples;
 };
 
+// A step of a case (P5.6, 0.11.0): a command an end-to-end case ran.
+struct step_info {
+    std::string name;
+    double t = 0, ms = 0;
+    std::optional<double> cpu_ms;
+    std::optional<int> status;
+    std::string build;  // the record of the build the step was, when it was one
+};
+
 // One case's result. An L0 program is one case whose identifier is the program's name.
 struct case_result {
     std::string program, id, kind = "unit";
@@ -121,6 +130,11 @@ struct case_result {
     // When it began, in milliseconds after the run began (its program's start and its `begin`'s
     // `t`); negative when not known.
     double started_ms = -1;
+    // Its processor time: the `cpu.user` and `cpu.sys` metrics it reported (P6.6), else the time
+    // its program used while it ran alone in it; negative when not known (0.11.0).
+    double cpu_ms = -1;
+    std::vector<step_info> steps;       // P5.6 (0.11.0)
+    std::vector<std::string> exercised;  // the items of the product's surface it used, sorted
 };
 
 // A thread of a process, as the engine saw it at a timeout (0.10.0).
@@ -227,6 +241,7 @@ json to_json(const fixture_run& f);
 fixture_run fixture_run_from(const json& j);
 
 case_info case_info_from(const json& j);
+step_info step_from(const json& j);
 case_result case_result_from(const json& j);
 timeout_info timeout_info_from(const json& j);
 program_result program_result_from(const json& j);

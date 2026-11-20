@@ -125,6 +125,23 @@ json to_json(const case_result& c) {
         j["attempts"] = c.attempts;
     if (c.started_ms >= 0)
         j["started_ms"] = c.started_ms;
+    if (c.cpu_ms >= 0)
+        j["cpu_ms"] = c.cpu_ms;
+    if (!c.steps.empty()) {
+        j["steps"] = json::array();
+        for (const auto& st : c.steps) {
+            json one = {{"name", st.name}, {"t", st.t}, {"ms", st.ms}};
+            if (st.cpu_ms)
+                one["cpu_ms"] = *st.cpu_ms;
+            if (st.status)
+                one["status"] = *st.status;
+            if (!st.build.empty())
+                one["build"] = st.build;
+            j["steps"].push_back(std::move(one));
+        }
+    }
+    if (!c.exercised.empty())
+        j["exercised"] = c.exercised;
     return j;
 }
 
@@ -305,6 +322,18 @@ case_info case_info_from(const json& j) {
     c.reason = str(j, "reason");
     return c;
 }
+step_info step_from(const json& j) {
+    step_info st;
+    st.name = str(j, "name");
+    st.t = j.value("t", 0.0);
+    st.ms = j.value("ms", 0.0);
+    if (auto it = j.find("cpu_ms"); it != j.end() && it->is_number())
+        st.cpu_ms = it->get<double>();
+    if (auto it = j.find("status"); it != j.end() && it->is_number_integer())
+        st.status = it->get<int>();
+    st.build = str(j, "build");
+    return st;
+}
 case_result case_result_from(const json& j) {
     case_result c;
     c.program = str(j, "program");
@@ -343,6 +372,11 @@ case_result case_result_from(const json& j) {
             c.fixtures.push_back({str(f, "name"), f.value("ms", 0.0)});
     c.diagnosis = str(j, "diagnosis");
     c.bounds = bounds_from(j);
+    c.cpu_ms = j.value("cpu_ms", -1.0);
+    if (auto it = j.find("steps"); it != j.end() && it->is_array())
+        for (const auto& st : *it)
+            c.steps.push_back(step_from(st));
+    c.exercised = strings<std::string>(j, "exercised");
     c.started_ms = j.value("started_ms", -1.0);
     return c;
 }

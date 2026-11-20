@@ -295,6 +295,28 @@ int main() {
         for (const auto& e : of(r, "end"))
             expect(find(r, "begin", e.value("id", "")).has_value()) << "end without begin";
     };
+    "P5.6 a step and the surface a case used are events of the case"_test[kind::cts][clause{"P5.6"}] = [] {
+        const auto r = run("run");
+        const auto steps = of(r, "step");
+        const auto used = of(r, "exercise");
+        if (steps.empty() && used.empty())
+            skip("the implementation writes no steps (P5.6 is optional)");
+        for (const auto& st : steps) {
+            expect(find(r, "begin", st.value("id", "")).has_value()) << "a step outside a case: " << st.dump();
+            expect(!st.value("name", "").empty()) << st.dump();
+            expect(st.contains("t") && st["t"].is_number() && st.contains("ms") && st["ms"].is_number())
+                << st.dump();
+        }
+        for (const auto& u : used) {
+            expect(find(r, "begin", u.value("id", "")).has_value()) << "an exercise outside a case";
+            expect(u.contains("items") && u["items"].is_array()) << u.dump();
+        }
+        if (auto st = find(r, "step", id("steps"))) {
+            expect(eq(st->value("name", ""), std::string("build")));
+            expect(eq(st->value("build", ""), std::string("b1")));
+            expect(eq(st->value("status", -1), 0));
+        }
+    };
     "P5.5 the exit status is zero exactly when nothing failed"_test[kind::cts][clause{"P5.5"}] =
         [] {
             expect(ne(run("run").status, 0));

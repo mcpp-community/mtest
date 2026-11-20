@@ -14,6 +14,11 @@ int main(int argc, char** argv) {
                 std::println("{}={}", v, x);
         return 0;
     }
+    // A program that writes its argument as a line.
+    if (argc > 2 && std::string_view(argv[1]) == "--say") {
+        std::println("{}", argv[2]);
+        return 0;
+    }
     // A program that prompts, answers each line it reads, and ends with the status it is told.
     if (argc > 1 && std::string_view(argv[1]) == "--echo-loop") {
         std::string line;
@@ -231,6 +236,42 @@ int main(int argc, char** argv) {
         auto c = e2e::golden(root / "g.txt", "line 1\nline 3\n");
         expect(!c.held);
         expect(contains(c.expression, "line 2"));
+    };
+    "a golden comparison reads the text with its redactions applied"_test = [] {
+        const auto root = e2e::tree({{"g.txt", "built in <time> at <root>/out, <digest>\n"}});
+        const auto text = std::format("built in 12.5 ms at {}/out, 0123abcd\n", root.generic_string());
+        std::vector<e2e::redaction> rules = e2e::redactions::paths(root);
+        for (const auto& r : e2e::redactions::durations())
+            rules.push_back(r);
+        for (const auto& r : e2e::redactions::digests())
+            rules.push_back(r);
+        expect(e2e::golden(root / "g.txt", text, rules));
+        expect(!e2e::golden(root / "g.txt", text).held) << "without the rules the text differs";
+    };
+    "a diagnostic line a case declares and sees holds"_test[kind::e2e] = [] {
+        e2e::diagnostics({"^warning:"});
+        e2e::expect_diagnostic("^warning: a fact$");
+        auto self = self_command();
+        self.insert(self.end(), {"--say", "warning: a fact"});
+        expect(e2e::succeeded(e2e::run({.argv = self})));
+        e2e::diagnostics({});
+    };
+    "a diagnostic line the case did not declare fails it at its end"_test[kind::e2e][expect_failure{
+        "the line is not declared"}] = [] {
+        e2e::diagnostics({"^warning:"});
+        auto self = self_command();
+        self.insert(self.end(), {"--say", "warning: unsaid"});
+        expect(e2e::succeeded(e2e::run({.argv = self})));
+        e2e::diagnostics({});
+    };
+    "a declared diagnostic that does not appear fails the case"_test[kind::e2e][expect_failure{
+        "the declared line did not appear"}] = [] {
+        e2e::diagnostics({"^warning:"});
+        e2e::expect_diagnostic("^warning: expected$");
+        auto self = self_command();
+        self.insert(self.end(), {"--say", "nothing to see"});
+        expect(e2e::succeeded(e2e::run({.argv = self})));
+        e2e::diagnostics({});
     };
     "a program started by a case receives no protocol variable"_test[kind::e2e] = [] {
         auto self = self_command();

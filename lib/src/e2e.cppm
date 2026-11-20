@@ -26,6 +26,8 @@ struct command {
     // program never waits on a full pipe (0.8.5).
     std::size_t out_limit = std::size_t{256} << 20;
     std::size_t err_limit = std::size_t{1} << 20;
+    // The name of the step the command is in the case's record (P5.6, 0.11.0); empty: its words.
+    std::string step;
 };
 
 struct outcome {
@@ -47,7 +49,8 @@ struct outcome {
 };
 
 // Runs the command to its end or its timeout. When the case fails afterwards, the
-// outputs are kept as the case's artifacts.
+// outputs are kept as the case's artifacts. The run is a step of the case (P5.6): its name, time,
+// status and the processor time of the programs it ran are in the case's record (0.11.0).
 outcome run(command c);
 
 // The path of program `name` of the package under test (`MCPP_BIN_<NAME>`, mcpp docs/08),
@@ -59,8 +62,37 @@ std::filesystem::path
 tree(std::initializer_list<std::pair<std::string_view, std::string_view>> files);
 
 // `text` equals the golden file's content. With MTEST_GOLDEN=update the file is
-// written instead, and the comparison holds.
+// written instead, and the comparison holds; an update that changes the file prints what it
+// changed, by line, to the error stream (0.11.0).
 comparison golden(const std::filesystem::path& file, std::string_view text);
+// A part of a text that differs from run to run, replaced before a golden comparison: each match
+// of `pattern` (ECMAScript) by `with` (0.11.0).
+struct redaction {
+    std::string pattern;
+    std::string with;
+};
+struct redactions {
+    // A directory, in both of its spellings (native and generic).
+    static std::vector<redaction> paths(const std::filesystem::path& root, std::string with = "<root>");
+    static const std::vector<redaction>& durations();  // 12ms, 1.5 s
+    static const std::vector<redaction>& sizes();      // 4 KiB, 120 B
+    static const std::vector<redaction>& digests();    // 8 to 64 lowercase hexadecimal digits
+};
+// `text` with `rules` applied, in order, equals the golden file's content.
+comparison golden(const std::filesystem::path& file, std::string_view text,
+                  const std::vector<redaction>& rules);
+
+// THE END OF A CASE (0.11.0). A case that ran programs fails at its end when one of them left a
+// process running that held an output open, and when a line of their output matches a pattern
+// the project declared diagnostic (`diagnostics`) and no pattern the case declared
+// (`expect_diagnostic`), or a declared pattern matched no line. Doing less is never silent: a
+// warning a passing case prints is a fact a test states. Under `report` (or MTEST_DIAGNOSTICS=
+// report) the undeclared lines are printed and counted as the metric `diagnostics.undeclared`,
+// and the case is not failed: the policy a project migrates under.
+enum class diagnostic_policy { enforce, report };
+void diagnostics(std::vector<std::string> patterns);
+void expect_diagnostic(std::string pattern);
+void diagnostics_policy(diagnostic_policy p);
 
 // --- Matchers (0.7.0). Each is a comparison: a failure reports both sides, and one about an
 // outcome also the command line that repeats it and the tails of both outputs.

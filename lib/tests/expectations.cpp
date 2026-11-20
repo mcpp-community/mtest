@@ -13,6 +13,23 @@ int main() {
         expect(eq(c.expected, std::string(R"("b")")));
         expect(contains(c.expression, "=="));
     };
+    "numbers are compared by their values"_test = [] {
+        expect(!eq(-1, 4294967295u).held) << "a negative number is not a large unsigned one";
+        expect(lt(-1, 1u));
+        expect(eq(2, 2.0));
+        expect(eq(true, true));
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        expect(!eq(nan, nan).held);
+        expect(ne(nan, nan));
+        expect(!lt(nan, 1.0).held && !ge(nan, 1.0).held);
+        auto c = eq(3u, 4);
+        expect(eq(c.actual, std::string("3")));
+        expect(eq(c.expected, std::string("4")));
+        expect(eq(c.expression, std::string("3 == 4")));
+        auto f = eq(0.5f, 0.25f);
+        expect(eq(f.actual, std::string("0.5")));
+        expect(eq(f.expected, std::string("0.25")));
+    };
     "the ordering comparisons"_test = [] {
         expect(lt(1, 2));
         expect(le(2, 2));

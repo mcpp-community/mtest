@@ -282,6 +282,13 @@ report_reading read_report(std::string_view text, std::string_view program) {
                     if (x.is_number())
                         m.samples.push_back(x.get<double>());
             at(id).metrics.push_back(std::move(m));
+        } else if (kind == "step") {
+            at(id).steps.push_back(step_from(e));
+        } else if (kind == "exercise") {
+            auto& c = at(id);
+            for (auto& item : strings_of(e, "items"))
+                if (std::ranges::find(c.exercised, item) == c.exercised.end())
+                    c.exercised.push_back(std::move(item));
         } else if (kind == "artifact") {
             at(id).artifacts.push_back(e.value("path", ""));
         } else if (kind == "fixture") {
@@ -291,6 +298,16 @@ report_reading read_report(std::string_view text, std::string_view program) {
             c.status = e.value("status", "fail");
             c.ms = e.value("ms", 0.0);
             c.reason = e.value("reason", "");
+            std::ranges::sort(c.exercised);
+            double cpu = 0;
+            bool told = false;
+            for (const auto& m : c.metrics)
+                if (m.name == "cpu.user" || m.name == "cpu.sys") {
+                    cpu += m.value;
+                    told = true;
+                }
+            if (told)
+                c.cpu_ms = cpu;
         } else if (kind == "missing") {
             auto& c = at(id);
             c.status = "fail";

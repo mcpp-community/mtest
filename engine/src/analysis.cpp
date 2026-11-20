@@ -1,8 +1,12 @@
 module mcpplibs.mtest.engine.analysis;
 
 import std;
+import mcpplibs.os;
+import mcpplibs.mtest.engine.select;
 
 namespace mcpplibs::mtest::engine {
+
+namespace os = mcpplibs::os;
 
 namespace {
 
@@ -324,8 +328,174 @@ judge_bench(const run_record& r, const std::optional<run_record>& baseline, cons
     return out;
 }
 
+namespace {
+
+// The run and, when it is a part of a group (the jobs of one CI run), the other parts.
+std::vector<run_record> group_of(const store& s, const run_record& r) {
+    std::vector<run_record> out{r};
+    if (r.group.empty())
+        return out;
+    for (const auto& summary : runs(s))
+        if (summary.group == r.group && summary.id != r.id)
+            if (auto other = load_run(s, summary.id))
+                out.push_back(std::move(*other));
+    return out;
+}
+
+bool waived(const std::vector<waiver>& ws, std::string_view what) {
+    return std::ranges::any_of(ws, [&](const waiver& w) { return glob_match(w.what, what); });
+}
+
+// A ledger's requirements: the lines of its file or of its command's output, each trimmed; empty
+// lines and lines starting with `#` are none.
+std::expected<std::vector<std::string>, std::string> requirements(const config& c,
+                                                                  const ledger_spec& l) {
+    std::string text;
+    if (!l.file.empty()) {
+        auto f = os::fs::read(l.file.is_absolute() ? l.file : c.root / l.file);
+        if (!f)
+            return std::unexpected(
+                std::format("ledger {}: {} cannot be read", l.name, os::fs::utf8(l.file)));
+        text = std::move(*f);
+    } else {
+        std::vector<std::string> argv;
+        for (auto word : l.command) {
+            // `${NAME}`: the variable's value.
+            for (std::size_t at = word.find("${"); at != std::string::npos;
+                 at = word.find("${", at)) {
+                const auto end = word.find('}', at);
+                if (end == std::string::npos)
+                    break;
+                const auto value = os::env::get(word.substr(at + 2, end - at - 2)).value_or("");
+                word.replace(at, end - at + 1, value);
+                at += value.size();
+            }
+            argv.push_back(std::move(word));
+        }
+        os::process::spawn_options o;
+        o.program = os::fs::from_utf8(argv.front());
+        o.args.assign(argv.begin() + 1, argv.end());
+        o.cwd = c.root;
+        auto done = os::process::run(std::move(o), os::process::bounds{});
+        if (!done || !done->status.success())
+            return std::unexpected(std::format("ledger {}: `{}` did not give its requirements{}",
+                                               l.name, argv.front(),
+                                               done ? ": " + done->err.substr(0, 200) : ""));
+        text = std::move(done->out);
+    }
+    std::vector<std::string> out;
+    for (auto part : std::views::split(std::string_view(text), '\n')) {
+        std::string line(part.begin(), part.end());
+        while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+            line.pop_back();
+        if (!line.empty() && !line.starts_with('#'))
+            out.push_back(std::move(line));
+    }
+    return out;
+}
+
+}  // namespace
+
+json ledger_table(const config& c, const store& s, const run_record& r) {
+    json out = json::array();
+    const auto all = group_of(s, r);
+    for (const auto& l : c.ledgers) {
+        std::set<std::string> covered;
+        for (const auto& run : all)
+            for (const auto& cr : run.cases)
+                if (cr.status == "pass" || cr.status == "xfail")
+                    for (const auto& item : l.evidence == "exercised" ? cr.exercised : cr.clauses)
+                        covered.insert(item);
+        json one = {{"ledger", l.name}, {"evidence", l.evidence}};
+        auto reqs = requirements(c, l);
+        if (!reqs) {
+            one["error"] = reqs.error();
+            out.push_back(std::move(one));
+            continue;
+        }
+        json missing = json::array(), excused = json::array(), stale = json::array();
+        std::size_t met = 0;
+        for (const auto& req : *reqs) {
+            const bool is_covered = covered.contains(req);
+            const bool is_waived = waived(l.waivers, req);
+            if (is_covered && is_waived)
+                stale.push_back(req);
+            else if (is_covered)
+                ++met;
+            else if (is_waived)
+                excused.push_back(req);
+            else
+                missing.push_back(req);
+        }
+        for (const auto& w : l.waivers)
+            if (std::ranges::none_of(*reqs, [&](const std::string& req) {
+                    return glob_match(w.what, req);
+                }))
+                stale.push_back(w.what);
+        one["requirements"] = reqs->size();
+        one["met"] = met;
+        one["missing"] = missing;
+        one["waived"] = excused;
+        one["stale_waivers"] = stale;
+        out.push_back(std::move(one));
+    }
+    return out;
+}
+
+json budget_overruns(const config& c, const run_record& r) {
+    json out = json::array();
+    if (!c.budget.case_cpu)
+        return out;
+    const double limit = double(c.budget.case_cpu->count());
+    std::set<std::string> over;
+    for (const auto& cr : r.cases) {
+        if (cr.cpu_ms < 0 || cr.cpu_ms <= limit)
+            continue;
+        const auto key = cr.program + "::" + cr.id;
+        over.insert(key);
+        out.push_back({{"case", key},
+                       {"cpu_ms", cr.cpu_ms},
+                       {"limit_ms", limit},
+                       {"machine", r.machine},
+                       {"waived", waived(c.budget.waivers, key)}});
+    }
+    for (const auto& w : c.budget.waivers)
+        if (std::ranges::none_of(over,
+                                 [&](const std::string& k) { return glob_match(w.what, k); }) &&
+            std::ranges::any_of(r.cases, [&](const case_result& cr) {
+                return cr.cpu_ms >= 0 && glob_match(w.what, cr.program + "::" + cr.id);
+            }))
+            out.push_back({{"case", w.what}, {"stale_waiver", true}, {"reason", w.reason}});
+    return out;
+}
+
 json gate(const config& c, const store& s, const run_record& r, std::string_view set) {
     json reasons = json::array();
+    for (const auto& o : budget_overruns(c, r)) {
+        if (o.value("stale_waiver", false))
+            reasons.push_back(
+                std::format("budget waiver for {} excuses nothing: the case is within "
+                            "its budget, remove the waiver",
+                            o.value("case", "")));
+        else if (!o.value("waived", false))
+            reasons.push_back(std::format("{} took {:.1f} s of processor time on {}, over the case "
+                                          "budget of {:.0f} s -- make it cheaper or waive it with "
+                                          "a reason ([[budget.waiver]])",
+                                          o.value("case", ""), o.value("cpu_ms", 0.0) / 1000,
+                                          o.value("machine", ""), o.value("limit_ms", 0.0) / 1000));
+    }
+    for (const auto& l : ledger_table(c, s, r)) {
+        if (l.contains("error")) {
+            reasons.push_back(l["error"].get<std::string>());
+            continue;
+        }
+        for (const auto& m : l["missing"])
+            reasons.push_back(std::format("ledger {}: {} has no passing case and no waiver",
+                                          l.value("ledger", ""), m.get<std::string>()));
+        for (const auto& w : l["stale_waivers"])
+            reasons.push_back(std::format("ledger {}: the waiver {} excuses nothing, remove it",
+                                          l.value("ledger", ""), w.get<std::string>()));
+    }
     for (const auto& cr : r.cases)
         if (failing(cr.status) && !cr.quarantined)
             reasons.push_back(std::format("{}::{} {}{}", cr.program, cr.id, cr.status,

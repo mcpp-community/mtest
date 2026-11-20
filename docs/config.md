@@ -138,6 +138,27 @@ shard      = "15m"                             # the expected time of one shard
 max_shards = 8
 unknown    = "30s"                             # the expected time of a case a host never ran
 
+# The processor time a case may take (0.11.0), judged by `mtest gate` from the case's `cpu_ms` (its
+# cpu.user and cpu.sys metrics): a case over it fails the gate unless a waiver names it, with a reason;
+# a waiver that excuses nothing fails the gate too, so the list only shrinks.
+[budget]
+case_cpu = "2m"
+[[budget.waiver]]
+case   = "e2e/openkal::trees/955*"   # a glob over <program>::<case>
+reason = "builds a platform's runtime for three configurations"
+
+# A ledger (0.11.0): requirements, one per line of a file or of a command's output (`#` begins a
+# comment; `${NAME}` in the command is the variable's value). Each must be covered, over the run and
+# the runs of its group, by a passing case's clause (`evidence = "clauses"`, P6.4) or by an item of
+# the product's surface a passing case used (`evidence = "exercised"`, P5.6), or be excused by a
+# waiver. `mtest gate` judges it and `mtest report --sections ledgers` writes its table.
+[ledger.surface]
+command  = ["${MCPP}", "emit", "surface"]
+evidence = "exercised"
+[[ledger.surface.waiver]]
+item   = "flag build --no-cache"
+reason = "no case can observe it apart from the cache's"
+
 [sets.fast]                             # sets.md
 tags    = ["fast"]
 include = ["smoke"]

@@ -1,8 +1,11 @@
 module mcpplibs.mtest.engine.model;
 
 import std;
+import mcpplibs.os;
 
 namespace mcpplibs::mtest::engine {
+
+namespace os = mcpplibs::os;
 
 namespace {
 template <class T>
@@ -125,7 +128,43 @@ json to_json(const case_result& c) {
         j["attempts"] = c.attempts;
     if (c.started_ms >= 0)
         j["started_ms"] = c.started_ms;
+    if (c.cpu_ms >= 0)
+        j["cpu_ms"] = c.cpu_ms;
+    if (!c.steps.empty()) {
+        j["steps"] = json::array();
+        for (const auto& st : c.steps) {
+            json one = {{"name", st.name}, {"t", st.t}, {"ms", st.ms}};
+            if (st.cpu_ms)
+                one["cpu_ms"] = *st.cpu_ms;
+            if (st.status)
+                one["status"] = *st.status;
+            if (!st.build.empty())
+                one["build"] = st.build;
+            j["steps"].push_back(std::move(one));
+        }
+    }
+    if (!c.exercised.empty())
+        j["exercised"] = c.exercised;
+    if (c.limit_ms >= 0)
+        j["limit_ms"] = c.limit_ms;
     return j;
+}
+
+build_edge build_edge_from(const json& j) {
+    build_edge b;
+    b.build = str(j, "build");
+    b.output = str(j, "output");
+    b.package = str(j, "package");
+    b.program = str(j, "program");
+    b.started_ms = j.value("started_ms", 0.0);
+    b.ms = j.value("ms", 0.0);
+    if (auto it = j.find("cpu_ms"); it != j.end() && it->is_number())
+        b.cpu_ms = it->get<double>();
+    if (auto it = j.find("peak_bytes"); it != j.end() && it->is_number())
+        b.peak_bytes = it->get<double>();
+    b.cached = j.value("cached", false);
+    b.units = j.value("units", 0);
+    return b;
 }
 
 namespace {
@@ -256,17 +295,38 @@ fixture_run fixture_run_from(const json& j) {
     return {str(j, "name"),           str(j, "program"),        j.value("started_ms", 0.0),
             j.value("ready_ms", 0.0), j.value("ended_ms", 0.0), str(j, "status")};
 }
+std::string machine_class() {
+    if (auto model = os::machine::processor_model(); model && !model->empty())
+        return *model;
+    return std::format("{}/{}", os::machine::arch(), os::machine::processors().logical);
+}
+
 json to_json(const run_record& r) {
-    return {{"schema", "mtest.run/1"},  {"id", r.id},
-            {"started", r.started},     {"finished", r.finished},
-            {"status", r.status},       {"system", r.system},
-            {"arch", r.arch},           {"machine", r.machine},
-            {"commit", r.commit},       {"set", r.set},
-            {"selection", r.selection}, {"ms", r.ms},
-            {"jobs", r.jobs},           {"counts", r.counts},
-            {"group", r.group},         {"monitor", r.monitor},
-            {"host", r.host},           {"capabilities", r.capabilities},
-            {"resumed", r.resumed},     {"programs", r.programs.size()},
+    return {{"schema", "mtest.run/1"},
+            {"id", r.id},
+            {"processors", r.processors},
+            {"memory", r.memory},
+            {"budget", r.budget},
+            {"jitter",
+             r.jitter_ms > 0 ? json{{"max_ms", r.jitter_ms}, {"seed", r.jitter_seed}} : json()},
+            {"started", r.started},
+            {"finished", r.finished},
+            {"status", r.status},
+            {"system", r.system},
+            {"arch", r.arch},
+            {"machine", r.machine},
+            {"commit", r.commit},
+            {"set", r.set},
+            {"selection", r.selection},
+            {"ms", r.ms},
+            {"jobs", r.jobs},
+            {"counts", r.counts},
+            {"group", r.group},
+            {"monitor", r.monitor},
+            {"host", r.host},
+            {"capabilities", r.capabilities},
+            {"resumed", r.resumed},
+            {"programs", r.programs.size()},
             {"cases", r.cases.size()}};
 }
 
@@ -304,6 +364,18 @@ case_info case_info_from(const json& j) {
                 c.capabilities[it.key()] = it.value().get<bool>();
     c.reason = str(j, "reason");
     return c;
+}
+step_info step_from(const json& j) {
+    step_info st;
+    st.name = str(j, "name");
+    st.t = j.value("t", 0.0);
+    st.ms = j.value("ms", 0.0);
+    if (auto it = j.find("cpu_ms"); it != j.end() && it->is_number())
+        st.cpu_ms = it->get<double>();
+    if (auto it = j.find("status"); it != j.end() && it->is_number_integer())
+        st.status = it->get<int>();
+    st.build = str(j, "build");
+    return st;
 }
 case_result case_result_from(const json& j) {
     case_result c;
@@ -343,6 +415,12 @@ case_result case_result_from(const json& j) {
             c.fixtures.push_back({str(f, "name"), f.value("ms", 0.0)});
     c.diagnosis = str(j, "diagnosis");
     c.bounds = bounds_from(j);
+    c.cpu_ms = j.value("cpu_ms", -1.0);
+    if (auto it = j.find("steps"); it != j.end() && it->is_array())
+        for (const auto& st : *it)
+            c.steps.push_back(step_from(st));
+    c.exercised = strings<std::string>(j, "exercised");
+    c.limit_ms = j.value("limit_ms", -1.0);
     c.started_ms = j.value("started_ms", -1.0);
     return c;
 }
@@ -393,6 +471,13 @@ run_record run_record_from(const json& j) {
     r.system = str(j, "system");
     r.arch = str(j, "arch");
     r.machine = str(j, "machine");
+    r.processors = j.value("processors", 0);
+    r.memory = j.value("memory", std::uint64_t{0});
+    r.budget = j.value("budget", 0);
+    if (auto jt = j.find("jitter"); jt != j.end() && jt->is_object()) {
+        r.jitter_ms = jt->value("max_ms", 0);
+        r.jitter_seed = jt->value("seed", std::uint64_t{0});
+    }
     r.commit = str(j, "commit");
     r.set = str(j, "set");
     r.selection = str(j, "selection");

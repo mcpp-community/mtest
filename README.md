@@ -16,7 +16,7 @@ Each part is used alone; together they share one data model.
 | C++ library | cases, expectations, fixtures; `bench`, `cts`, `e2e` modules | [lib/](lib/) — `mcpplibs.mtest` |
 | Engine | run, plan, explain, history, analyze, graph, gate, trace, bisect, ci | [engine/](engine/) — the `mtest` program |
 | Service | the engine's commands as JSON-RPC and MCP tools | `mtest serve` — [docs/service.md](docs/service.md) |
-| Adapters | GoogleTest, Bash, Python | [adapters/](adapters/) — [docs/adapters.md](docs/adapters.md) |
+| Adapters | GoogleTest, doctest, Bash, Python | [adapters/](adapters/) — [docs/adapters.md](docs/adapters.md) |
 | C ABI | the protocol for any language with a C FFI | [capi/](capi/) — `include/mtest.h` |
 | Conformance | one suite that checks every implementation of the protocol | [conformance/](conformance/) |
 
@@ -38,7 +38,7 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.10.0"
+mcpplibs.mtest = "0.11.0"
 ```
 
 A failure names its place and both sides (`expected 2, actual 3`). Under a runner the same program
@@ -92,7 +92,7 @@ Every command takes `--json`, and every answer has a `conclusion`. See
 | L2 | metrics | bench verdicts, conformance clauses |
 | L3 | resources, artifacts | scheduling, affected selection |
 
-The library, the C ABI and the script adapters are L3; GoogleTest is L1.
+The library, the C ABI and the script adapters are L3; GoogleTest and doctest are L1.
 
 ## Build
 

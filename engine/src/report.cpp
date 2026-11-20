@@ -139,9 +139,9 @@ std::vector<const case_result*> cases_of(const std::vector<run_record>& runs,
 }
 
 void summary(std::string& md, const std::vector<run_record>& runs, const report_options& o) {
-    md += "## Summary\n\n| run | status | system | commit | cases | pass | fail | skip | wall | "
-          "jobs |\n"
-          "|---|---|---|---|---:|---:|---:|---:|---:|---:|\n";
+    md += "## Summary\n\n| run | status | system | machine | commit | cases | pass | fail | skip | "
+          "wall | jobs |\n"
+          "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|\n";
     std::map<std::string, int> total;
     double wall = 0;
     for (const auto& r : runs) {
@@ -155,21 +155,141 @@ void summary(std::string& md, const std::vector<run_record>& runs, const report_
             total[k] += v;
         }
         wall = std::max(wall, r.ms);
-        md += std::format("| `{}` | {} | {}-{} | `{}` | {} | {} | {} | {} | {} | {} |\n", r.id,
+        md += std::format("| `{}` | {} | {}-{} | {} | `{}` | {} | {} | {} | {} | {} | {} |\n", r.id,
                           r.status == "pass" ? "pass" : "**" + r.status + "**", r.system, r.arch,
-                          r.commit.substr(0, 10), cases, n["pass"] + n["xfail"] + n["flaky"],
+                          r.machine.empty() ? "-" : r.machine, r.commit.substr(0, 10), cases,
+                          n["pass"] + n["xfail"] + n["flaky"],
                           n["fail"] + n["xpass"] + n["timeout"], n["skip"], sec(r.ms), r.jobs);
     }
     if (runs.size() > 1) {
         int cases = 0;
         for (const auto& [k, v] : total)
             cases += v;
-        md += std::format("| **all** | | | | {} | {} | {} | {} | {} | |\n", cases,
+        md += std::format("| **all** | | | | | {} | {} | {} | {} | {} | |\n", cases,
                           total["pass"] + total["xfail"] + total["flaky"],
                           total["fail"] + total["xpass"] + total["timeout"], total["skip"],
                           sec(wall));
     }
     md += "\n";
+}
+
+// The slowest steps of the cases (P5.6): where an end-to-end case spends its time.
+void steps_section(std::string& md, const std::vector<const case_result*>& cases, int top) {
+    struct row {
+        const case_result* c;
+        const step_info* st;
+    };
+    std::vector<row> rows;
+    for (auto* c : cases)
+        for (const auto& st : c->steps)
+            rows.push_back({c, &st});
+    if (rows.empty())
+        return;
+    std::ranges::sort(rows, std::greater{}, [](const row& r) { return r.st->ms; });
+    md += "## Slowest steps\n\n| case | step | time | processor | status | build |\n"
+          "|---|---|---:|---:|---:|---|\n";
+    for (std::size_t i = 0; i < rows.size() && int(i) < top; ++i) {
+        const auto& st = *rows[i].st;
+        md += std::format("| `{}` | `{}` | {} | {} | {} | {} |\n",
+                          case_label(rows[i].c->program, rows[i].c->id), cell(st.name, 80),
+                          sec(st.ms), st.cpu_ms ? sec(*st.cpu_ms) : "-",
+                          st.status ? std::to_string(*st.status) : "-",
+                          st.build.empty() ? "-" : "`" + st.build + "`");
+    }
+    md += "\n";
+}
+
+// The builds the runner made (B4 `builds.ndjson`): the slowest edges, and the packages the cache
+// served.
+void builds_section(std::string& md, const std::vector<run_record>& runs, int top) {
+    std::vector<const build_edge*> ran;
+    std::size_t cached_packages = 0, cached_units = 0;
+    double total = 0, cpu = 0;
+    for (const auto& r : runs)
+        for (const auto& b : r.builds) {
+            if (b.cached) {
+                ++cached_packages;
+                cached_units += std::size_t(b.units);
+                continue;
+            }
+            ran.push_back(&b);
+            total += b.ms;
+            cpu += b.cpu_ms.value_or(0);
+        }
+    if (ran.empty() && cached_packages == 0)
+        return;
+    std::ranges::sort(ran, std::greater{}, [](const build_edge* b) { return b->ms; });
+    md +=
+        std::format("## Builds\n\n{} edge(s) ran, {} of edge time, {} of processor time; the cache "
+                    "served {} package(s), {} unit(s).\n\n"
+                    "| edge | package | program | time | processor | largest resident set |\n"
+                    "|---|---|---|---:|---:|---:|\n",
+                    ran.size(), sec(total), sec(cpu), cached_packages, cached_units);
+    for (std::size_t i = 0; i < ran.size() && int(i) < top; ++i)
+        md += std::format("| `{}` | {} | {} | {} | {} | {} |\n", cell(ran[i]->output, 80),
+                          ran[i]->package.empty() ? "-" : ran[i]->package,
+                          ran[i]->program.empty() ? "-" : ran[i]->program, sec(ran[i]->ms),
+                          ran[i]->cpu_ms ? sec(*ran[i]->cpu_ms) : "-",
+                          ran[i]->peak_bytes ? bytes(*ran[i]->peak_bytes) : "-");
+    md += "\n";
+}
+
+// The cases that took more than four fifths of their time limit (SPEC-017 O5): those a slower
+// machine fails first, with the machine's class.
+void margin_section(std::string& md, const std::vector<run_record>& runs, const report_options& o) {
+    std::string rows;
+    for (const auto& r : runs)
+        for (const auto& c : r.cases)
+            if (in_scope(o, c) && c.limit_ms > 0 && c.ms > 0.8 * c.limit_ms)
+                rows += std::format("| `{}` | {} | {} | {:.0f}% | {} |\n",
+                                    case_label(c.program, c.id), sec(c.ms), sec(c.limit_ms),
+                                    100 * c.ms / c.limit_ms, r.machine.empty() ? "-" : r.machine);
+    if (rows.empty())
+        return;
+    md += "## Margin\n\nCases that took more than four fifths of their time limit.\n\n"
+          "| case | time | limit | share | machine |\n|---|---:|---:|---:|---|\n" +
+          rows + "\n";
+}
+
+// The cases over the processor budget, and each ledger's state (0.11.0).
+void budget_section(std::string& md, const run_record& r, const report_options& o) {
+    if (!o.cfg)
+        return;
+    const auto over = budget_overruns(*o.cfg, r);
+    if (over.empty())
+        return;
+    md += "## Budget\n\n| case | processor time | limit | waived |\n|---|---:|---:|---|\n";
+    for (const auto& x : over)
+        if (!x.value("stale_waiver", false))
+            md += std::format("| `{}` | {} | {} | {} |\n", x.value("case", ""),
+                              sec(x.value("cpu_ms", 0.0)), sec(x.value("limit_ms", 0.0)),
+                              x.value("waived", false) ? "yes" : "**no**");
+        else
+            md += std::format("| `{}` | - | - | a waiver that excuses nothing |\n",
+                              x.value("case", ""));
+    md += "\n";
+}
+
+void ledgers_section(std::string& md, const store& s, const run_record& r,
+                     const report_options& o) {
+    if (!o.cfg || o.cfg->ledgers.empty())
+        return;
+    md += "## Ledgers\n\n| ledger | evidence | requirements | met | waived | missing |\n"
+          "|---|---|---:|---:|---:|---:|\n";
+    std::string missing;
+    for (const auto& l : ledger_table(*o.cfg, s, r)) {
+        if (l.contains("error")) {
+            md += std::format("| {} | - | - | - | - | {} |\n", l.value("ledger", ""),
+                              l.value("error", ""));
+            continue;
+        }
+        md += std::format("| {} | {} | {} | {} | {} | {} |\n", l.value("ledger", ""),
+                          l.value("evidence", ""), l.value("requirements", 0), l.value("met", 0),
+                          l["waived"].size(), l["missing"].size());
+        for (const auto& m : l["missing"])
+            missing += std::format("- `{}`: {}\n", l.value("ledger", ""), m.get<std::string>());
+    }
+    md += "\n" + (missing.empty() ? "" : "Missing:\n\n" + missing + "\n");
 }
 
 void kinds(std::string& md, const std::vector<const case_result*>& cases) {
@@ -421,6 +541,17 @@ std::string markdown_report(const store& s, const std::vector<run_record>& runs,
     }
     if (wants(o, "slowest"))
         slowest(md, cases, o.top);
+    if (wants(o, "steps"))
+        steps_section(md, cases, o.top);
+    if (wants(o, "builds"))
+        builds_section(md, runs, o.top);
+    if (wants(o, "margin"))
+        margin_section(md, runs, o);
+    if (wants(o, "budget"))
+        for (const auto& r : runs)
+            budget_section(md, r, o);
+    if (wants(o, "ledgers") && !runs.empty())
+        ledgers_section(md, s, runs.front(), o);
     if (wants(o, "metrics"))
         metrics(md, cases, o.top);
     if (wants(o, "resources"))

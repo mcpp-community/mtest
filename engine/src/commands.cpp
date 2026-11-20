@@ -340,6 +340,10 @@ answer cmd_run(const std::filesystem::path& cwd, const json& p,
     o.jobs = p.value("jobs", 0);
     if (p.contains("seed") && p["seed"].is_number_unsigned())
         o.seed = p["seed"].get<std::uint64_t>();
+    o.jitter_ms = std::max(0, p.value("jitter", 0));
+    if (p.contains("jitter_seed") && p["jitter_seed"].is_number_integer() &&
+        p["jitter_seed"].get<std::int64_t>() >= 0)
+        o.jitter_seed = p["jitter_seed"].get<std::uint64_t>();
     o.run_under = strings(p, "run_under");
     if (auto e = p.find("env"); e != p.end() && e->is_object())
         for (auto& item_ : e->items())
@@ -418,8 +422,32 @@ answer cmd_coverage(const std::filesystem::path& cwd, const json& p) {
                 std::format("coverage map of {} taken in: {} case(s)\n", m->commit.substr(0, 12),
                             m->cases.size())};
     }
+    if (action == "spread") {
+        // How widely the cases share what they executed: the measure that decides whether a
+        // selection at a finer granularity selects fewer cases (0.11.0).
+        auto m = read_coverage(file);
+        if (!m)
+            return usage(m.error());
+        const auto sp = spread_of(*m);
+        return {0,
+                {{"cases", sp.cases},
+                 {"files", sp.files},
+                 {"functions", sp.functions},
+                 {"median_file_share", sp.median_file_share},
+                 {"median_function_share", sp.median_function_share},
+                 {"conclusion",
+                  std::
+                      format("of {} case(s), the median file is executed by {:.0f}% and the median "
+                             "function by {:.0f}%",
+                             sp.cases, sp.median_file_share * 100,
+                             sp.median_function_share * 100)}},
+                std::format("{} case(s); {} file(s), median share {:.1f}%; {} function(s), median "
+                            "share {:.1f}%\n",
+                            sp.cases, sp.files, sp.median_file_share * 100, sp.functions,
+                            sp.median_function_share * 100)};
+    }
     if (!action.empty() && action != "show")
-        return usage(std::format("coverage {}: the actions are show and import", action));
+        return usage(std::format("coverage {}: the actions are show, import and spread", action));
     auto m = read_coverage(file);
     if (!m)
         return {0,
@@ -431,18 +459,24 @@ answer cmd_coverage(const std::filesystem::path& cwd, const json& p) {
     std::string text = std::format("coverage map of {} at {}{}\n", m->commit.substr(0, 12), m->time,
                                    fresh ? "" : " (older than [coverage] max_age: not read)");
     const auto only = strings(p, "case");
+    json functions = json::object();
     for (const auto& [k, files] : m->cases) {
         if (!only.empty() &&
             !std::ranges::any_of(only, [&](const std::string& g) { return glob_match(g, k); }))
             continue;
         cases[k] = files;
-        text += std::format("{}: {} file(s)\n", k, files.size());
+        const auto fns = m->functions.find(k);
+        if (fns != m->functions.end())
+            functions[k] = fns->second;
+        text += std::format("{}: {} file(s), {} function(s)\n", k, files.size(),
+                            fns == m->functions.end() ? 0 : fns->second.size());
     }
     return {0,
             {{"commit", m->commit},
              {"time", m->time},
              {"fresh", fresh},
              {"cases", cases},
+             {"functions", functions},
              {"conclusion",
               std::format("{} case(s) mapped at {}{}", m->cases.size(), m->commit.substr(0, 12),
                           fresh ? "" : "; older than max_age")}},
@@ -692,6 +726,7 @@ report_options report_options_of(const context& ctx, const json& p) {
     o.top = p.value("top", ctx.cfg.report.top);
     o.max_nodes = p.value("max_nodes", ctx.cfg.report.max_nodes);
     o.title = text_of(p, "title");
+    o.cfg = &ctx.cfg;
     return o;
 }
 
@@ -1798,6 +1833,11 @@ json catalog() {
         "record, its failures and a conclusion.",
         with({{"jobs", {{"type", "integer"}, {"description", "programs at once"}}},
               {"seed", {{"type", "integer"}, {"description", "the seed of anything random"}}},
+              {"jitter",
+               {{"type", "integer"},
+                {"description", "the most milliseconds a program waits at a contention point "
+                                "(SPEC-017 O12): a search for an order defect, never a verdict"}}},
+              {"jitter_seed", {{"type", "integer"}, {"description", "the seed of the waits"}}},
               {"fail_fast", {{"type", "boolean"}, {"description", "stop at the first failure"}}},
               {"resume",
                {{"type", "string"},
@@ -1915,8 +1955,9 @@ json catalog() {
                {"until", {{"type", "string"}}}}),
         true);
     add("coverage",
-        "The coverage map affected selection reads: show it, or import one (a CI artifact).",
-        plain({{"action", {{"enum", {"show", "import"}}}},
+        "The coverage map affected selection reads: show it, import one (a CI artifact), or "
+        "measure how widely its cases share files and functions (spread).",
+        plain({{"action", {{"enum", {"show", "import", "spread"}}}},
                {"from", {{"type", "string"}, {"description", "import: a coverage map file"}}},
                {"case", {{"type", "array"}, {"items", {{"type", "string"}}}}}}));
     add("store", "The store: gc, verify, or import another store.",
@@ -1968,7 +2009,7 @@ json catalog() {
         plain({{"out", {{"type", "string"}}},
                {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),
         true);
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.10.0"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.11.0"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

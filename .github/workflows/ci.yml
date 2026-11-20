@@ -83,6 +83,7 @@ jobs:
           MTEST_CTS_PROGRAM="$PWD/adapters/script/tests/fixture.py" mcpp test -p conformance
           MTEST_CTS_PROGRAM="$PWD/$(bin capi-fixture)" mcpp test -p conformance
           MTEST_CTS_PROGRAM="$PWD/$(bin gtest-fixture)" MTEST_CTS_ID_STYLE=gtest mcpp test -p conformance
+          MTEST_CTS_PROGRAM="$PWD/$(bin doctest-fixture)" MTEST_CTS_ID_STYLE=gtest mcpp test -p conformance
       - name: The engine runs mtest's own tests
         run: |
           set -euo pipefail

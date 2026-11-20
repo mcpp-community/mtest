@@ -15,7 +15,7 @@
 | C++ 库 | 用例、期望、夹具；`bench`、`cts`、`e2e` 模块 | [lib/](lib/) — `mcpplibs.mtest` |
 | 引擎 | run、plan、explain、history、analyze、graph、gate、trace、bisect、ci | [engine/](engine/) — `mtest` 程序 |
 | 服务 | 以 JSON-RPC 与 MCP 工具提供引擎的命令 | `mtest serve` — [docs/service.md](docs/service.md) |
-| 适配 | GoogleTest、Bash、Python | [adapters/](adapters/) — [docs/adapters.md](docs/adapters.md) |
+| 适配 | GoogleTest、doctest、Bash、Python | [adapters/](adapters/) — [docs/adapters.md](docs/adapters.md) |
 | C ABI | 供任何有 C FFI 的语言使用的协议 | [capi/](capi/) — `include/mtest.h` |
 | 一致性 | 检验协议每一种实现的同一套用例 | [conformance/](conformance/) |
 
@@ -37,7 +37,7 @@ int main() {
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest = "0.10.0"
+mcpplibs.mtest = "0.11.0"
 ```
 
 失败时给出位置与两侧的值（`expected 2, actual 3`）。在运行器之下，同一程序按协议报告；单独运行时每个用例输出一行。
@@ -83,7 +83,7 @@ mtest serve                        # 同样的命令，供 Agent（MCP）或 IDE
 | L2 | 指标 | bench 判定、一致性条款 |
 | L3 | 资源、产物 | 调度、受影响选择 |
 
-库、C ABI 与脚本适配为 L3；GoogleTest 为 L1。
+库、C ABI 与脚本适配为 L3；GoogleTest 与 doctest 为 L1。
 
 ## 构建
 

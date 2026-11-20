@@ -123,6 +123,8 @@ std::optional<run_record> load_run(const store& s, std::string_view id) {
         r.programs.push_back(program_result_from(j));
     for (const auto& j : read_lines(dir / "fixtures.ndjson"))
         r.fixtures.push_back(fixture_run_from(j));
+    for (const auto& j : read_lines(dir / "builds.ndjson"))
+        r.builds.push_back(build_edge_from(j));
     return r;
 }
 

@@ -103,6 +103,15 @@ struct metric_info {
     std::vector<double> samples;
 };
 
+// A step of a case (P5.6, 0.11.0): a command an end-to-end case ran.
+struct step_info {
+    std::string name;
+    double t = 0, ms = 0;
+    std::optional<double> cpu_ms;
+    std::optional<int> status;
+    std::string build;  // the record of the build the step was, when it was one
+};
+
 // One case's result. An L0 program is one case whose identifier is the program's name.
 struct case_result {
     std::string program, id, kind = "unit";
@@ -121,6 +130,23 @@ struct case_result {
     // When it began, in milliseconds after the run began (its program's start and its `begin`'s
     // `t`); negative when not known.
     double started_ms = -1;
+    // Its processor time: the `cpu.user` and `cpu.sys` metrics it reported (P6.6), else the time
+    // its program used while it ran alone in it; negative when not known (0.11.0).
+    double cpu_ms = -1;
+    std::vector<step_info> steps;        // P5.6 (0.11.0)
+    std::vector<std::string> exercised;  // the items of the product's surface it used, sorted
+    // The time it may take, as the runner applied it (SPEC-017 O5); negative when not known.
+    double limit_ms = -1;
+};
+
+// A build the runner made for a run (B4 `builds.ndjson`, 0.11.0): an edge it ran, or a package the
+// cache served (`cached`, with its `units`).
+struct build_edge {
+    std::string build, output, package, program;
+    double started_ms = 0, ms = 0;
+    std::optional<double> cpu_ms, peak_bytes;
+    bool cached = false;
+    int units = 0;
 };
 
 // A thread of a process, as the engine saw it at a timeout (0.10.0).
@@ -192,12 +218,20 @@ struct run_record {
     std::string id;
     std::string started, finished;  // ISO 8601, UTC
     std::string status;             // pass fail infra cancelled
+    // `machine`: the machine's class (P12.4, 0.11.0), the processor's model, else
+    // `<arch>/<processors>`; durations are compared within a class.
     std::string system, arch, machine, commit, set, selection;
+    int processors = 0;
+    std::uint64_t memory = 0;
+    int budget = 0;     // O11: the slots of the run's budget; 0: none (0.11.0)
+    int jitter_ms = 0;  // O12: the most a program waited at a contention point
+    std::uint64_t jitter_seed = 0;
     double ms = 0;
     int jobs = 1;
     std::vector<program_result> programs;
     std::vector<case_result> cases;
     std::vector<fixture_run> fixtures;
+    std::vector<build_edge> builds;  // read from a host's builds.ndjson (0.11.0)
     std::map<std::string, int> counts;
     // Runs of one group are parts of one whole (the jobs of a CI run, MTEST_GROUP), reported
     // together.
@@ -210,6 +244,10 @@ struct run_record {
     // The run whose results this one carries for the cases it did not run again (`--resume`).
     std::string resumed;
 };
+
+// This machine's class (P12.4): the processor's model as the system names it, else the
+// architecture and the number of processors.
+std::string machine_class();
 
 // JSON as text, a byte that is not UTF-8 (a program's output in a Windows code page) written as
 // U+FFFD rather than refused.
@@ -227,6 +265,8 @@ json to_json(const fixture_run& f);
 fixture_run fixture_run_from(const json& j);
 
 case_info case_info_from(const json& j);
+step_info step_from(const json& j);
+build_edge build_edge_from(const json& j);
 case_result case_result_from(const json& j);
 timeout_info timeout_info_from(const json& j);
 program_result program_result_from(const json& j);

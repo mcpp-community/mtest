@@ -36,7 +36,7 @@ nothing; a built program's own listing is the authority (`manifest/src/manifest.
 
 | Command | Does |
 |---|---|
-| `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--grace 2s` (below), `--env K=V`, `--run-under CMD` (every start of a program, its listing included: a runner such as an emulator or a machine of the program's system), `--monitor LEVEL` (P10), `--group G` (runs reported together); `--junit`, `--html`, `--report-json FILE`, `--md FILE`; `--coverage` measures the coverage map. A program's cases are divided among workers that would otherwise idle (`[run] split`), and programs run together within the machine's memory (`[run] memory`) |
+| `run` | runs the selection; `--jobs N`, `--seed N`, `--fail-fast`, `--retries N`, `--isolate` (a process per case), `--timeout 5m`, `--grace 2s` (below), `--env K=V`, `--run-under CMD` (every start of a program, its listing included: a runner such as an emulator or a machine of the program's system), `--monitor LEVEL` (P10), `--group G` (runs reported together), `--jitter MS [--jitter-seed N]` (each program waits a random time up to MS at its contention points, SPEC-017 O12: a search for an order defect, never a verdict); `--junit`, `--html`, `--report-json FILE`, `--md FILE`; `--coverage` measures the coverage map. A program's cases are divided among workers that would otherwise idle (`[run] split`), and programs run together within the machine's memory (`[run] memory`) |
 | `run --resume RUN` | the selection, less the cases RUN judged: their results are carried into the new run, so an interrupted long run (a bench over a matrix) ends as one whole run; a case RUN could not start runs again |
 | `rerun` | the cases that failed in the last run |
 | `smoke` | the `smoke` set |
@@ -44,6 +44,13 @@ nothing; a built program's own listing is the authority (`manifest/src/manifest.
 | `trace --with TOOL` | a run under `valgrind`, `strace`, `ltrace`, `perf`, `rr`, `time`, `okrun-prof`, or a `[trace.*]` tool; its output is kept with the run |
 | `bisect --case REF --good C [--bad C] [--build CMD]` | the first commit at which a case fails (git bisect, one case per step) |
 | `status`, `cancel` | runs in progress; stop one after the programs now running |
+
+A run holds one budget for the machine (SPEC-017 O11): a directory of a slot file per job, each
+worker holding one while it runs programs and stating it to them (`MTEST_BUDGET`,
+`MTEST_BUDGET_HELD`), so the parallel work a program starts takes only the slots no worker holds.
+Inside another runner's budget the engine uses that one. A run records the machine's class (the
+processor's model, else `<arch>/<processors>`), and estimates prefer what was measured on the same
+class.
 
 A program runs by the protocol when it carries the marker or declares its level; otherwise its exit
 status is its one result. Cases tagged `flaky`, and quarantined ones, are retried alone up to
@@ -83,13 +90,14 @@ ended in the same way, with no record.
 | Command | Answers |
 |---|---|
 | `explain [--case REF]` | where a case failed, why (both sides), its output, its recent history, whether it is new, and the command that repeats it |
-| `report [--format text\|json\|junit\|html\|md]` | a stored run; `md`: a Markdown report of the sections `--sections` (or `[report]`) names -- summary, kinds, failures, slowest, metrics, resources, flaky, trend, path, graph, gantt -- over `--scope` (`run`, `program:<glob>`, `kind:<kind>`), of one run, `--runs a,b`, or every run of `--group G` together |
+| `report [--format text\|json\|junit\|html\|md]` | a stored run; `md`: a Markdown report of the sections `--sections` (or `[report]`) names -- summary, kinds, failures, slowest, steps, builds (a host's `builds.ndjson`), margin (cases over four fifths of their limit), budget, ledgers, metrics, resources, flaky, trend, path, graph, gantt -- over `--scope` (`run`, `program:<glob>`, `kind:<kind>`), of one run, `--runs a,b`, or every run of `--group G` together |
 | `diff [--before ID] [--after ID]` | newly failing, fixed, slower, faster |
 | `history --case REF` | one case across the stored runs |
 | `query` | stored case results by `--status`, `--kind`, `--program`, `--case`, `--tag`, `--days`, `--runs` |
 | `analyze METRIC` | `hot`, `durations`, `path` (the critical path: the longest weighted path of the run's graph, spec P12.3, with what each step waited for), `failures` (grouped by message), `flaky`, `bench`, `trend` (each case's metrics over the last `--runs N` runs beside their bounds, `--case GLOB`), `cost` |
 | `graph [--format json\|dot\|mermaid\|gantt]` | sources → programs → cases → resources and artifacts; with `--run ID`, the run's graph of work -- builds, processes, run fixtures and what each waited for (worker, resource, build, fixture) -- the critical path marked, or its schedule as a gantt |
-| `gate [--set S]` | a set's gate on a run: no failure, the budget kept, bench verdicts that pass |
+| `gate [--set S]` | a set's gate on a run: no failure, the set's budget kept, no case over `[budget] case_cpu` without a waiver, every ledger's requirement met or waived, no waiver that excuses nothing, bench verdicts that pass |
+| `coverage spread` | how widely the cases of the coverage map share files and functions: the median share, which decides whether selecting by a finer granularity selects fewer cases |
 
 A run is named by its identifier, `last`, or `last-N`.
 

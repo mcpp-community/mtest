@@ -1,0 +1,46 @@
+# mcpplibs.mtest.doctest: doctest as an implementation of the mtest protocol, level 1 (spec/protocol.md):
+# the cases listed, selected by identifier and reported with their failures' places, by a doctest
+# reporter of the package's own. A program's tests stay doctest's (`TEST_CASE`, `CHECK`); the package
+# supplies doctest's implementation and `main` once, so a test file includes the header and defines
+# neither (no `DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN`):
+#
+#   [dev-dependencies]
+#   mcpplibs.mtest.doctest = "0.11.0"
+#
+# A case's identifier is `<suite>/<name>` (P3.2), or `<name>` outside a `TEST_SUITE`. doctest's
+# macros exist only in its header, so this package's one source includes it, and nlohmann/json's
+# beside it, as the GoogleTest adapter does.
+[package]
+namespace   = "mcpplibs.mtest"
+name        = "doctest"
+version     = "0.11.0"
+description = "doctest speaking the mtest protocol: doctest's implementation and a test main that lists, selects and reports its cases"
+license     = "Apache-2.0"
+
+[language]
+standard   = "c++23"
+modules    = true
+import_std = false
+
+[build]
+sources = ["src/protocol.cpp"]
+
+[targets.doctest]
+kind = "lib"
+
+[targets.main]
+kind          = "entry"
+main          = "src/main.cpp"
+test-protocol = 1
+test-main     = true
+test-guide    = "docs/writing-tests.md"
+
+# The adapter's own conformance fixture (spec/conformance.md), which the conformance suite runs
+# (MTEST_CTS_PROGRAM, MTEST_CTS_ID_STYLE=gtest: `<suite>/<name>`).
+[targets.doctest-fixture]
+kind = "bin"
+main = "fixture/main.cpp"
+
+[dependencies]
+compat.doctest = "2.4.12"
+nlohmann.json  = "3.12.0"

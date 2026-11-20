@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.11.0] - 2026-11-21
+
+What a test system needs to see the cost of the tests it runs (SPEC-017 v2.5; mcpp's test and CI
+design of 2026-11-20).
+
+- **A file's first case and expectation instantiate no formatting.** Under GCC a test file of one
+  case and one expectation took 689 ms to compile: std::format's machinery for `eq()` and
+  std::function for the case's body were loaded into every file from the standard library's module.
+  Numbers and truth values are now compared and shown by the library (integers by their values, of
+  either signedness, as `std::cmp_equal` compares them; NaN is unordered), a case's body is a
+  reference to its callable (a case runs while it is declared), a case declared in a body keeps its
+  name and attributes in the library, and a suite of a name and a body that captures nothing passes
+  a function pointer. The same file takes 265 ms; most of the rest is GCC loading the interface's
+  classes. `comparison` keeps its fields.
+- **The protocol costs a case 0.075 ms.** mcpplibs.os 0.4.7's capture no longer synchronises its
+  file twice per case: a program of 510 cases took 1.05 to 1.27 s under a runner that keeps each
+  case's output, and takes 38 ms. Both are now `Bench` cases with bounds (`lib/tests/costs.cpp`).
+- **Steps and the surface a case used (P5.6).** `step()` and `exercise()` write the `step` and
+  `exercise` events; `e2e::run` writes a step for each command it runs, with its status and the
+  processor time of the programs it ran. The engine keeps a case's `steps`, `exercised`, `cpu_ms`
+  (its `cpu.user` and `cpu.sys` metrics) and `limit_ms`, and reads a host's `builds.ndjson`.
+- **The end of a case checks what its programs did.** `at_case_end()` registers a check the running
+  case makes before its verdict. The e2e module fails a case whose program left a process holding an
+  output open, and whose programs printed a line matching a diagnostic pattern of the project
+  (`e2e::diagnostics`) that the case did not declare (`e2e::expect_diagnostic`), or did not print
+  one it declared; `MTEST_DIAGNOSTICS=report` prints and counts the lines instead.
+- **Golden comparisons with redactions.** `e2e::golden(file, text, rules)` replaces paths,
+  durations, sizes and digests first; an update prints what it changed, by line.
+- **One budget for the machine (O11).** A run makes a directory of one slot file per job; each worker
+  holds one and states it to its programs (`MTEST_BUDGET`, `MTEST_BUDGET_HELD`), so the parallel
+  work a program starts (a build's compilers) takes only the slots no worker holds. Inside another
+  runner's budget the engine uses that one.
+- **Jitter (O12).** `mtest run --jitter MS [--jitter-seed N]`; `contention_point()` waits a random
+  time up to MS, the same for the same seed. A case begins and a shared object is made at one.
+- **The machine's class.** `run.json`'s `machine` is the processor's model (mcpplibs.os 0.4.7), else
+  `<arch>/<processors>`, with `processors` and `memory`; through 0.10.0 it was the host's name.
+  Estimates prefer what was measured on the same class: hosted runners of one label differ by up to
+  1.6 times.
+- **`[budget]` and `[ledger.*]` are judged by the gate.** `case_cpu` bounds a case's processor time;
+  a ledger states requirements, the lines of a file or a command's output, each met by a passing
+  case's clause or used item of the surface, or excused by a waiver with a reason. A waiver that
+  excuses nothing fails the gate.
+- **The coverage map records functions.** A run under `--coverage` keeps, per case, the functions
+  whose arc counters ran; `mtest coverage spread` gives the median share of cases that execute a
+  file and a function.
+- **The Markdown report** gains the slowest steps, the builds a host recorded, the margin of the
+  cases near their limit, the budget and the ledgers; the summary names the machine.
+- **doctest under the protocol (`mcpplibs.mtest.doctest`, L1).** doctest's implementation and the
+  test main are compiled once in the package: a test file includes the header and defines no
+  `DOCTEST_CONFIG_IMPLEMENT*`, which each file compiled again (1.6 s a file under GCC). It passes
+  the conformance suite.
+- mcpplibs.os ^0.4.7.
+
 ## [0.10.0] - 2026-11-19
 
 - **A timeout records the program's processes, asks it to end, and then ends it.** Intermittent

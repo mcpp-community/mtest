@@ -12,6 +12,132 @@ constexpr std::string_view protocol_variables[] = {"MTEST_PROTOCOL",  "MTEST_MOD
                                                    "MTEST_REPORT",    "MTEST_SELECT",
                                                    "MTEST_ISOLATION", "MTEST_TMPDIR",
                                                    "MTEST_SEED"};
+
+// WHAT THE PROGRAMS OF A CASE DID THAT ITS EXPECTATIONS DO NOT SEE (0.11.0), judged at the case's
+// end: a process that outlived the program that started it, holding an output open, and the
+// lines of their output that match a diagnostic pattern of the project.
+struct watch {
+    std::vector<std::string> outlived;  // the commands whose process outlived them
+    std::vector<std::string> lines;     // diagnostic lines, as written
+    std::vector<std::string> declared;  // the patterns the case declared
+};
+std::mutex watch_lock;
+std::map<std::string, watch> watches;  // by case
+std::vector<std::string> project_patterns;
+std::optional<diagnostic_policy> policy;
+
+diagnostic_policy current_policy() {
+    if (policy)
+        return *policy;
+    return os::env::get("MTEST_DIAGNOSTICS").value_or("") == "report" ? diagnostic_policy::report
+                                                                      : diagnostic_policy::enforce;
+}
+
+bool matches_any(const std::string& line, const std::vector<std::string>& patterns) {
+    for (const auto& p : patterns)
+        if (std::regex_search(line, std::regex(p)))
+            return true;
+    return false;
+}
+
+void judge(const std::string& id) {
+    watch w;
+    {
+        std::lock_guard g(watch_lock);
+        auto it = watches.find(id);
+        if (it == watches.end())
+            return;
+        w = std::move(it->second);
+        watches.erase(it);
+    }
+    for (const auto& line : w.outlived) {
+        comparison c;
+        c.expression = "a process the program started outlived it, holding an output open";
+        c.actual = line;
+        expect(c) << "the case's programs leave nothing running";
+    }
+    std::vector<std::string> undeclared, unseen;
+    for (const auto& line : w.lines)
+        if (!matches_any(line, w.declared))
+            undeclared.push_back(line);
+    for (const auto& pattern : w.declared) {
+        bool seen = false;
+        for (const auto& line : w.lines)
+            seen = seen || std::regex_search(line, std::regex(pattern));
+        if (!seen)
+            unseen.push_back(pattern);
+    }
+    if (current_policy() == diagnostic_policy::report) {
+        metric("diagnostics.undeclared", static_cast<double>(undeclared.size()), "1");
+        for (const auto& line : undeclared)
+            std::println(std::cerr, "mtest: {}: an undeclared diagnostic line: {}", id, line);
+        return;
+    }
+    for (const auto& line : undeclared) {
+        comparison c;
+        c.expression = "a diagnostic line the case did not declare (e2e::expect_diagnostic)";
+        c.actual = line;
+        expect(c) << "every diagnostic line is declared";
+    }
+    for (const auto& pattern : unseen) {
+        comparison c;
+        c.expression = "a diagnostic the case declared did not appear";
+        c.expected = pattern;
+        expect(c) << "every declared diagnostic appears";
+    }
+}
+
+watch& watch_of_case(const std::string& id) {
+    at_case_end("mcpplibs.mtest.e2e", [id] { judge(id); });
+    return watches[id];
+}
+
+void observe(const outcome& r) {
+    const auto id = current_case();
+    if (id.empty())
+        return;
+    std::vector<std::string> found;
+    std::vector<std::string> patterns;
+    {
+        std::lock_guard g(watch_lock);
+        patterns = project_patterns;
+    }
+    if (!patterns.empty())
+        for (const auto* text : {&r.out, &r.err})
+            for (auto part : std::views::split(*text, '\n')) {
+                std::string line(part.begin(), part.end());
+                if (!line.empty() && line.back() == '\r')
+                    line.pop_back();
+                if (!line.empty() && matches_any(line, patterns))
+                    found.push_back(std::move(line));
+            }
+    if (found.empty() && !r.held_open)
+        return;
+    std::lock_guard g(watch_lock);
+    auto& w = watch_of_case(id);
+    if (r.held_open)
+        w.outlived.push_back(r.line);
+    for (auto& line : found)
+        w.lines.push_back(std::move(line));
+}
+}  // namespace
+
+void diagnostics(std::vector<std::string> patterns) {
+    std::lock_guard g(watch_lock);
+    project_patterns = std::move(patterns);
+}
+
+void expect_diagnostic(std::string pattern) {
+    const auto id = current_case();
+    if (id.empty())
+        return;
+    std::lock_guard g(watch_lock);
+    watch_of_case(id).declared.push_back(std::move(pattern));
+}
+
+void diagnostics_policy(diagnostic_policy p) {
+    std::lock_guard g(watch_lock);
+    policy = p;
 }
 
 outcome run(command c) {
@@ -41,7 +167,20 @@ outcome run(command c) {
     limits.hard = c.timeout;
     limits.out_limit = c.out_limit;
     limits.err_limit = c.err_limit;
+    step_record st;
+    st.name =
+        !c.step.empty() ? c.step : (r.line.size() > 200 ? r.line.substr(0, 200) + "..." : r.line);
+    st.began = std::chrono::steady_clock::now();
+    const auto before = os::process::resources(os::process::of::children);
     auto done = os::process::run(std::move(o), limits, c.input);
+    st.took = std::chrono::steady_clock::now() - st.began;
+    if (const auto after = os::process::resources(os::process::of::children); before && after)
+        st.cpu_ms = std::chrono::duration<double, std::milli>((after->user + after->system) -
+                                                              (before->user + before->system))
+                        .count();
+    if (done)
+        st.status = done->status.shell_code();
+    step(st);
     if (!done) {
         r.err = std::format("{} did not start: {}", c.argv.front(), done.error().message());
         return r;
@@ -55,6 +194,7 @@ outcome run(command c) {
     r.out = std::move(done->out);
     r.err = std::move(done->err);
     r.duration = done->duration;
+    observe(r);
     return r;
 }
 
@@ -85,13 +225,83 @@ tree(std::initializer_list<std::pair<std::string_view, std::string_view>> files)
     return root;
 }
 
+namespace {
+// What a golden comparison compares: the text with each redaction applied, in order.
+std::string redacted(std::string_view text, const std::vector<redaction>& rules) {
+    std::string out(text);
+    for (const auto& r : rules)
+        out = std::regex_replace(out, std::regex(r.pattern), r.with);
+    return out;
+}
+std::vector<std::string> lines_of(std::string_view text) {
+    std::vector<std::string> out;
+    for (auto part : std::views::split(text, '\n'))
+        out.emplace_back(part.begin(), part.end());
+    return out;
+}
+// What an update changed, by line: kept, changed in place, added and removed.
+std::string update_summary(std::string_view before, std::string_view after) {
+    const auto a = lines_of(before), b = lines_of(after);
+    const std::size_t common = std::min(a.size(), b.size());
+    std::size_t changed = 0;
+    for (std::size_t i = 0; i < common; ++i)
+        changed += a[i] != b[i];
+    const std::size_t added = b.size() > a.size() ? b.size() - a.size() : 0;
+    const std::size_t removed = a.size() > b.size() ? a.size() - b.size() : 0;
+    return std::format("{} changed, {} added, {} removed", changed, added, removed);
+}
+}  // namespace
+
+std::vector<redaction> redactions::paths(const std::filesystem::path& root, std::string with) {
+    std::vector<redaction> out;
+    for (const auto& spelling : {os::fs::utf8(root), os::fs::generic_utf8(root)}) {
+        std::string escaped;
+        for (char ch : spelling) {
+            if (std::string_view(R"(\^$.|?*+()[]{})").contains(ch))
+                escaped += '\\';
+            escaped += ch;
+        }
+        if (!escaped.empty())
+            out.push_back({escaped, with});
+    }
+    return out;
+}
+const std::vector<redaction>& redactions::durations() {
+    static const std::vector<redaction> r = {
+        {R"(\b[0-9]+(\.[0-9]+)?\s?(ns|us|µs|ms|s|m)\b)", "<time>"}};
+    return r;
+}
+const std::vector<redaction>& redactions::sizes() {
+    static const std::vector<redaction> r = {
+        {R"(\b[0-9]+(\.[0-9]+)?\s?(B|KB|KiB|MB|MiB|GB|GiB)\b)", "<size>"}};
+    return r;
+}
+const std::vector<redaction>& redactions::digests() {
+    static const std::vector<redaction> r = {{R"(\b[0-9a-f]{8,64}\b)", "<digest>"}};
+    return r;
+}
+
 comparison golden(const std::filesystem::path& file, std::string_view text) {
+    return golden(file, text, {});
+}
+
+comparison golden(const std::filesystem::path& file, std::string_view raw,
+                  const std::vector<redaction>& rules) {
     comparison c;
+    const std::string text = redacted(raw, rules);
     if (os::env::get("MTEST_GOLDEN").value_or("") == "update") {
+        const auto before = os::fs::read(file);
         std::filesystem::create_directories(file.parent_path());
         c.held = os::fs::write(file, text).has_value();
-        if (!c.held)
+        if (!c.held) {
             c.expression = std::format("could not write {}", os::fs::utf8(file));
+        } else if (!before || *before != text) {
+            // The update says what it changed, so that a review reads the change, not the file.
+            std::println(std::cerr, "mtest: golden {} {}: {}", os::fs::utf8(file),
+                         before ? "updated" : "written",
+                         before ? update_summary(*before, text)
+                                : std::format("{} lines", lines_of(text).size()));
+        }
         return c;
     }
     auto have = os::fs::read(file);
@@ -380,6 +590,7 @@ outcome session::finish(std::chrono::milliseconds timeout) {
     r.out = st.transcript;
     r.duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - st.began);
+    observe(r);
     return r;
 }
 

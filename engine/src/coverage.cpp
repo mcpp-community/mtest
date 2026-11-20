@@ -9,8 +9,9 @@ namespace os = mcpplibs::os;
 
 namespace {
 
-constexpr std::uint32_t kGcdaMagic = 0x67636461;  // "gcda"
-constexpr std::uint32_t kArcsTag = 0x01a10000;    // GCOV_TAG_COUNTER_BASE: the arc counters
+constexpr std::uint32_t kGcdaMagic = 0x67636461;    // "gcda"
+constexpr std::uint32_t kArcsTag = 0x01a10000;      // GCOV_TAG_COUNTER_BASE: the arc counters
+constexpr std::uint32_t kFunctionTag = 0x01000000;  // GCOV_TAG_FUNCTION: ident, checksums
 
 std::uint32_t swapped(std::uint32_t v) {
     return (v >> 24) | ((v >> 8) & 0xff00) | ((v << 8) & 0xff0000) | (v << 24);
@@ -78,7 +79,96 @@ std::vector<std::string> executed_sources(const std::filesystem::path& dir,
     return {files.begin(), files.end()};
 }
 
+// The functions one program's run executed, `<source>#<ident>`.
+std::vector<std::string> executed_functions(const std::filesystem::path& dir,
+                                            const std::map<std::string, std::string>& sources) {
+    std::set<std::string> out;
+    std::error_code ec;
+    for (std::filesystem::recursive_directory_iterator it(dir, ec), end; it != end;
+         it.increment(ec)) {
+        if (it->path().extension() != ".gcda")
+            continue;
+        const auto rel = std::filesystem::relative(it->path(), dir, ec);
+        auto s = sources.find(stem_of(rel));
+        if (s == sources.end())
+            continue;
+        for (auto ident : gcda_functions(it->path()))
+            out.insert(std::format("{}#{}", s->second, ident));
+    }
+    return {out.begin(), out.end()};
+}
+
+double median_of(std::vector<double> v) {
+    if (v.empty())
+        return 0;
+    std::ranges::sort(v);
+    return v.size() % 2 ? v[v.size() / 2] : (v[v.size() / 2 - 1] + v[v.size() / 2]) / 2;
+}
+
+std::pair<std::size_t, double>
+spread_over(const std::map<std::string, std::vector<std::string>>& by_case) {
+    std::map<std::string, std::size_t> count;
+    for (const auto& [_, items] : by_case)
+        for (const auto& item : items)
+            ++count[item];
+    std::vector<double> shares;
+    for (const auto& [_, n] : count)
+        shares.push_back(by_case.empty() ? 0 : double(n) / double(by_case.size()));
+    return {count.size(), median_of(std::move(shares))};
+}
+
 }  // namespace
+
+std::vector<std::uint32_t> gcda_functions(const std::filesystem::path& gcda) {
+    std::vector<std::uint32_t> out;
+    std::ifstream in(gcda, std::ios::binary);
+    std::vector<char> bytes((std::istreambuf_iterator<char>(in)), {});
+    if (bytes.size() < 16 || bytes.size() % 4)
+        return out;
+    std::vector<std::uint32_t> words(bytes.size() / 4);
+    std::memcpy(words.data(), bytes.data(), bytes.size());
+    const bool swap = words[0] != kGcdaMagic;
+    if (swap && swapped(words[0]) != kGcdaMagic)
+        return out;
+    auto word = [&](std::size_t i) { return swap ? swapped(words[i]) : words[i]; };
+    std::optional<std::uint32_t> current;
+    bool ran = false;
+    auto close = [&] {
+        if (current && ran)
+            out.push_back(*current);
+        current.reset();
+        ran = false;
+    };
+    for (std::size_t i = 4; i + 2 <= words.size();) {
+        const auto tag = word(i);
+        const auto length = static_cast<std::int32_t>(word(i + 1));
+        i += 2;
+        if (tag == 0)
+            break;
+        if (tag == kFunctionTag) {
+            close();
+            if (length > 0 && i < words.size())
+                current = word(i);
+        }
+        if (length <= 0)
+            continue;
+        const auto n = static_cast<std::size_t>(length) / 4;
+        if (tag == kArcsTag)
+            for (std::size_t k = i; k < i + n && k < words.size(); ++k)
+                ran = ran || word(k) != 0;
+        i += n;
+    }
+    close();
+    return out;
+}
+
+coverage_spread spread_of(const coverage_map& m) {
+    coverage_spread out;
+    out.cases = m.cases.size();
+    std::tie(out.files, out.median_file_share) = spread_over(m.cases);
+    std::tie(out.functions, out.median_function_share) = spread_over(m.functions);
+    return out;
+}
 
 std::filesystem::path coverage_file(const store& s) {
     return s.dir / "coverage.json";
@@ -105,6 +195,15 @@ std::expected<coverage_map, std::string> read_coverage(const std::filesystem::pa
                         files.push_back(f.get<std::string>());
             std::ranges::sort(files);
         }
+    if (j.contains("functions") && j["functions"].is_object())
+        for (auto it = j["functions"].begin(); it != j["functions"].end(); ++it) {
+            auto& fns = m.functions[it.key()];
+            if (it.value().is_array())
+                for (const auto& f : it.value())
+                    if (f.is_string())
+                        fns.push_back(f.get<std::string>());
+            std::ranges::sort(fns);
+        }
     return m;
 }
 
@@ -112,11 +211,11 @@ void write_coverage(const std::filesystem::path& file, const coverage_map& m) {
     json cases = json::object();
     for (const auto& [k, files] : m.cases)
         cases[k] = files;
-    json j = {{"format", kCoverageFormat},
-              {"commit", m.commit},
-              {"time", m.time},
-              {"epoch", m.epoch},
-              {"cases", cases}};
+    json functions = json::object();
+    for (const auto& [k, fns] : m.functions)
+        functions[k] = fns;
+    json j = {{"format", kCoverageFormat}, {"commit", m.commit}, {"time", m.time},
+              {"epoch", m.epoch},          {"cases", cases},     {"functions", functions}};
     std::error_code ec;
     std::filesystem::create_directories(file.parent_path(), ec);
     const auto tmp = file.string() + ".tmp";
@@ -193,8 +292,11 @@ collect_coverage(const config& c,
                   .count();
     for (const auto& [dir, cases] : dirs) {
         const auto files = executed_sources(dir, *sources);
-        for (const auto& k : cases)
+        const auto fns = executed_functions(dir, *sources);
+        for (const auto& k : cases) {
             m.cases[k] = files;
+            m.functions[k] = fns;
+        }
     }
     return m;
 }

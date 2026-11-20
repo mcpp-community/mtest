@@ -10,6 +10,10 @@ export namespace mcpplibs::mtest::engine {
 
 // The slowest cases of a run.
 json hot(const run_record& r, std::size_t top);
+// Each ledger's requirements, met, missing and waived over the run and its group (0.11.0).
+json ledger_table(const config& c, const store& s, const run_record& r);
+// The cases over `[budget] case_cpu`, waived or not, and the waivers that excuse nothing (0.11.0).
+json budget_overruns(const config& c, const run_record& r);
 // Where a run's time went: by kind and by program, the share each program had of the wall clock,
 // and the critical path (the longest program: no schedule finishes before it) against the wall
 // clock.

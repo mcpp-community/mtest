@@ -406,7 +406,9 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
     rec.started = now_iso();
     rec.system = std::string(os::name(os::host()));
     rec.arch = std::string(os::name(os::ARCH));
-    rec.machine = os::env::get("HOSTNAME").value_or(os::env::get("COMPUTERNAME").value_or(""));
+    rec.machine = machine_class();
+    rec.processors = int(os::machine::processors().logical);
+    rec.memory = os::machine::memory().value_or(0);
     rec.commit = git_commit(c.root);
     rec.set = o.set;
     rec.selection = o.selection;
@@ -548,7 +550,47 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
                     {"total", items.size()},
                     {"started", rec.started}});
 
+    // ONE BUDGET FOR THE MACHINE (SPEC-017 O11, 0.11.0): a directory of slot files, one per job;
+    // each worker holds one while it runs programs, and states it to them, so that the parallel
+    // work a program starts (a build's compilers) takes the slots no worker holds and the machine
+    // runs no more than its jobs at once. Inside another runner's budget, that one is used: the
+    // first worker has the slot the runner holds for this engine, the others wait for free ones.
+    const auto outer_budget = os::env::get("MTEST_BUDGET");
+    const auto outer_held = os::env::get("MTEST_BUDGET_HELD");
+    const bool nested = outer_budget && !outer_budget->empty();
+    const auto budget_dir =
+        nested ? os::fs::from_utf8(*outer_budget) : s.dir / "work" / rec.id / "budget";
+    if (!nested) {
+        std::filesystem::create_directories(budget_dir);
+        for (int i = 0; i < rec.jobs; ++i)
+            (void)os::fs::write(budget_dir / std::format("slot-{}", i), "");
+    }
+    rec.budget = nested ? 0 : rec.jobs;
+    // A free slot: the first that locks without waiting, else the worker's own number, waited for.
+    auto take_slot = [&](int worker) -> std::pair<std::filesystem::path, os::fs::lock> {
+        if (nested && worker == 0 && outer_held && !outer_held->empty())
+            return {os::fs::from_utf8(*outer_held), os::fs::lock{}};
+        std::vector<std::filesystem::path> slots;
+        for (const auto& e : std::filesystem::directory_iterator(budget_dir))
+            if (e.path().filename().string().starts_with("slot-"))
+                slots.push_back(e.path());
+        std::ranges::sort(slots);
+        for (const auto& f : slots)
+            if (outer_held.value_or("") != os::fs::utf8(f))
+                if (auto l = os::fs::lock::acquire(f, os::fs::lock::kind::exclusive, false);
+                    l && l->held())
+                    return {f, std::move(*l)};
+        if (slots.empty())
+            return {{}, os::fs::lock{}};
+        const auto f = slots[std::size_t(worker) % slots.size()];
+        auto l = os::fs::lock::acquire(f, os::fs::lock::kind::exclusive, true);
+        return {f, l ? std::move(*l) : os::fs::lock{}};
+    };
+    rec.jitter_ms = o.jitter_ms;
+    rec.jitter_seed = o.jitter_ms > 0 ? o.jitter_seed.value_or(std::random_device{}()) : 0;
+
     auto worker = [&](int slot) {
+        auto [slot_file, slot_lock] = take_slot(slot);
         for (;;) {
             std::size_t mine = 0;
             {
@@ -587,6 +629,14 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
             req.select = it.select;
             req.seed = o.seed;
             req.env = o.env;
+            if (!slot_file.empty()) {
+                req.env.emplace_back("MTEST_BUDGET", os::fs::utf8(budget_dir));
+                req.env.emplace_back("MTEST_BUDGET_HELD", os::fs::utf8(slot_file));
+            }
+            if (rec.jitter_ms > 0) {
+                req.env.emplace_back("MTEST_JITTER", std::to_string(rec.jitter_ms));
+                req.env.emplace_back("MTEST_JITTER_SEED", std::to_string(rec.jitter_seed + mine));
+            }
             req.run_under = o.run_under;
             req.monitor = rec.monitor;
             req.sample_ms = c.monitor.sample_ms;
@@ -702,6 +752,10 @@ run_record execute(const config& c, const store& s, const plan& p, const execute
                     cr.only = ci->info.only;
                     cr.except = ci->info.except;
                     cr.bounds = ci->info.bounds;
+                    if (ci->info.timeout > 0)
+                        cr.limit_ms = ci->info.timeout * 1000;
+                    else if (info->program.timeout.count() > 0)
+                        cr.limit_ms = double(info->program.timeout.count()) * 1000;
                     judge_bounds(cr, ci->info.stated_bounds);
                     expected_to_fail(cr, ci->info.expect_fail);
                 } else if (cr.kind.empty()) {

@@ -19,7 +19,22 @@ struct coverage_map {
     std::string commit, time;  // the run it was measured from
     std::int64_t epoch = 0;    // when, in seconds since 1970: what `max_age` is measured against
     std::map<std::string, std::vector<std::string>> cases;  // program::case -> files from the root
+    // program::case -> the functions it executed, `<source>#<ident>` with GCC's function ident
+    // (0.11.0): what a selection by function would read, and how widely each function is shared.
+    std::map<std::string, std::vector<std::string>> functions;
 };
+
+// How widely the cases of a map share what they executed (0.11.0): for each file and each function,
+// the share of the cases that executed it, and the medians. A selection at a granularity is worth
+// it only where the median share is small.
+struct coverage_spread {
+    std::size_t cases = 0, files = 0, functions = 0;
+    double median_file_share = 0, median_function_share = 0;
+};
+coverage_spread spread_of(const coverage_map& m);
+
+// The functions whose arc counters ran in one `.gcda`, by GCC's ident (0.11.0).
+std::vector<std::uint32_t> gcda_functions(const std::filesystem::path& gcda);
 
 std::filesystem::path coverage_file(const store& s);
 std::expected<coverage_map, std::string> read_coverage(const std::filesystem::path& file);

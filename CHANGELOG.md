@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.2] - 2026-11-21
+
+- **What a scope does names no case.** A case that runs only because it declares a selected case
+  is that case's scope (P3.4) and is not reported unless a statement of its own fails. A `step`,
+  `exercise`, `artifact`, `metric` or `fixture` event written while its body ran named it, and the
+  runner, which never saw it begin, held it as a case that did not end: a capability probe run by
+  `e2e::run` in a suite's body failed the program whose cases all passed. These events now name no
+  case. Source-compatible with 0.11.1; the engine changes only the version it states.
+
 ## [0.11.1] - 2026-11-21
 
 - **A command is held to what its case has left.** `time_left()` states what the running case has

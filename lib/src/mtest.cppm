@@ -857,7 +857,9 @@ void produced(const std::filesystem::path& file, std::string_view kind = "file")
 // A STEP OF THE RUNNING CASE (P5.6, 0.11.0): one command an end-to-end case ran, when it began, how
 // long it took, the processor time of the programs it ran, their exit status, and the record of
 // the build it was, when it was one. mcpplibs.mtest.e2e writes one for each command it runs; a kit
-// that runs its commands another way writes its own. A step is a record and never a verdict.
+// that runs its commands another way writes its own. A step is a record and never a verdict. A
+// step, an exercise, an artifact, a metric or a fixture of a case that runs as the scope of a
+// selected case (P3.4) names no case (0.11.2).
 struct step_record {
     std::string name;
     std::chrono::steady_clock::time_point began;

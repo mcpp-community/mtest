@@ -68,6 +68,9 @@ Suite kept{"kept", [] {
 
 Suite scoped{"scoped", [] {
                  expect(!std::getenv("SCOPE_FAILS")) << "the scope's own statement";
+                 step({.name = "the scope's own command",
+                       .began = std::chrono::steady_clock::now()});
+                 exercise({"scope.item"});
                  "inner"_test = [] {};
              }};
 
@@ -242,6 +245,10 @@ int main(int argc, char** argv) {
         auto quiet = ended(events_of("run", {"scoped/inner"}));
         expect(eq(quiet["scoped/inner"], std::string("pass")));
         expect(!quiet.contains("scoped"));
+        // What the scope's body does names no case: the runner saw none begin (0.11.2).
+        auto events = events_of("run", {"scoped/inner"});
+        for (const auto& e : events)
+            expect(e.value("id", "") != "scoped") << "an event named the scope: " << e.dump();
         auto loud = ended(events_of("run", {"scoped/inner"}, {}, {{"SCOPE_FAILS", "1"}}));
         expect(eq(loud["scoped"], std::string("fail")));
         expect(eq(loud["scoped/inner"], std::string("pass")));

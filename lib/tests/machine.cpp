@@ -92,9 +92,11 @@ int main(int argc, char** argv) {
         expect(usage) << "the program reports its own use at its end";
         // The case that uses the fixture read the endpoint stated to the copy.
         const bool user_passed = std::ranges::any_of(events, [](const json& e) {
-            return e.value("e", "") == "end" && e.value("id", "") == "user" && e.value("status", "") == "pass";
+            return e.value("e", "") == "end" && e.value("id", "") == "user" &&
+                   e.value("status", "") == "pass";
         });
-        expect(user_passed) << "the case that uses index did not pass with the endpoint `from-runner`";
+        expect(user_passed)
+            << "the case that uses index did not pass with the endpoint `from-runner`";
     };
     "detailed: a case's largest resident set"_test = [] {
         if (mcpplibs::os::host() != mcpplibs::os::platform::linux ||

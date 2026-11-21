@@ -162,7 +162,7 @@ int mcpplibs_mtest_doctest_main(int argc, char** argv) {
          {"protocol", 1},
          {"level", 1},
          {"framework", "doctest"},
-         {"version", "0.11.1"},
+         {"version", "0.11.2"},
          {"isolation", {"process", "case"}},
          {"guide", "https://github.com/mcpp-community/mtest/blob/main/adapters/doctest/docs/"
                    "writing-tests.md"}});

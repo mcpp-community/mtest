@@ -45,6 +45,9 @@ struct running_case {
     std::vector<std::pair<std::string, std::function<void()>>> end_checks;
     // When it began: its `timeout` counts from here (time_left, 0.11.1).
     clock::time_point began = clock::now();
+    // Reported: selected, or declared in a selected case. One that runs only because it declares
+    // a selected case is that case's scope; its begin is written only if it fails (0.11.2).
+    bool own = true;
 };
 
 // The expectations that held, in the whole program: a case's share is the difference over its
@@ -342,7 +345,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.11.1"},
+         {"version", "0.11.2"},
          {"isolation", {"process", "case"}},
          // P4.3: a selection's `!<id>` and `?<id>` lines are understood.
          {"selection", {"except", "optional"}},
@@ -1052,6 +1055,7 @@ void test::operator=(body b) {
         end_capture(s.stack.back());  // the declaring case's output so far is its own
     s.stack.push_back({id, false, attrs});
     s.stack.back().held_before = g_held.load(std::memory_order_relaxed);
+    s.stack.back().own = own;
     if (capturing) {
         s.stack.back().capturing = true;
         begin_capture(s.stack.back());
@@ -1379,6 +1383,16 @@ std::string current_case() {
     return s.stack.empty() || s.stack.back().scope ? std::string{} : s.stack.back().id;
 }
 
+// The case an event of the running code states: the running case when it is reported, else none.
+// A step, an artifact, a metric or a fixture of a case that runs as a scope would otherwise name a
+// case the runner never saw begin, and the runner holds such a case as one that did not end.
+static std::string event_case() {
+    auto& s = the();
+    std::lock_guard g(s.lock);
+    return s.stack.empty() || s.stack.back().scope || !s.stack.back().own ? std::string{}
+                                                                          : s.stack.back().id;
+}
+
 std::optional<std::chrono::milliseconds> time_left() {
     auto& s = the();
     std::lock_guard g(s.lock);
@@ -1395,7 +1409,7 @@ std::optional<std::chrono::milliseconds> time_left() {
 
 void produced(const std::filesystem::path& file, std::string_view kind) {
     write_event({{"e", "artifact"},
-                 {"id", current_case()},
+                 {"id", event_case()},
                  {"path", os::fs::generic_utf8(file)},
                  {"kind", kind}});
 }
@@ -1442,7 +1456,7 @@ void at_case_end(std::string_view key, std::function<void()> check) {
 void step(const step_record& r) {
     const auto at = std::chrono::duration<double, std::milli>(r.began - the().began).count();
     event ev = {{"e", "step"},
-                {"id", current_case()},
+                {"id", event_case()},
                 {"name", r.name},
                 {"t", at < 0 ? 0.0 : at},
                 {"ms", std::chrono::duration<double, std::milli>(r.took).count()}};
@@ -1458,7 +1472,7 @@ void step(const step_record& r) {
 void exercise(const std::vector<std::string>& items) {
     if (items.empty())
         return;
-    write_event({{"e", "exercise"}, {"id", current_case()}, {"items", items}});
+    write_event({{"e", "exercise"}, {"id", event_case()}, {"items", items}});
 }
 
 void metric(std::string_view name, double value, std::string_view unit,
@@ -1469,8 +1483,8 @@ void metric(std::string_view name, double value, std::string_view unit,
         if (!s.stack.empty() && !s.stack.back().scope)
             s.stack.back().metrics[std::string(name)] = {value, std::string(unit)};
     }
-    event ev = {{"e", "metric"},  {"id", current_case()}, {"name", name},
-                {"value", value}, {"unit", unit},         {"better", better}};
+    event ev = {{"e", "metric"},  {"id", event_case()}, {"name", name},
+                {"value", value}, {"unit", unit},       {"better", better}};
     if (!samples.empty())
         ev["samples"] = std::vector<double>(samples.begin(), samples.end());
     write_event(ev);
@@ -1760,7 +1774,7 @@ attributes within(const attributes& outer, const attributes& inner) {
 }
 
 void detail::made_shared(std::string_view name, double ms) {
-    write_event({{"e", "fixture"}, {"id", current_case()}, {"name", name}, {"ms", ms}});
+    write_event({{"e", "fixture"}, {"id", event_case()}, {"name", name}, {"ms", ms}});
 }
 
 std::vector<std::string> self_command() {

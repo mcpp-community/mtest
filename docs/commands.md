@@ -96,7 +96,7 @@ ended in the same way, with no record.
 | `query` | stored case results by `--status`, `--kind`, `--program`, `--case`, `--tag`, `--days`, `--runs` |
 | `analyze METRIC` | `hot`, `durations`, `path` (the critical path: the longest weighted path of the run's graph, spec P12.3, with what each step waited for), `failures` (grouped by message), `flaky`, `bench`, `trend` (each case's metrics over the last `--runs N` runs beside their bounds, `--case GLOB`), `cost` |
 | `graph [--format json\|dot\|mermaid\|gantt]` | sources → programs → cases → resources and artifacts; with `--run ID`, the run's graph of work -- builds, processes, run fixtures and what each waited for (worker, resource, build, fixture) -- the critical path marked, or its schedule as a gantt |
-| `gate [--set S]` | a set's gate on a run: no failure, the set's budget kept, no case over `[budget] case_cpu` without a waiver, every ledger's requirement met or waived, no waiver that excuses nothing, bench verdicts that pass |
+| `gate [--set S]` | a set's gate on a run: no failure, the set's budget kept, no case over `[budget] case_cpu` without a waiver, every ledger's requirement met or waived (by a set that runs every case; another set's gate notes that it did not judge them), no waiver that excuses nothing, bench verdicts that pass |
 | `coverage spread` | how widely the cases of the coverage map share files and functions: the median share, which decides whether selecting by a finer granularity selects fewer cases |
 
 A run is named by its identifier, `last`, or `last-N`.

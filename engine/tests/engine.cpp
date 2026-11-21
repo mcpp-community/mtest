@@ -37,8 +37,12 @@ project(std::initializer_list<std::pair<std::string_view, std::string_view>> fil
 e2e::outcome mtest(const std::filesystem::path& cwd, std::vector<std::string> args,
                    std::string input = {}) {
     args.insert(args.begin(), e2e::program("mtest"));
+    // The engine under test is a runner of its own. Inside the runner that runs these tests (mcpp
+    // 2026.11.21.1 states its budget to every program), it would take that budget, record none of
+    // its own, and the cases that state a run's budget would answer for the outer runner.
     return e2e::run({.argv = args,
                      .cwd = cwd,
+                     .env = {{"MTEST_BUDGET", std::nullopt}, {"MTEST_BUDGET_HELD", std::nullopt}},
                      .input = std::move(input),
                      .timeout = std::chrono::seconds{120}});
 }
@@ -303,6 +307,10 @@ int main() {
             expect(!missing["pass"].get<bool>()) << missing.dump();
             expect(contains(missing.dump(), "R2 has no passing case")) << missing.dump();
             expect(!contains(missing.dump(), "R1 has no").held) << missing.dump();
+            // A set that runs a part of the cases does not judge a ledger, and says so.
+            auto part = json_of(mtest(root, {"gate", "--set", "pr", "--json"}));
+            expect(part["pass"].get<bool>()) << part.dump();
+            expect(contains(part.dump(), "judged by a set that runs every case")) << part.dump();
             (void)mcpplibs::os::fs::
                 write(root / "mtest.toml",
                       "[programs.b]\ncommand = [\"bash\", \"b.sh\"]\n[ledger.spec]\nfile = "

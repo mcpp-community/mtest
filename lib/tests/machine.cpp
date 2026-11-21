@@ -33,10 +33,13 @@ run_fixture index{"index", [](serving& s) {
                   }};
 Component sandbox{"sandbox", {resource_pool{"port", 3}}};
 
+// The endpoint is the runner's: the test below states one to the copy it starts, and a runner that
+// serves fixtures (mcpp 2026.11.21.1) gives the one this program served (`endpoint-of-index`).
 UTest user{"user", uses{"index"}, [] {
-               if (fixture_endpoint("index").empty())
+               const auto given = mcpplibs::os::env::get("MTEST_FIXTURE_INDEX");
+               if (!given || given->empty())
                    skip("no runner serves index here");
-               expect(eq(fixture_endpoint("index"), std::string("from-runner")));
+               expect(eq(fixture_endpoint("index"), *given));
            }};
 
 std::vector<json> events_of(std::string_view mode,
@@ -87,6 +90,11 @@ int main(int argc, char** argv) {
         const bool usage =
             std::ranges::any_of(events, [](const json& e) { return e.value("e", "") == "usage"; });
         expect(usage) << "the program reports its own use at its end";
+        // The case that uses the fixture read the endpoint stated to the copy.
+        const bool user_passed = std::ranges::any_of(events, [](const json& e) {
+            return e.value("e", "") == "end" && e.value("id", "") == "user" && e.value("status", "") == "pass";
+        });
+        expect(user_passed) << "the case that uses index did not pass with the endpoint `from-runner`";
     };
     "detailed: a case's largest resident set"_test = [] {
         if (mcpplibs::os::host() != mcpplibs::os::platform::linux ||

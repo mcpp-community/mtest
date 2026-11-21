@@ -14,3 +14,8 @@ under `[sets.<name>]` ([config.md](config.md)).
 A declared set selects by `tags`, `kinds`, `programs` and `cases` (globs), excludes by `exclude_tags`,
 and `include`s other sets. A budget is reported when a run of the set exceeds it, naming its slowest
 cases; `--budget` instead keeps a run within it.
+
+A set's gate (`mtest gate --set S`) judges the ledgers only when the set runs every case (`full`,
+`release`, or a declared set with `all = true`): a requirement is met by a passing case, and a set
+that runs a part of the cases leaves unmet what only the others meet. Another set's gate judges its
+failures and budgets and notes that it did not judge the ledgers.

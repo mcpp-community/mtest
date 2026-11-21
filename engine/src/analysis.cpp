@@ -484,7 +484,19 @@ json gate(const config& c, const store& s, const run_record& r, std::string_view
                                           o.value("case", ""), o.value("cpu_ms", 0.0) / 1000,
                                           o.value("machine", ""), o.value("limit_ms", 0.0) / 1000));
     }
-    for (const auto& l : ledger_table(c, s, r)) {
+    // A LEDGER IS JUDGED BY A SET THAT RUNS EVERY CASE (0.11.3). A requirement is met by a passing
+    // case of the run's group; a set that runs a part of the cases -- `pr`, the cases a change
+    // affects -- leaves unmet every requirement only the other cases meet, and its gate failed on
+    // every run, whatever the change (mcpp's pull-request CI, 2026-11-21). Such a gate says that it
+    // did not judge them; the report still writes their table.
+    json notes = json::array();
+    const auto named = c.sets.find(std::string(set));
+    const bool every_case = named == c.sets.end() || named->second.all;
+    if (!every_case && !c.ledgers.empty())
+        notes.push_back(std::format("the ledgers are judged by a set that runs every case; {} runs "
+                                    "a part of them",
+                                    set));
+    for (const auto& l : every_case ? ledger_table(c, s, r) : json::array()) {
         if (l.contains("error")) {
             reasons.push_back(l["error"].get<std::string>());
             continue;
@@ -535,6 +547,7 @@ json gate(const config& c, const store& s, const run_record& r, std::string_view
             {"set", set},
             {"pass", ok},
             {"reasons", reasons},
+            {"notes", notes},
             {"bench", bench},
             {"conclusion", ok ? std::format("the {} gate passes for run {}", set, r.id)
                               : std::format("the {} gate fails: {}", set,

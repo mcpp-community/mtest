@@ -5,7 +5,7 @@
 # neither (no `DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN`):
 #
 #   [dev-dependencies]
-#   mcpplibs.mtest.doctest = "0.11.2"
+#   mcpplibs.mtest.doctest = "0.11.3"
 #
 # A case's identifier is `<suite>/<name>` (P3.2), or `<name>` outside a `TEST_SUITE`. doctest's
 # macros exist only in its header, so this package's one source includes it, and nlohmann/json's
@@ -13,7 +13,7 @@
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "doctest"
-version     = "0.11.2"
+version     = "0.11.3"
 description = "doctest speaking the mtest protocol: doctest's implementation and a test main that lists, selects and reports its cases"
 license     = "Apache-2.0"
 

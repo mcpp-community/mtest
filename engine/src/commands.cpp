@@ -1162,6 +1162,8 @@ answer cmd_gate(const std::filesystem::path& cwd, const json& p) {
     std::string text = g["conclusion"].get<std::string>() + "\n";
     for (const auto& x : g["reasons"])
         text += "  " + x.get<std::string>() + "\n";
+    for (const auto& x : g["notes"])
+        text += "  note: " + x.get<std::string>() + "\n";
     return {g["pass"].get<bool>() ? 0 : 1, g, text};
 }
 
@@ -2009,7 +2011,7 @@ json catalog() {
         plain({{"out", {{"type", "string"}}},
                {"argv", {{"type", "array"}, {"items", {{"type", "string"}}}}}}),
         true);
-    return {{"schema", "mtest.catalog/1"}, {"version", "0.11.2"}, {"tools", tools}};
+    return {{"schema", "mtest.catalog/1"}, {"version", "0.11.3"}, {"tools", tools}};
 }
 
 }  // namespace mcpplibs::mtest::engine

@@ -5,7 +5,7 @@ package `mcpplibs.mtest.doctest` supplies doctest's implementation and the progr
 
 ```toml
 [dev-dependencies]
-mcpplibs.mtest.doctest = "0.11.2"
+mcpplibs.mtest.doctest = "0.11.3"
 ```
 
 ```cpp

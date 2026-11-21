@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.11.3] - 2026-11-22
+
+- **A ledger is judged by a set that runs every case.** A requirement is met by a passing case of
+  the run's group, so a set that runs a part of the cases (`pr`, the cases a change affects) left
+  unmet every requirement only the other cases meet, and its gate failed on every run whatever the
+  change. `mtest gate` judges the ledgers for a set that runs every case (`full`, `release`, a
+  declared set with `all`) and for a set it does not know; for another set it judges the rest and
+  states in a note (`notes` in `--json`) that it did not judge them. `mtest report --sections
+  ledgers` writes their table for any set. Source-compatible with 0.11.2; the library changes only
+  the version it states.
+- mtest's own tests hold under a runner that states its budget and serves run fixtures (mcpp
+  2026.11.21.1): the engine's runs under test state no outer budget, and the case that uses a fixture
+  compares its endpoint with the one its runner stated.
+
 ## [0.11.2] - 2026-11-21
 
 - **What a scope does names no case.** A case that runs only because it declares a selected case

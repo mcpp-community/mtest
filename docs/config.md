@@ -151,7 +151,8 @@ reason = "builds a platform's runtime for three configurations"
 # comment; `${NAME}` in the command is the variable's value). Each must be covered, over the run and
 # the runs of its group, by a passing case's clause (`evidence = "clauses"`, P6.4) or by an item of
 # the product's surface a passing case used (`evidence = "exercised"`, P5.6), or be excused by a
-# waiver. `mtest gate` judges it and `mtest report --sections ledgers` writes its table.
+# waiver. `mtest gate` judges it for a set that runs every case (a part leaves unmet what the other
+# cases meet) and `mtest report --sections ledgers` writes its table.
 [ledger.surface]
 command  = ["${MCPP}", "emit", "surface"]
 evidence = "exercised"

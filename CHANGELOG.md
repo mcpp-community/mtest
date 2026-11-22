@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- CI builds and tests with mcpp 2026.11.22.1 and xlings 2026.11.21.1, the xlings that release
+  bundles (`.github/versions.env`).
+
 ## [0.11.3] - 2026-11-22
 
 - **A ledger is judged by a set that runs every case.** A requirement is met by a passing case of

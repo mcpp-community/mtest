@@ -1,7 +1,24 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.4] - 2026-11-23
 
+- **The doctest adapter reports what doctest knows** (#29). Identifiers are distinct in a program
+  (P3.2): of two cases with one name, in doctest's order (file, then line), the later is
+  `<suite>/<name>#2`, and `--split case` gives each its process. A case decorated `should_fail` or
+  `expected_failures(n)` is listed `expect: "fail"` and ends `xfail` when it fails as expected, and
+  `xpass` when nothing fails (P5.3); `may_fail` states no expectation and stays `pass`. A case's
+  `doctest::timeout` is listed as its `timeout` (O5). An exception or a crash fails at the case's
+  own place, not at `:0`. The guide states these rules, that doctest's queries under a runner
+  report to the report, and that a file whose `main` comes from a header declares it.
+- **The protocol's variables stay out of what a case starts** (P2.2, #29). The doctest and GoogleTest
+  adapters read `MTEST_PROTOCOL`, `MTEST_MODE`, `MTEST_REPORT`, `MTEST_SELECT` and the other
+  variables of the handshake, then remove them from the C library's environment before any case
+  runs, so a test program a case starts no longer appends to its parent's report. `mcpplibs.os`
+  states no change to a program's own environment, so the adapters call the host's C library
+  (mcpplibs/os#29); the library `mcpplibs.mtest` still strips them only from what `e2e::run`
+  starts. The doctest adapter's own test checks it under `mcpp test`.
+- The conformance suite holds an implementation below level 3 that expresses `expected to fail` to
+  its `xfail`; the doctest fixture expresses it.
 - CI builds and tests with mcpp 2026.11.22.1 and xlings 2026.11.21.1, the xlings that release
   bundles (`.github/versions.env`).
 

@@ -5,15 +5,17 @@
 # neither (no `DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN`):
 #
 #   [dev-dependencies]
-#   mcpplibs.mtest.doctest = "0.11.3"
+#   mcpplibs.mtest.doctest = "0.11.4"
 #
-# A case's identifier is `<suite>/<name>` (P3.2), or `<name>` outside a `TEST_SUITE`. doctest's
-# macros exist only in its header, so this package's one source includes it, and nlohmann/json's
-# beside it, as the GoogleTest adapter does.
+# A case's identifier is `<suite>/<name>` (P3.2), or `<name>` outside a `TEST_SUITE`, with `#<n>` for
+# the second and later case of one name; `should_fail` and `expected_failures` are expected failures,
+# `timeout` the case's timeout (docs/writing-tests.md). doctest's macros exist only in its header,
+# so this package's one source includes it, and nlohmann/json's beside it, as the GoogleTest adapter
+# does.
 [package]
 namespace   = "mcpplibs.mtest"
 name        = "doctest"
-version     = "0.11.3"
+version     = "0.11.4"
 description = "doctest speaking the mtest protocol: doctest's implementation and a test main that lists, selects and reports its cases"
 license     = "Apache-2.0"
 

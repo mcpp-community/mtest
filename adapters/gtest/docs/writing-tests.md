@@ -22,5 +22,9 @@ TEST(Parsing, Fields) {
 - A case's identifier is `<suite>/<name>`: `Parsing/EmptyLine`.
 - `mcpp test --case 'Parsing/*'` runs those cases; `mcpp test --cases` lists them; a failure is named
   with its place.
+- Under a runner the adapter reads the protocol's variables (`MTEST_PROTOCOL`, `MTEST_REPORT`, ...)
+  and removes them from the program's environment before any case runs (P2.2): a program a case
+  starts, by `std::system` or otherwise, is not taken for the runner's, and a case reads none of
+  them.
 
 More: [mtest](https://github.com/mcpp-community/mtest), [GoogleTest](https://google.github.io/googletest/).

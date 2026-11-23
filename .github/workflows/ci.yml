@@ -75,6 +75,7 @@ jobs:
           mcpp test -p mcpplibs.mtest.manifest
           mcpp test -p mtest.mtest
           mcpp test -p conformance
+          mcpp test -p mcpplibs.mtest.doctest
       - name: Every implementation passes the conformance suite
         run: |
           set -euo pipefail

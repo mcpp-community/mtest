@@ -345,7 +345,7 @@ void write_program() {
          {"protocol", 1},
          {"level", 3},
          {"framework", "mcpplibs.mtest"},
-         {"version", "0.11.3"},
+         {"version", "0.11.4"},
          {"isolation", {"process", "case"}},
          // P4.3: a selection's `!<id>` and `?<id>` lines are understood.
          {"selection", {"except", "optional"}},

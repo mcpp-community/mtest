@@ -8,7 +8,7 @@ conformance suite (`MTEST_CTS_PROGRAM`, a command: a program and its arguments, 
 |---|---|---|
 | `mcpplibs.mtest` (C++) | 3 | `import mcpplibs.mtest;` — the library itself |
 | GoogleTest | 1 | `mcpplibs.mtest.gtest` as a dev-dependency, whose entry begins a test file (mcpp 2026.11.8.1+; earlier: `[test] main = { from = "mcpplibs.mtest.gtest/main" }` and `compat.gtest` as a dev-dependency too); identifiers are `<suite>/<name>` |
-| doctest | 1 | `mcpplibs.mtest.doctest` as a dev-dependency: doctest's implementation and the entry that begins a test file, compiled once; a test file includes `<doctest/doctest.h>` and defines no `DOCTEST_CONFIG_IMPLEMENT*` (0.11.0); identifiers are `<suite>/<name>`, or `<name>` outside a suite |
+| doctest | 1 | `mcpplibs.mtest.doctest` as a dev-dependency: doctest's implementation and the entry that begins a test file, compiled once; a test file includes `<doctest/doctest.h>` and defines no `DOCTEST_CONFIG_IMPLEMENT*` (0.11.0); identifiers are `<suite>/<name>`, or `<name>` outside a suite, `#2` and on for a later case of a name taken; `should_fail` and `expected_failures` end `xfail` or `xpass`, `timeout` is stated (0.11.4) |
 | Bash | 3 | `. mtest.sh`, then `mtest_case ID FUNCTION [--tag T ...]` and `mtest_report` |
 | Python | 3 | `import mtest_report as mt`, `@mt.case("id")`, `mt.report()` |
 | C ABI | 3 | `include/mtest.h` and `libmtest`, for any language with a C FFI |

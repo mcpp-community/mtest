@@ -279,10 +279,11 @@ int main() {
                                                    {id("measures"), "pass"},
                                                    {id("covers"), "pass"},
                                                    {id("holds"), "pass"}};
-        if (level(r) >= 3) {
+        // An implementation below level 3 that expresses an expected failure is held to it.
+        if (level(r) >= 3 || find(r, "end", id("expected to fail")))
             want[id("expected to fail")] = "xfail";
+        if (level(r) >= 3)
             want[id("bounded")] = "fail";
-        }
         for (const auto& [case_id, status] : want) {
             auto e = find(r, "end", case_id);
             expect(e.has_value()) << "no end for " << case_id;

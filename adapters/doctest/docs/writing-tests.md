@@ -34,6 +34,10 @@ TEST_SUITE("parse") {
 - With no runner the program is doctest's own main and takes doctest's options. Under a runner
   (`MTEST_PROTOCOL`), doctest's queries (`--list-test-cases`) report through the protocol: the names
   go to the report, not to standard output.
+- Under a runner the adapter reads the protocol's variables (`MTEST_PROTOCOL`, `MTEST_REPORT`, ...)
+  and removes them from the program's environment before any case runs (P2.2): a program a case
+  starts, by `std::system` or otherwise, is not taken for the runner's, and a case reads none of
+  them.
 - The package's `main` is linked into a test file whose text defines none. A file whose `main` comes
   from a header (`<boost/test/included/unit_test.hpp>`) declares it, `int main(int, char*[]);`, so
   that it is not linked twice.
